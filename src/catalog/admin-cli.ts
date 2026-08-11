@@ -6,6 +6,7 @@ type Command = "publish" | "verify";
 interface ParsedArguments {
   readonly releaseId: string;
   readonly genesis: boolean;
+  readonly previousReleaseCommit: string | null;
   readonly publishedAt?: string | undefined;
 }
 
@@ -16,6 +17,7 @@ function parseArguments(
   let releaseId: string | undefined;
   let genesis = false;
   let publishedAt: string | undefined;
+  let previousReleaseCommit: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") continue;
@@ -23,20 +25,38 @@ function parseArguments(
       genesis = true;
       continue;
     }
-    if (argument === "--release-id" || argument === "--published-at") {
+    if (
+      argument === "--release-id" ||
+      argument === "--published-at" ||
+      argument === "--previous-release-commit"
+    ) {
       const value = args[index + 1];
       if (value === undefined) throw new Error("INVALID_INPUT");
       if (argument === "--release-id") releaseId = value;
-      else publishedAt = value;
+      else if (argument === "--published-at") publishedAt = value;
+      else previousReleaseCommit = value;
       index += 1;
       continue;
     }
     throw new Error("INVALID_INPUT");
   }
-  if (releaseId === undefined || (command === "publish" && !genesis)) {
+  if (releaseId === undefined) {
     throw new Error("INVALID_INPUT");
   }
-  if (command === "verify" && (genesis || publishedAt !== undefined)) {
+  if (
+    command === "publish" &&
+    (genesis === (previousReleaseCommit !== undefined) ||
+      (previousReleaseCommit !== undefined &&
+        !/^[0-9a-f]{40}$/.test(previousReleaseCommit)))
+  ) {
+    throw new Error("INVALID_INPUT");
+  }
+  if (
+    command === "verify" &&
+    (genesis ||
+      publishedAt !== undefined ||
+      previousReleaseCommit !== undefined)
+  ) {
     throw new Error("INVALID_INPUT");
   }
   if (publishedAt !== undefined && Number.isNaN(Date.parse(publishedAt))) {
@@ -45,6 +65,7 @@ function parseArguments(
   return {
     releaseId,
     genesis,
+    previousReleaseCommit: previousReleaseCommit ?? null,
     ...(publishedAt === undefined ? {} : { publishedAt }),
   };
 }
@@ -66,6 +87,13 @@ function fail(command: Command): never {
             inventory: false,
             release: false,
             publicationClaimAbsent: false,
+            advisoryChain: false,
+            githubBaseline: false,
+            baselineMode: "genesis",
+            previousReleaseCommit: null,
+            selectedGitHubReleaseId: null,
+            selectedGitHubPublishedAt: null,
+            resolvedPreviousReleaseCommit: null,
           },
           revisions: [],
           errors: ["INVALID_INPUT"],
@@ -93,6 +121,8 @@ const result =
     ? publishCatalog({
         projectRoot,
         releaseId: parsed.releaseId,
+        genesis: parsed.genesis,
+        previousReleaseCommit: parsed.previousReleaseCommit,
         publishedAt: parsed.publishedAt,
       })
     : verifyCatalog(projectRoot, parsed.releaseId);

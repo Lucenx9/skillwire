@@ -8,6 +8,11 @@ import type { RecordSkillOutcome } from "../../application/use-cases/record-skil
 import type { SearchSkills } from "../../application/use-cases/search-skills.js";
 import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
 import {
+  safeErrorEnvelope,
+  safeSkillWireError,
+} from "../../application/errors.js";
+import type { SecurityLogger } from "../../observability/logger.js";
+import {
   forgetRepoMemoryInputSchema,
   forgetRepoMemoryOutputSchema,
   listRepoMemoryInputSchema,
@@ -22,10 +27,36 @@ import {
   searchSkillsOutputSchema,
 } from "./schemas.js";
 
+function toolFailure(
+  error: unknown,
+  principal: RequestPrincipal,
+  logger: SecurityLogger,
+  tool: string,
+) {
+  const safe = safeSkillWireError(error);
+  logger.emit("tool_failed", {
+    requestId: principal.requestId,
+    accountId: principal.accountId,
+    apiKeyId: principal.apiKeyId,
+    code: safe.code,
+    tool,
+  });
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(safeErrorEnvelope(safe, principal.requestId)),
+      },
+    ],
+    isError: true,
+  };
+}
+
 export function registerLoadSkillTool(
   server: McpServer,
   loadSkill: LoadSkill,
   principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "load_skill",
@@ -37,13 +68,17 @@ export function registerLoadSkillTool(
       outputSchema: loadSkillOutputSchema,
     },
     async (input) => {
-      const output = loadSkillOutputSchema.parse(
-        await loadSkill.execute(input, principal),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = loadSkillOutputSchema.parse(
+          await loadSkill.execute(input, principal),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "load_skill");
+      }
     },
   );
 }
@@ -51,6 +86,8 @@ export function registerLoadSkillTool(
 export function registerReadSkillResourceTool(
   server: McpServer,
   readSkillResource: ReadSkillResource,
+  principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "read_skill_resource",
@@ -62,13 +99,17 @@ export function registerReadSkillResourceTool(
       outputSchema: readSkillResourceOutputSchema,
     },
     (input) => {
-      const output = readSkillResourceOutputSchema.parse(
-        readSkillResource.execute(input),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = readSkillResourceOutputSchema.parse(
+          readSkillResource.execute(input),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "read_skill_resource");
+      }
     },
   );
 }
@@ -77,6 +118,7 @@ export function registerSearchSkillsTool(
   server: McpServer,
   searchSkills: SearchSkills,
   principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "search_skills",
@@ -87,13 +129,17 @@ export function registerSearchSkillsTool(
       outputSchema: searchSkillsOutputSchema,
     },
     async (input) => {
-      const output = searchSkillsOutputSchema.parse(
-        await searchSkills.execute(input, principal),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = searchSkillsOutputSchema.parse(
+          await searchSkills.execute(input, principal),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "search_skills");
+      }
     },
   );
 }
@@ -102,6 +148,7 @@ export function registerListRepoMemoryTool(
   server: McpServer,
   listRepoMemory: ListRepoMemory,
   principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "list_repo_memory",
@@ -113,13 +160,17 @@ export function registerListRepoMemoryTool(
       outputSchema: listRepoMemoryOutputSchema,
     },
     async (input) => {
-      const output = listRepoMemoryOutputSchema.parse(
-        await listRepoMemory.execute(input, principal),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = listRepoMemoryOutputSchema.parse(
+          await listRepoMemory.execute(input, principal),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "list_repo_memory");
+      }
     },
   );
 }
@@ -128,6 +179,7 @@ export function registerRecordSkillOutcomeTool(
   server: McpServer,
   recordSkillOutcome: RecordSkillOutcome,
   principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "record_skill_outcome",
@@ -138,13 +190,17 @@ export function registerRecordSkillOutcomeTool(
       outputSchema: recordSkillOutcomeOutputSchema,
     },
     async (input) => {
-      const output = recordSkillOutcomeOutputSchema.parse(
-        await recordSkillOutcome.execute(input, principal),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = recordSkillOutcomeOutputSchema.parse(
+          await recordSkillOutcome.execute(input, principal),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "record_skill_outcome");
+      }
     },
   );
 }
@@ -153,6 +209,7 @@ export function registerForgetRepoMemoryTool(
   server: McpServer,
   forgetRepoMemory: ForgetRepoMemory,
   principal: RequestPrincipal,
+  logger: SecurityLogger,
 ): void {
   server.registerTool(
     "forget_repo_memory",
@@ -164,13 +221,17 @@ export function registerForgetRepoMemoryTool(
       outputSchema: forgetRepoMemoryOutputSchema,
     },
     async (input) => {
-      const output = forgetRepoMemoryOutputSchema.parse(
-        await forgetRepoMemory.execute(input, principal),
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(output) }],
-        structuredContent: output,
-      };
+      try {
+        const output = forgetRepoMemoryOutputSchema.parse(
+          await forgetRepoMemory.execute(input, principal),
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return toolFailure(error, principal, logger, "forget_repo_memory");
+      }
     },
   );
 }

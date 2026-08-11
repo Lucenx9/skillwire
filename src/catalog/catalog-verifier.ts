@@ -22,6 +22,13 @@ export interface CatalogVerifyResult {
     readonly inventory: boolean;
     readonly release: boolean;
     readonly publicationClaimAbsent: boolean;
+    readonly advisoryChain: boolean;
+    readonly githubBaseline: boolean;
+    readonly baselineMode: "genesis" | "non-genesis";
+    readonly previousReleaseCommit: string | null;
+    readonly selectedGitHubReleaseId: number | null;
+    readonly selectedGitHubPublishedAt: string | null;
+    readonly resolvedPreviousReleaseCommit: string | null;
   };
   readonly revisions: readonly VerifyRevisionResult[];
   readonly errors: readonly string[];
@@ -36,6 +43,24 @@ function verifiedRevisions(
     bundleSha256: revision.bundleSha256,
     valid: true,
   }));
+}
+
+function failedChecks(
+  inventory: boolean,
+  publicationClaimAbsent: boolean,
+): CatalogVerifyResult["checks"] {
+  return {
+    inventory,
+    release: false,
+    publicationClaimAbsent,
+    advisoryChain: false,
+    githubBaseline: false,
+    baselineMode: "genesis",
+    previousReleaseCommit: null,
+    selectedGitHubReleaseId: null,
+    selectedGitHubPublishedAt: null,
+    resolvedPreviousReleaseCommit: null,
+  };
 }
 
 export function verifyCatalog(
@@ -64,11 +89,7 @@ export function verifyCatalog(
     return {
       releaseId,
       valid: false,
-      checks: {
-        inventory: inventoryValid,
-        release: false,
-        publicationClaimAbsent,
-      },
+      checks: failedChecks(inventoryValid, publicationClaimAbsent),
       revisions: fallbackRevisions,
       errors: ["PUBLICATION_CLAIMED"],
     };
@@ -76,10 +97,27 @@ export function verifyCatalog(
 
   try {
     const loaded = loadPublishedCatalog(projectRoot, releaseId);
+    if (!loaded.release.genesis) {
+      throw new CatalogValidationError(
+        "GITHUB_BASELINE_REQUIRED",
+        "Non-genesis verification requires the GitHub advisory command",
+      );
+    }
     return {
       releaseId,
       valid: true,
-      checks: { inventory: true, release: true, publicationClaimAbsent: true },
+      checks: {
+        inventory: true,
+        release: true,
+        publicationClaimAbsent: true,
+        advisoryChain: true,
+        githubBaseline: true,
+        baselineMode: "genesis",
+        previousReleaseCommit: null,
+        selectedGitHubReleaseId: null,
+        selectedGitHubPublishedAt: null,
+        resolvedPreviousReleaseCommit: null,
+      },
       revisions: verifiedRevisions(loaded.revisions),
       errors: [],
     };
@@ -87,11 +125,7 @@ export function verifyCatalog(
     return {
       releaseId,
       valid: false,
-      checks: {
-        inventory: inventoryValid,
-        release: false,
-        publicationClaimAbsent: true,
-      },
+      checks: failedChecks(inventoryValid, true),
       revisions: fallbackRevisions,
       errors: [
         error instanceof CatalogValidationError

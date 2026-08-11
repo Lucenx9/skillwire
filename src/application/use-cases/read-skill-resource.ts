@@ -1,4 +1,5 @@
 import type { SkillCatalogProvider } from "../ports/skill-catalog-provider.js";
+import { SkillWireError } from "../errors.js";
 import { sha256Hex } from "../../domain/catalog/canonical-revision.js";
 import { assertSafeResourcePath } from "../../domain/catalog/resource-path.js";
 import type { TextMediaType } from "../../domain/catalog/types.js";
@@ -29,20 +30,33 @@ export function createReadSkillResource(
 ): ReadSkillResource {
   return {
     execute(input) {
-      assertSafeResourcePath(input.path);
-      const revision = provider.findRevision(input.skillId, input.revision);
-      if (revision === undefined)
-        throw new Error("Exact skill revision was not found");
+      try {
+        assertSafeResourcePath(input.path);
+      } catch {
+        throw new SkillWireError("RESOURCE_REJECTED");
+      }
+      const status = provider.advisoryStatus(input.skillId, input.revision);
+      if (status === "revoked") throw new SkillWireError("NOT_FOUND");
+      let revision;
+      try {
+        revision = provider.findRevision(input.skillId, input.revision);
+      } catch {
+        throw new SkillWireError("REVISION_UNAVAILABLE");
+      }
+      if (revision === undefined) {
+        throw new SkillWireError(
+          status === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
+        );
+      }
       const resource = revision.resources.find(
         (entry) => entry.path === input.path,
       );
-      if (resource === undefined)
-        throw new Error("Declared skill resource was not found");
+      if (resource === undefined) throw new SkillWireError("NOT_FOUND");
       if (
         Buffer.byteLength(resource.content, "utf8") !== resource.byteLength ||
         sha256Hex(resource.content) !== resource.sha256
       ) {
-        throw new Error("Verified resource integrity check failed");
+        throw new SkillWireError("RESOURCE_REJECTED");
       }
       return {
         skillId: revision.skillId,

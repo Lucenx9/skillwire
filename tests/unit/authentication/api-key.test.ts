@@ -6,6 +6,8 @@ import {
   createApiKeyToken,
   parseApiKeyToken,
 } from "../../../src/authentication/api-key-token.js";
+import { AccountApiKeyRateLimiter } from "../../../src/authentication/middleware.js";
+import type { RequestPrincipal } from "../../../src/domain/repository-memory/types.js";
 
 const pepper = "test-pepper-that-is-at-least-thirty-two-bytes";
 
@@ -40,5 +42,52 @@ describe("bearer API-key primitives", () => {
     expect(apiKeyDigestsMatch(digest, Buffer.from(digest))).toBe(true);
     expect(apiKeyDigestsMatch(digest, other)).toBe(false);
     expect(apiKeyDigestsMatch(digest, Buffer.alloc(31))).toBe(false);
+  });
+});
+
+describe("account and API-key rate policy", () => {
+  const principal = (
+    accountId: string,
+    apiKeyId: string,
+  ): RequestPrincipal => ({
+    accountId,
+    apiKeyId,
+    requestId: "00000000-0000-4000-8000-000000000001",
+  });
+
+  it("enforces the shared account bucket across multiple keys", () => {
+    const limiter = new AccountApiKeyRateLimiter({
+      accountRequestsPerMinute: 60,
+      apiKeyRequestsPerMinute: 600,
+      burst: 2,
+    });
+
+    expect(limiter.consume(principal("account-a", "key-a")).allowed).toBe(true);
+    expect(limiter.consume(principal("account-a", "key-b")).allowed).toBe(true);
+    expect(limiter.consume(principal("account-a", "key-c"))).toMatchObject({
+      allowed: false,
+      retryAfterSeconds: 1,
+    });
+    expect(limiter.consume(principal("account-b", "key-d")).allowed).toBe(true);
+  });
+
+  it("enforces and refills each API-key bucket independently", () => {
+    let now = 0;
+    const limiter = new AccountApiKeyRateLimiter(
+      {
+        accountRequestsPerMinute: 600,
+        apiKeyRequestsPerMinute: 60,
+        burst: 1,
+      },
+      () => now,
+    );
+
+    expect(limiter.consume(principal("account-a", "key-a")).allowed).toBe(true);
+    expect(limiter.consume(principal("account-a", "key-a")).allowed).toBe(
+      false,
+    );
+    expect(limiter.consume(principal("account-b", "key-b")).allowed).toBe(true);
+    now = 1000;
+    expect(limiter.consume(principal("account-a", "key-a")).allowed).toBe(true);
   });
 });

@@ -2,13 +2,16 @@ export type TrustAtPublication = "trusted";
 
 export type CurrentAdvisoryStatus = "available" | "unavailable" | "revoked";
 
-export interface CatalogSkillMetadata {
+export interface CatalogSkillInventoryEntry {
   readonly id: string;
   readonly name: string;
   readonly description: string;
   readonly capabilities: readonly string[];
   readonly revision: string;
   readonly trustAtPublication: TrustAtPublication;
+}
+
+export interface CatalogSkillMetadata extends CatalogSkillInventoryEntry {
   readonly currentAdvisoryStatus: CurrentAdvisoryStatus;
 }
 
@@ -81,12 +84,35 @@ export interface CatalogReleaseRevision {
 export interface CatalogRelease {
   readonly schemaVersion: 1;
   readonly releaseId: string;
-  readonly genesis: true;
-  readonly previousReleaseCommit: null;
+  readonly genesis: boolean;
+  readonly previousReleaseCommit: string | null;
   readonly inventorySha256: string;
+  readonly advisoryChainHead: string;
   readonly revisionCount: 10;
   readonly revisions: readonly CatalogReleaseRevision[];
   readonly publishedAt: string;
+}
+
+export type RevisionAdvisoryKind = "security" | "availability";
+
+export interface RevisionAdvisory {
+  readonly sequence: number;
+  readonly previousEventHash: string;
+  readonly advisoryId: string;
+  readonly skillId: string;
+  readonly revision: string;
+  readonly revisionSha256: string;
+  readonly kind: RevisionAdvisoryKind;
+  readonly state: Exclude<CurrentAdvisoryStatus, "available"> | "available";
+  readonly reasonCode: string;
+  readonly effectiveAt: string;
+  readonly eventHash: string;
+}
+
+export interface VerifiedAdvisoryChain {
+  readonly events: readonly RevisionAdvisory[];
+  readonly head: string;
+  readonly statusByRevision: ReadonlyMap<string, CurrentAdvisoryStatus>;
 }
 
 export interface RevisionPublicationRecord {

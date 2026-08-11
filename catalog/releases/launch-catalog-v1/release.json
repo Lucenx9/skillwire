@@ -1,6 +1,7 @@
 {
+  "advisoryChainHead": "2f58681907204b8be2c1e91d5f693ac032597488806d3ac4aa3262e1c2094a84",
   "genesis": true,
-  "inventorySha256": "cf62295a7a0e7dbd50f0840eb8c2df4c5399b04bd443162c98e7c35f10b430da",
+  "inventorySha256": "1574dda933ade309eff63a4bbdcb4dbe07ea4ed4bddb6db5df70f2c22a9c7c4c",
   "previousReleaseCommit": null,
   "publishedAt": "2026-08-11T00:00:00.000Z",
   "releaseId": "launch-catalog-v1",

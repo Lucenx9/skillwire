@@ -5,6 +5,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmdirSync,
@@ -20,6 +21,7 @@ import {
   CatalogValidationError,
   loadCatalogMetadata,
   loadSourceCatalog,
+  loadVerifiedAdvisoryChain,
   publicationRecordFor,
 } from "./catalog-loader.js";
 
@@ -45,7 +47,33 @@ export interface CatalogPublishResult {
 export interface PublishCatalogOptions {
   readonly projectRoot: string;
   readonly releaseId: string;
+  readonly genesis: boolean;
+  readonly previousReleaseCommit: string | null;
   readonly publishedAt?: string | undefined;
+}
+
+function publishedRevisionIdentities(releasesRoot: string): Set<string> {
+  const identities = new Set<string>();
+  if (!existsSync(releasesRoot)) return identities;
+  for (const release of readdirSync(releasesRoot, { withFileTypes: true })) {
+    if (!release.isDirectory() || release.name.startsWith(".")) continue;
+    const revisionsPath = join(releasesRoot, release.name, "revisions");
+    if (!existsSync(revisionsPath)) throw new Error("INVALID_RELEASE");
+    for (const record of readdirSync(revisionsPath, { withFileTypes: true })) {
+      if (!record.isFile() || !record.name.endsWith(".json")) continue;
+      const value = JSON.parse(
+        readFileSync(join(revisionsPath, record.name), "utf8"),
+      ) as { skillId?: unknown; revision?: unknown };
+      if (
+        typeof value.skillId !== "string" ||
+        typeof value.revision !== "string"
+      ) {
+        throw new Error("INVALID_RELEASE");
+      }
+      identities.add(`${value.skillId}\0${value.revision}`);
+    }
+  }
+  return identities;
 }
 
 function syncPath(path: string): void {
@@ -109,6 +137,7 @@ export function publishCatalog(
     const inventory = loadCatalogMetadata(options.projectRoot);
     skillIds = inventory.map((entry) => entry.id);
     revisions = loadSourceCatalog(options.projectRoot);
+    loadVerifiedAdvisoryChain(options.projectRoot, revisions);
   } catch (error) {
     const code =
       error instanceof CatalogValidationError ? error.code : "INVALID_INPUT";
@@ -136,12 +165,36 @@ export function publishCatalog(
     const existingReleases = readdirSync(releasesRoot, {
       withFileTypes: true,
     }).filter((entry) => entry.isDirectory() && !entry.name.startsWith("."));
-    if (existsSync(finalPath) || existingReleases.length > 0) {
+    if (existsSync(finalPath)) {
       return rejectedResults(
         revisions,
         skillIds,
         validReleaseId,
         "RELEASE_ALREADY_EXISTS",
+      );
+    }
+    if (
+      (options.genesis && existingReleases.length > 0) ||
+      (!options.genesis && existingReleases.length === 0)
+    ) {
+      return rejectedResults(
+        revisions,
+        skillIds,
+        validReleaseId,
+        "INVALID_RELEASE",
+      );
+    }
+    const publishedIdentities = publishedRevisionIdentities(releasesRoot);
+    if (
+      revisions.some((revision) =>
+        publishedIdentities.has(`${revision.skillId}\0${revision.revision}`),
+      )
+    ) {
+      return rejectedResults(
+        revisions,
+        skillIds,
+        validReleaseId,
+        "DUPLICATE_REVISION",
       );
     }
 
@@ -161,14 +214,19 @@ export function publishCatalog(
     });
     syncPath(join(stagePath, "revisions"));
 
+    const advisoryChain = loadVerifiedAdvisoryChain(
+      options.projectRoot,
+      revisions,
+    );
     const release: CatalogRelease = {
       schemaVersion: 1,
       releaseId: validReleaseId,
-      genesis: true,
-      previousReleaseCommit: null,
+      genesis: options.genesis,
+      previousReleaseCommit: options.previousReleaseCommit,
       inventorySha256: catalogInventorySha256(
         loadCatalogMetadata(options.projectRoot),
       ),
+      advisoryChainHead: advisoryChain.head,
       revisionCount: 10,
       revisions: releaseRevisions,
       publishedAt: options.publishedAt ?? new Date().toISOString(),

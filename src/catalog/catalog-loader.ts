@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -8,13 +8,20 @@ import {
   createSkillRevision,
   sha256Hex,
 } from "../domain/catalog/canonical-revision.js";
+import {
+  advisoryStatusFor,
+  parseAdvisoryChain,
+  verifyAdvisoryChain,
+} from "../domain/catalog/advisory-chain.js";
 import { resolveResourcePath } from "../domain/catalog/resource-path.js";
 import { normalizeUtf8 } from "../domain/catalog/text-normalization.js";
 import type {
   CatalogRelease,
+  CatalogSkillInventoryEntry,
   CatalogSkillMetadata,
   RevisionPublicationRecord,
   SkillRevision,
+  VerifiedAdvisoryChain,
 } from "../domain/catalog/types.js";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -40,7 +47,6 @@ const skillMetadataSchema = z
     capabilities: z.array(z.string().min(1).max(80)).min(1).max(16),
     revision: z.string().regex(REVISION_PATTERN).max(128),
     trustAtPublication: z.literal("trusted"),
-    currentAdvisoryStatus: z.literal("available"),
   })
   .strict();
 
@@ -144,14 +150,32 @@ const releaseSchema = z
   .object({
     schemaVersion: z.literal(1),
     releaseId: z.string().regex(SKILL_ID_PATTERN).max(96),
-    genesis: z.literal(true),
-    previousReleaseCommit: z.null(),
+    genesis: z.boolean(),
+    previousReleaseCommit: z.union([
+      z.null(),
+      z.string().regex(/^[0-9a-f]{40}$/),
+    ]),
     inventorySha256: z.string().regex(SHA256_PATTERN),
+    advisoryChainHead: z.string().regex(SHA256_PATTERN),
     revisionCount: z.literal(10),
     revisions: z.array(releaseRevisionSchema).length(10),
     publishedAt: z.iso.datetime(),
   })
-  .strict();
+  .strict()
+  .superRefine((release, context) => {
+    if (release.genesis && release.previousReleaseCommit !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "Genesis cannot have a previous release commit",
+      });
+    }
+    if (!release.genesis && release.previousReleaseCommit === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Non-genesis requires a previous release commit",
+      });
+    }
+  });
 
 function readNormalizedFile(path: string): string {
   const stats = lstatSync(path);
@@ -178,7 +202,7 @@ function readJson(path: string): unknown {
 
 export function loadCatalogMetadata(
   projectRoot = process.cwd(),
-): readonly CatalogSkillMetadata[] {
+): readonly CatalogSkillInventoryEntry[] {
   const result = inventorySchema.safeParse(
     readJson(join(projectRoot, "catalog", "inventory.json")),
   );
@@ -199,14 +223,14 @@ export function loadCatalogMetadata(
 }
 
 export function catalogInventorySha256(
-  inventory: readonly CatalogSkillMetadata[],
+  inventory: readonly CatalogSkillInventoryEntry[],
 ): string {
   return sha256Hex(canonicalJson(inventory));
 }
 
 export function loadSourceRevision(
   projectRoot: string,
-  metadata: CatalogSkillMetadata,
+  metadata: CatalogSkillInventoryEntry,
 ): SkillRevision {
   const revisionRoot = join(
     projectRoot,
@@ -290,9 +314,86 @@ export function publicationRecordFor(
 }
 
 export interface LoadedPublishedCatalog {
-  readonly inventory: readonly CatalogSkillMetadata[];
+  readonly inventory: readonly CatalogSkillInventoryEntry[];
+  readonly metadata: readonly CatalogSkillMetadata[];
   readonly release: CatalogRelease;
   readonly revisions: readonly SkillRevision[];
+  readonly advisoryChain: VerifiedAdvisoryChain;
+}
+
+export function loadPublishedRevisionHashes(
+  projectRoot: string,
+): ReadonlyMap<string, string> {
+  const hashes = new Map<string, string>();
+  const releasesRoot = join(projectRoot, "catalog", "releases");
+  if (!existsSync(releasesRoot)) return hashes;
+
+  for (const release of readdirSync(releasesRoot, { withFileTypes: true })) {
+    if (!release.isDirectory() || release.name.startsWith(".")) continue;
+    const revisionsRoot = join(releasesRoot, release.name, "revisions");
+    if (!existsSync(revisionsRoot)) {
+      throw new CatalogValidationError(
+        "INVALID_RELEASE",
+        "Published revision records are missing",
+      );
+    }
+    for (const record of readdirSync(revisionsRoot, { withFileTypes: true })) {
+      if (!record.isFile() || !record.name.endsWith(".json")) continue;
+      const parsed = publicationRecordSchema.safeParse(
+        readJson(join(revisionsRoot, record.name)),
+      );
+      if (!parsed.success) {
+        throw new CatalogValidationError(
+          "INVALID_RELEASE",
+          "Revision publication record is invalid",
+        );
+      }
+      const key = `${parsed.data.skillId}\0${parsed.data.revision}`;
+      if (hashes.has(key)) {
+        throw new CatalogValidationError(
+          "INVALID_RELEASE",
+          "Published revision identity is duplicated",
+        );
+      }
+      hashes.set(key, parsed.data.bundleSha256);
+    }
+  }
+  return hashes;
+}
+
+export function loadVerifiedAdvisoryChain(
+  projectRoot: string,
+  revisions: readonly SkillRevision[],
+  expectedHead?: string,
+): VerifiedAdvisoryChain {
+  const serialized = normalizeUtf8(
+    readFileSync(join(projectRoot, "catalog", "advisories.jsonl")),
+    2 * 1024 * 1024,
+  ).text;
+  try {
+    const revisionHashes = new Map(loadPublishedRevisionHashes(projectRoot));
+    for (const revision of revisions) {
+      const key = `${revision.skillId}\0${revision.revision}`;
+      const publishedHash = revisionHashes.get(key);
+      if (
+        publishedHash !== undefined &&
+        publishedHash !== revision.bundleSha256
+      ) {
+        throw new Error("Published revision hash does not match source");
+      }
+      revisionHashes.set(key, revision.bundleSha256);
+    }
+    return verifyAdvisoryChain(
+      parseAdvisoryChain(serialized),
+      revisionHashes,
+      expectedHead,
+    );
+  } catch {
+    throw new CatalogValidationError(
+      "INVALID_ADVISORY_CHAIN",
+      "Published advisory chain is invalid",
+    );
+  }
 }
 
 export function loadPublishedCatalog(
@@ -370,12 +471,32 @@ export function loadPublishedCatalog(
       withFileTypes: true,
     },
   ).filter((entry) => entry.isDirectory() && !entry.name.startsWith("."));
-  if (releaseDirectories.length !== 1) {
+  if (release.genesis && releaseDirectories.length !== 1) {
     throw new CatalogValidationError(
       "INVALID_RELEASE",
       "Genesis release must be the only local release",
     );
   }
+  if (!release.genesis && releaseDirectories.length < 2) {
+    throw new CatalogValidationError(
+      "INVALID_RELEASE",
+      "Non-genesis release requires an earlier local release",
+    );
+  }
 
-  return { inventory, release, revisions };
+  const advisoryChain = loadVerifiedAdvisoryChain(
+    projectRoot,
+    revisions,
+    release.advisoryChainHead,
+  );
+  const metadata = inventory.map((entry) => ({
+    ...entry,
+    currentAdvisoryStatus: advisoryStatusFor(
+      advisoryChain,
+      entry.id,
+      entry.revision,
+    ),
+  }));
+
+  return { inventory, metadata, release, revisions, advisoryChain };
 }

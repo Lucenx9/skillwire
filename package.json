@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "auth:admin": "tsx src/authentication/admin-cli.ts",
+    "advisory:verify": "tsx src/catalog/advisory-verify-cli.ts",
     "catalog:publish": "tsx src/catalog/admin-cli.ts publish",
     "catalog:verify": "tsx src/catalog/admin-cli.ts verify",
     "db:migrate": "tsx src/persistence/postgres/migration-runner.ts",
@@ -34,6 +35,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "hono": "4.13.1",
     "pg": "8.23.0",
+    "pino": "^10.3.1",
     "zod": "4.4.3"
   },
   "devDependencies": {

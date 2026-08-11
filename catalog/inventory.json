@@ -11,8 +11,7 @@
       "version changes"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "dockerfile-hardening",
@@ -27,8 +26,7 @@
       "secret safety"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "github-actions-ci",
@@ -42,8 +40,7 @@
       "delivery automation"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "node-api-design",
@@ -58,8 +55,7 @@
       "API security"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "postgres-schema-review",
@@ -74,8 +70,7 @@
       "data integrity"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "react-accessibility",
@@ -90,8 +85,7 @@
       "focus management"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "technical-documentation",
@@ -105,8 +99,7 @@
       "validation instructions"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "threat-modeling",
@@ -121,8 +114,7 @@
       "mitigations"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "typescript-code-review",
@@ -137,8 +129,7 @@
       "regression analysis"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   },
   {
     "id": "vitest-test-design",
@@ -153,7 +144,6 @@
       "failure paths"
     ],
     "revision": "1.0.0",
-    "trustAtPublication": "trusted",
-    "currentAdvisoryStatus": "available"
+    "trustAtPublication": "trusted"
   }
 ]

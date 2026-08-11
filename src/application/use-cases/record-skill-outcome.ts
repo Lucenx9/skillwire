@@ -4,6 +4,7 @@ import type {
   SkillOutcome,
 } from "../../domain/repository-memory/types.js";
 import type { RepositoryMemoryStore } from "../ports/repository-memory-store.js";
+import { SkillWireError } from "../errors.js";
 
 export interface RecordSkillOutcomeInput {
   readonly repositoryHash: string;
@@ -37,7 +38,7 @@ export function createRecordSkillOutcome(
         input.revision,
         input.outcome,
       );
-      if (!replaced) throw new Error("MEMORY_CONFLICT");
+      if (!replaced) throw new SkillWireError("MEMORY_CONFLICT");
       return {
         recorded: true,
         skillId: input.skillId,

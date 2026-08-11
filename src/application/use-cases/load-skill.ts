@@ -1,4 +1,5 @@
 import type { SkillCatalogProvider } from "../ports/skill-catalog-provider.js";
+import { SkillWireError } from "../errors.js";
 import type {
   CurrentAdvisoryStatus,
   PublishedProvenance,
@@ -38,9 +39,19 @@ export function createLoadSkill(
 ): LoadSkill {
   return {
     async execute(input, principal) {
-      const revision = provider.findRevision(input.skillId, input.revision);
-      if (revision === undefined)
-        throw new Error("Exact skill revision was not found");
+      const status = provider.advisoryStatus(input.skillId, input.revision);
+      if (status === "revoked") throw new SkillWireError("NOT_FOUND");
+      let revision;
+      try {
+        revision = provider.findRevision(input.skillId, input.revision);
+      } catch {
+        throw new SkillWireError("REVISION_UNAVAILABLE");
+      }
+      if (revision === undefined) {
+        throw new SkillWireError(
+          status === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
+        );
+      }
       const memoryRecorded = input.repositoryHash !== undefined;
       if (input.repositoryHash !== undefined) {
         await memoryStore.recordUsage(
@@ -57,7 +68,7 @@ export function createLoadSkill(
         revision: revision.revision,
         revisionSha256: revision.bundleSha256,
         publishedProvenance: revision.publishedProvenance,
-        currentAdvisoryStatus: "available",
+        currentAdvisoryStatus: status ?? "available",
         instructions: revision.instructions,
         resourceManifest: revision.resourceManifest,
         memoryRecorded,

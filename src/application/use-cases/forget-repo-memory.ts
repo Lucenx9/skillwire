@@ -1,6 +1,7 @@
 import { repositoryMemoryScope } from "../../domain/repository-memory/types.js";
 import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
 import type { RepositoryMemoryStore } from "../ports/repository-memory-store.js";
+import { SkillWireError } from "../errors.js";
 
 export interface ForgetRepoMemoryInput {
   readonly repositoryHash: string;
@@ -22,10 +23,14 @@ export function createForgetRepoMemory(
 ): ForgetRepoMemory {
   return {
     async execute(input, principal) {
-      await store.forget(
-        repositoryMemoryScope(principal.accountId, input.repositoryHash),
-        principal.requestId,
-      );
+      try {
+        await store.forget(
+          repositoryMemoryScope(principal.accountId, input.repositoryHash),
+          principal.requestId,
+        );
+      } catch {
+        throw new SkillWireError("ERASURE_INCOMPLETE");
+      }
       return { forgotten: true };
     },
   };

@@ -100,9 +100,17 @@ describe("database-backed bearer authentication", () => {
     for (const response of responses) {
       expect(response.status).toBe(401);
       expect(response.headers.get("www-authenticate")).toBe("Bearer");
-      await expect(response.json()).resolves.toEqual({
-        error: "UNAUTHENTICATED",
+      const body = (await response.json()) as unknown;
+      expect(body).toMatchObject({
+        error: {
+          code: "UNAUTHENTICATED",
+          message: "Authentication is required.",
+          retryable: false,
+        },
       });
+      expect(JSON.stringify(body)).toMatch(
+        /"requestId":"[0-9a-f]{8}-[0-9a-f-]{27}"/,
+      );
     }
   });
 });

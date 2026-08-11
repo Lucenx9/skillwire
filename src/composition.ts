@@ -18,6 +18,11 @@ import { loadVerifiedCatalogProvider } from "./catalog/version-controlled-provid
 import type { ApplicationConfig } from "./config.js";
 import { AuditCleanupScheduler } from "./lifecycle/audit-cleanup-scheduler.js";
 import { ReadinessState } from "./lifecycle/readiness-state.js";
+import {
+  createSecurityLogger,
+  silentSecurityLogger,
+  type SecurityLogger,
+} from "./observability/logger.js";
 import { PostgresApiKeyStore } from "./persistence/postgres/api-key-store.js";
 import { createPostgresPool } from "./persistence/postgres/client.js";
 import { PostgresErasureAuditStore } from "./persistence/postgres/erasure-audit-store.js";
@@ -90,6 +95,7 @@ export async function createApplication(
 ): Promise<Application> {
   const pool = createPostgresPool(config.databaseUrl);
   const readiness = new ReadinessState();
+  const logger = createSecurityLogger();
   try {
     await runMigrations(pool, `${projectRoot}/migrations`);
     const memoryStore = new PostgresRepositoryMemoryStore(pool);
@@ -104,10 +110,18 @@ export async function createApplication(
       config.apiKeyPepper,
     );
     const app = createApp({
-      host: config.host,
+      allowedHosts: config.allowedHosts ?? [config.host],
       authenticator,
       readiness,
       useCases: assembleUseCases(projectRoot, memoryStore),
+      logger,
+      maximumRequestBodyBytes: config.maximumRequestBodyBytes ?? 65_536,
+      requestDeadlineMilliseconds: config.requestDeadlineMilliseconds ?? 10_000,
+      rateLimit: config.rateLimit ?? {
+        accountRequestsPerMinute: 120,
+        apiKeyRequestsPerMinute: 120,
+        burst: 30,
+      },
     });
     await scheduler.start();
     return {
@@ -129,6 +143,17 @@ export async function createApplication(
 export interface TestApplicationOptions {
   readonly memoryStore?: RepositoryMemoryStore | undefined;
   readonly authenticator?: ApiKeyAuthenticator | undefined;
+  readonly logger?: SecurityLogger | undefined;
+  readonly allowedHosts?: readonly string[] | undefined;
+  readonly maximumRequestBodyBytes?: number | undefined;
+  readonly rateLimit?:
+    | {
+        readonly accountRequestsPerMinute: number;
+        readonly apiKeyRequestsPerMinute: number;
+        readonly burst: number;
+      }
+    | undefined;
+  readonly now?: (() => number) | undefined;
 }
 
 export function createTestApplication(
@@ -139,13 +164,22 @@ export function createTestApplication(
   readiness.markReady();
   return {
     app: createApp({
-      host: "127.0.0.1",
+      allowedHosts: options.allowedHosts ?? ["127.0.0.1", "localhost"],
       authenticator: options.authenticator ?? testAuthenticator(),
       readiness,
       useCases: assembleUseCases(
         projectRoot,
         options.memoryStore ?? unconfiguredMemoryStore,
       ),
+      logger: options.logger ?? silentSecurityLogger,
+      maximumRequestBodyBytes: options.maximumRequestBodyBytes ?? 65_536,
+      requestDeadlineMilliseconds: 10_000,
+      rateLimit: options.rateLimit ?? {
+        accountRequestsPerMinute: 60_000,
+        apiKeyRequestsPerMinute: 60_000,
+        burst: 1000,
+      },
+      now: options.now,
     }),
   };
 }

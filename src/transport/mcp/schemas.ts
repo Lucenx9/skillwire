@@ -47,7 +47,14 @@ const resourceManifestEntrySchema = z
 
 export const searchSkillsInputSchema = z
   .object({
-    task: z.string().min(1).max(4096),
+    task: z
+      .string()
+      .min(1)
+      .max(4096)
+      .refine(
+        (task) =>
+          task.trim().length > 0 && Buffer.byteLength(task, "utf8") <= 4096,
+      ),
     repositoryHash: repositoryHashSchema.optional(),
     limit: z.number().int().min(1).max(10).default(5),
   })
@@ -86,7 +93,7 @@ export const loadSkillOutputSchema = z
     revision: revisionSchema,
     revisionSha256: sha256Schema,
     publishedProvenance: publishedProvenanceSchema,
-    currentAdvisoryStatus: z.literal("available"),
+    currentAdvisoryStatus: z.enum(["available", "unavailable", "revoked"]),
     instructions: z.string().max(262_144),
     resourceManifest: z.array(resourceManifestEntrySchema).max(64),
     memoryRecorded: z.boolean(),
