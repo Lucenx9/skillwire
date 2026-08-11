@@ -47,4 +47,48 @@ describe("rankSkills", () => {
       "available-review",
     );
   });
+
+  it("uses bounded outcome boosts only after lexical relevance", () => {
+    const relevant = metadata("beta-tie", ["typescript", "review"]);
+    const usefulTie = metadata("zeta-tie", ["typescript", "review"]);
+    const neutralTie = metadata("alpha-tie", ["typescript", "review"]);
+    const unsuccessfulTie = metadata("middle-tie", ["typescript", "review"]);
+    const irrelevantUseful = metadata("irrelevant-useful", ["gardening"]);
+
+    const ranked = rankSkills(
+      [irrelevantUseful, neutralTie, unsuccessfulTie, usefulTie, relevant],
+      "TypeScript review",
+      5,
+      [
+        {
+          skillId: usefulTie.id,
+          revision: usefulTie.revision,
+          outcome: "useful",
+        },
+        {
+          skillId: neutralTie.id,
+          revision: neutralTie.revision,
+          outcome: "neutral",
+        },
+        {
+          skillId: unsuccessfulTie.id,
+          revision: unsuccessfulTie.revision,
+          outcome: "unsuccessful",
+        },
+        {
+          skillId: irrelevantUseful.id,
+          revision: irrelevantUseful.revision,
+          outcome: "useful",
+        },
+      ],
+    );
+
+    expect(ranked.map((entry) => entry.skill.id)).toEqual([
+      "zeta-tie",
+      "alpha-tie",
+      "beta-tie",
+      "middle-tie",
+      "irrelevant-useful",
+    ]);
+  });
 });

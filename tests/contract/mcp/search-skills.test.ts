@@ -43,9 +43,12 @@ describe("search_skills MCP contract", () => {
     const { tools } = await client().client.listTools();
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "search_skills",
       "load_skill",
       "read_skill_resource",
-      "search_skills",
+      "list_repo_memory",
+      "record_skill_outcome",
+      "forget_repo_memory",
     ]);
     expect(responseSessionIds.every((sessionId) => sessionId === null)).toBe(
       true,

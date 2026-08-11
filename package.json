@@ -10,8 +10,10 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "auth:admin": "tsx src/authentication/admin-cli.ts",
     "catalog:publish": "tsx src/catalog/admin-cli.ts publish",
     "catalog:verify": "tsx src/catalog/admin-cli.ts verify",
+    "db:migrate": "tsx src/persistence/postgres/migration-runner.ts",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/src/main.js",
     "format": "prettier --write src tests catalog package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json",
@@ -31,12 +33,15 @@
     "@modelcontextprotocol/hono": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "hono": "4.13.1",
+    "pg": "8.23.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@modelcontextprotocol/client": "2.0.0",
+    "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",
+    "@types/pg": "8.21.0",
     "eslint": "10.8.1",
     "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.6",

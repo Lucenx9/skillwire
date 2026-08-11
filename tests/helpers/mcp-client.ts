@@ -11,6 +11,7 @@ export interface TestMcpClient {
 export async function createTestMcpClient(
   endpoint: URL,
   fetchImplementation?: typeof fetch,
+  bearerToken = TEST_BEARER_TOKEN,
 ): Promise<TestMcpClient> {
   const client = new Client({
     name: "skillwire-test-client",
@@ -18,7 +19,7 @@ export async function createTestMcpClient(
   });
   const transport = new StreamableHTTPClientTransport(endpoint, {
     authProvider: {
-      token: () => Promise.resolve(TEST_BEARER_TOKEN),
+      token: () => Promise.resolve(bearerToken),
     },
     ...(fetchImplementation === undefined
       ? {}

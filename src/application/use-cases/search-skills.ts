@@ -3,6 +3,9 @@ import type {
   CatalogSkillMetadata,
   SearchSkillsResult,
 } from "../../domain/catalog/types.js";
+import { repositoryMemoryScope } from "../../domain/repository-memory/types.js";
+import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
+import type { RepositoryMemoryStore } from "../ports/repository-memory-store.js";
 
 export interface SearchSkillsInput {
   readonly task: string;
@@ -11,15 +14,25 @@ export interface SearchSkillsInput {
 }
 
 export interface SearchSkills {
-  execute(input: SearchSkillsInput): SearchSkillsResult;
+  execute(
+    input: SearchSkillsInput,
+    principal: RequestPrincipal,
+  ): Promise<SearchSkillsResult>;
 }
 
 export function createSearchSkills(
   catalog: readonly CatalogSkillMetadata[],
+  memoryStore: RepositoryMemoryStore,
 ): SearchSkills {
   return {
-    execute(input) {
-      const ranked = rankSkills(catalog, input.task, input.limit ?? 5);
+    async execute(input, principal) {
+      const memory =
+        input.repositoryHash === undefined
+          ? []
+          : await memoryStore.rankingProjection(
+              repositoryMemoryScope(principal.accountId, input.repositoryHash),
+            );
+      const ranked = rankSkills(catalog, input.task, input.limit ?? 5, memory);
       return {
         skills: ranked.map((result, index) => ({
           rank: index + 1,

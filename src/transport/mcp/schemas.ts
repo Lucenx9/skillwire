@@ -89,7 +89,7 @@ export const loadSkillOutputSchema = z
     currentAdvisoryStatus: z.literal("available"),
     instructions: z.string().max(262_144),
     resourceManifest: z.array(resourceManifestEntrySchema).max(64),
-    memoryRecorded: z.literal(false),
+    memoryRecorded: z.boolean(),
   })
   .strict();
 
@@ -112,4 +112,52 @@ export const readSkillResourceOutputSchema = z
     sha256: sha256Schema,
     content: z.string().max(262_144),
   })
+  .strict();
+
+const outcomeSchema = z.enum(["useful", "neutral", "unsuccessful"]);
+
+const memoryEntrySchema = z
+  .object({
+    skillId: skillIdSchema,
+    revision: revisionSchema,
+    revisionSha256: sha256Schema,
+    firstUsedAt: z.iso.datetime(),
+    lastUsedAt: z.iso.datetime(),
+    usageCount: z.number().int().min(1),
+    outcome: outcomeSchema.optional(),
+  })
+  .strict();
+
+export const listRepoMemoryInputSchema = z
+  .object({ repositoryHash: repositoryHashSchema })
+  .strict();
+
+export const listRepoMemoryOutputSchema = z
+  .object({ entries: z.array(memoryEntrySchema).max(100) })
+  .strict();
+
+export const recordSkillOutcomeInputSchema = z
+  .object({
+    repositoryHash: repositoryHashSchema,
+    skillId: skillIdSchema,
+    revision: revisionSchema,
+    outcome: outcomeSchema,
+  })
+  .strict();
+
+export const recordSkillOutcomeOutputSchema = z
+  .object({
+    recorded: z.literal(true),
+    skillId: skillIdSchema,
+    revision: revisionSchema,
+    outcome: outcomeSchema,
+  })
+  .strict();
+
+export const forgetRepoMemoryInputSchema = z
+  .object({ repositoryHash: repositoryHashSchema })
+  .strict();
+
+export const forgetRepoMemoryOutputSchema = z
+  .object({ forgotten: z.literal(true) })
   .strict();

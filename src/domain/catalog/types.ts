@@ -15,6 +15,7 @@ export interface CatalogSkillMetadata {
 export interface RankedSkill {
   readonly skill: CatalogSkillMetadata;
   readonly score: number;
+  readonly memoryBoost: number;
   readonly matchingCapabilities: readonly string[];
 }
 

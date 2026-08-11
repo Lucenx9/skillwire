@@ -1,7 +1,8 @@
 export interface ApplicationConfig {
   readonly host: string;
   readonly port: number;
-  readonly bearerToken: string;
+  readonly databaseUrl: string;
+  readonly apiKeyPepper: string;
 }
 
 const DEFAULT_PORT = 3000;
@@ -15,17 +16,27 @@ function readPort(value: string | undefined): number {
   return port;
 }
 
+function readDatabaseUrl(value: string | undefined): string {
+  if (value === undefined) throw new Error("DATABASE_URL is required");
+  const url = new URL(value);
+  if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+    throw new Error("DATABASE_URL must use postgres or postgresql");
+  }
+  return value;
+}
+
 export function loadConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): ApplicationConfig {
-  const bearerToken = environment["SKILLWIRE_API_KEY"];
-  if (bearerToken === undefined || bearerToken.length < 24) {
-    throw new Error("SKILLWIRE_API_KEY must contain at least 24 characters");
+  const apiKeyPepper = environment["SKILLWIRE_API_KEY_PEPPER"];
+  if (apiKeyPepper === undefined || Buffer.byteLength(apiKeyPepper) < 32) {
+    throw new Error("SKILLWIRE_API_KEY_PEPPER must contain at least 32 bytes");
   }
 
   return {
     host: environment["SKILLWIRE_HOST"] ?? "127.0.0.1",
     port: readPort(environment["SKILLWIRE_PORT"]),
-    bearerToken,
+    databaseUrl: readDatabaseUrl(environment["DATABASE_URL"]),
+    apiKeyPepper,
   };
 }

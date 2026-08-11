@@ -1,4 +1,6 @@
 import type { CatalogSkillMetadata, RankedSkill } from "./types.js";
+import { memoryBoostForOutcome } from "../repository-memory/outcome.js";
+import type { RepositoryUsageProjection } from "../repository-memory/types.js";
 
 const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
 
@@ -27,7 +29,11 @@ function intersectionSize(
   return matches;
 }
 
-function scoreSkill(skill: CatalogSkillMetadata, task: string): RankedSkill {
+function scoreSkill(
+  skill: CatalogSkillMetadata,
+  task: string,
+  memoryBoost: number,
+): RankedSkill {
   const queryTokens = tokenize(task);
   const identityTokens = tokenize(`${skill.id} ${skill.name}`);
   const descriptionTokens = tokenize(skill.description);
@@ -45,20 +51,35 @@ function scoreSkill(skill: CatalogSkillMetadata, task: string): RankedSkill {
     return matched;
   });
 
-  return { skill, score, matchingCapabilities };
+  return { skill, score, memoryBoost, matchingCapabilities };
 }
 
 export function rankSkills(
   skills: readonly CatalogSkillMetadata[],
   task: string,
   limit: number,
+  memory: readonly RepositoryUsageProjection[] = [],
 ): RankedSkill[] {
+  const memoryByRevision = new Map(
+    memory.map((entry) => [
+      `${entry.skillId}\0${entry.revision}`,
+      memoryBoostForOutcome(entry.outcome),
+    ]),
+  );
   return skills
     .filter((skill) => skill.currentAdvisoryStatus !== "revoked")
-    .map((skill) => scoreSkill(skill, task))
+    .map((skill) =>
+      scoreSkill(
+        skill,
+        task,
+        memoryByRevision.get(`${skill.id}\0${skill.revision}`) ?? 0,
+      ),
+    )
     .sort((left, right) => {
       const relevance = right.score - left.score;
       if (relevance !== 0) return relevance;
+      const memoryRelevance = right.memoryBoost - left.memoryBoost;
+      if (memoryRelevance !== 0) return memoryRelevance;
       return left.skill.id.localeCompare(right.skill.id, "en-US");
     })
     .slice(0, limit);

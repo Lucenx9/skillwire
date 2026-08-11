@@ -1,5 +1,8 @@
 allowBuilds:
+  cpu-features: false
   esbuild: true
+  protobufjs: false
+  ssh2: false
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.67.0'
   - '@typescript-eslint/parser@8.67.0'
