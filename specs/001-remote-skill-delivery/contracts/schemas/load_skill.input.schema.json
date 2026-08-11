@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/load_skill.input.schema.json",
+  "title": "load_skill input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skillId", "revision"],
+  "properties": {
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "repositoryHash": {
+      "$ref": "./common.schema.json#/$defs/RepositoryHash"
+    }
+  }
+}

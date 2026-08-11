@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/read_skill_resource.input.schema.json",
+  "title": "read_skill_resource input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skillId", "revision", "path"],
+  "properties": {
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "path": {
+      "$ref": "./common.schema.json#/$defs/ResourcePath"
+    }
+  }
+}

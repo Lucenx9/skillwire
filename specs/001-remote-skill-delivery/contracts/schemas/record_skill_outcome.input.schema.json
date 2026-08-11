@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/record_skill_outcome.input.schema.json",
+  "title": "record_skill_outcome input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repositoryHash", "skillId", "revision", "outcome"],
+  "properties": {
+    "repositoryHash": {
+      "$ref": "./common.schema.json#/$defs/RepositoryHash"
+    },
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "outcome": {
+      "$ref": "./common.schema.json#/$defs/Outcome"
+    }
+  }
+}

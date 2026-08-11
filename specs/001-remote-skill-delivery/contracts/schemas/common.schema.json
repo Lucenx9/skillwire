@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/common.schema.json",
+  "title": "SkillWire MCP Common Types",
+  "$defs": {
+    "RepositoryHash": {
+      "type": "string",
+      "description": "Opaque client-generated SHA-256 repository identity.",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "SkillId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "Revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "not": {
+        "enum": ["latest", "main", "master", "HEAD"]
+      }
+    },
+    "ResourcePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?($|/))(?!.*\\\\)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "TrustStatus": {
+      "const": "trusted"
+    },
+    "Outcome": {
+      "type": "string",
+      "enum": ["useful", "neutral", "unsuccessful"]
+    },
+    "SourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "reference"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "ResourceManifestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mediaType", "byteLength", "sha256"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/ResourcePath"
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": ["text/markdown", "text/plain"]
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        },
+        "sha256": {
+          "$ref": "#/$defs/Sha256"
+        }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "revision",
+        "revisionSha256",
+        "trustStatus",
+        "resourceManifest"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/SourceReference"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "revisionSha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "trustStatus": {
+          "$ref": "#/$defs/TrustStatus"
+        },
+        "resourceManifest": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/ResourceManifestEntry"
+          }
+        }
+      }
+    },
+    "SearchPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "skillId",
+        "name",
+        "summary",
+        "matchingCapabilities",
+        "trustStatus",
+        "revision"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "skillId": {
+          "$ref": "#/$defs/SkillId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "matchingCapabilities": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "trustStatus": {
+          "$ref": "#/$defs/TrustStatus"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        }
+      }
+    },
+    "MemoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skillId",
+        "revision",
+        "revisionSha256",
+        "firstUsedAt",
+        "lastUsedAt",
+        "usageCount"
+      ],
+      "properties": {
+        "skillId": {
+          "$ref": "#/$defs/SkillId"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "revisionSha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "firstUsedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "usageCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        }
+      }
+    }
+  }
+}

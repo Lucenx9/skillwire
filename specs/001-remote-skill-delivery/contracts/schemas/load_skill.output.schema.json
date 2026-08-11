@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/load_skill.output.schema.json",
+  "title": "load_skill successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skillId", "name", "instructions", "provenance", "memoryRecorded"],
+  "properties": {
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "instructions": {
+      "type": "string",
+      "maxLength": 262144
+    },
+    "provenance": {
+      "$ref": "./common.schema.json#/$defs/Provenance"
+    },
+    "memoryRecorded": {
+      "type": "boolean"
+    }
+  }
+}

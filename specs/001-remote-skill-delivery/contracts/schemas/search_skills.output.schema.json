@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/search_skills.output.schema.json",
+  "title": "search_skills successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skills"],
+  "properties": {
+    "skills": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "$ref": "./common.schema.json#/$defs/SearchPreview"
+      }
+    }
+  }
+}

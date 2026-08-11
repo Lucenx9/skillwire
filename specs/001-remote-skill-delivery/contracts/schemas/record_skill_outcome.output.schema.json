@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/record_skill_outcome.output.schema.json",
+  "title": "record_skill_outcome successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recorded", "skillId", "revision", "outcome"],
+  "properties": {
+    "recorded": {
+      "const": true
+    },
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "outcome": {
+      "$ref": "./common.schema.json#/$defs/Outcome"
+    }
+  }
+}

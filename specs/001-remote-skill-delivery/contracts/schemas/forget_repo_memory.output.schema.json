@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/forget_repo_memory.output.schema.json",
+  "title": "forget_repo_memory successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["forgotten"],
+  "properties": {
+    "forgotten": {
+      "const": true
+    }
+  }
+}
