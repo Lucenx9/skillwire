@@ -87,4 +87,24 @@ describe("read_skill_resource MCP contract", () => {
 
     expect(result.isError).toBe(true);
   });
+
+  it("rejects caller-selected URL and source fields", async () => {
+    for (const extra of [
+      { url: "http://127.0.0.1/private" },
+      { source: { url: "https://attacker.example/resource" } },
+      { repository: "owner/repository" },
+    ]) {
+      const result = await client().client.callTool({
+        name: "read_skill_resource",
+        arguments: {
+          skillId: "typescript-code-review",
+          revision: "1.0.0",
+          path: "references/review-checklist.md",
+          ...extra,
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+    }
+  });
 });

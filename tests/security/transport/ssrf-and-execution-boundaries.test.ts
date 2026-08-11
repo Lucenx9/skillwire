@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { createTestApplication } from "../../../src/composition.js";
 import type {
@@ -111,6 +113,31 @@ describe("host, schema, size, rate, and execution boundaries", () => {
     });
   });
 
+  it("fails closed before dispatch when the request deadline is exhausted", async () => {
+    let current = 0;
+    const { app } = createTestApplication({
+      requestDeadlineMilliseconds: 1,
+      now: () => {
+        current += 1;
+        return current;
+      },
+    });
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TEST_BEARER_TOKEN}`,
+        "content-type": "application/json",
+        host: "127.0.0.1",
+      },
+      body: initializeBody,
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "INTERNAL", retryable: true },
+    });
+  });
+
   it("rejects malformed, oversized, traversal, URL, and unknown-revision inputs", async () => {
     const client = await connectedClient();
     clients.push(client);
@@ -175,5 +202,32 @@ describe("host, schema, size, rate, and execution boundaries", () => {
     expect(serialized).not.toContain("private query");
     expect(serialized).not.toContain("private skill body");
     expect(serialized).not.toContain("/home/private/repository");
+  });
+
+  it("keeps production request paths free of execution and package-install capabilities", () => {
+    const sourceFiles = [
+      "src/transport/mcp/app.ts",
+      "src/transport/mcp/server-factory.ts",
+      "src/transport/mcp/tool-adapters.ts",
+      "src/catalog/version-controlled-provider.ts",
+      "src/application/use-cases/load-skill.ts",
+      "src/application/use-cases/read-skill-resource.ts",
+    ];
+    const productionSource = sourceFiles
+      .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
+      .join("\n");
+
+    for (const forbidden of [
+      "node:child_process",
+      "node:vm",
+      "exec(",
+      "spawn(",
+      "eval(",
+      "npm install",
+      "pnpm install",
+      "catalog:publish",
+    ]) {
+      expect(productionSource).not.toContain(forbidden);
+    }
   });
 });

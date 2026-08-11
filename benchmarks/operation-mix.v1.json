@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "workloadId": "skillwire-operation-mix-v1",
+  "catalogRelease": "launch-catalog-v1",
+  "searchCorpus": "search-ranking-v1",
+  "journeyMatrix": "three-call-journeys-v1",
+  "databaseFixture": "benchmark-fixture-v1",
+  "operations": [
+    { "name": "search_skills", "weight": 30 },
+    { "name": "load_skill", "weight": 25 },
+    { "name": "read_skill_resource", "weight": 15 },
+    { "name": "list_repo_memory", "weight": 10 },
+    { "name": "record_skill_outcome", "weight": 10 },
+    { "name": "forget_repo_memory", "weight": 10 }
+  ]
+}

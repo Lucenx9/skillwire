@@ -56,7 +56,7 @@ export const searchSkillsInputSchema = z
           task.trim().length > 0 && Buffer.byteLength(task, "utf8") <= 4096,
       ),
     repositoryHash: repositoryHashSchema.optional(),
-    limit: z.number().int().min(1).max(10).default(5),
+    limit: z.number().int().min(1).max(10).optional(),
   })
   .strict();
 

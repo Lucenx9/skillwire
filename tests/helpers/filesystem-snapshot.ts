@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, readlink } from "node:fs/promises";
 
 export async function snapshotTree(root: string): Promise<string> {
   const hash = createHash("sha256");
@@ -10,7 +10,13 @@ export async function snapshotTree(root: string): Promise<string> {
     for (const entry of entries) {
       const absolutePath = `${directory}/${entry.name}`;
       hash.update(absolutePath.slice(root.length));
+      const stats = await lstat(absolutePath);
+      hash.update(
+        `${String(stats.mode)}:${stats.isSymbolicLink() ? "link" : entry.isDirectory() ? "directory" : "file"}`,
+      );
       if (entry.isDirectory()) await visit(absolutePath);
+      else if (stats.isSymbolicLink())
+        hash.update(await readlink(absolutePath));
       else hash.update(await readFile(absolutePath));
     }
   }

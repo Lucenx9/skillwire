@@ -1,0 +1,44 @@
+services:
+  skillwire:
+    environment:
+      # The benchmark measures application operations, not the configured
+      # production throttle. Keep these bounded at the application's maxima.
+      SKILLWIRE_ACCOUNT_REQUESTS_PER_MINUTE: 100000
+      SKILLWIRE_API_KEY_REQUESTS_PER_MINUTE: 100000
+      SKILLWIRE_RATE_LIMIT_BURST: 10000
+      SKILLWIRE_ALLOWED_HOSTS: skillwire,localhost,127.0.0.1
+
+  benchmark:
+    build:
+      context: .
+      target: test
+    image: skillwire-benchmark:local
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - export SKILLWIRE_API_KEY="$$(cat /run/secrets/bootstrap_api_key)"; exec
+        pnpm benchmark:informational
+    environment:
+      SKILLWIRE_ENDPOINT: http://skillwire:3000/mcp
+      SKILLWIRE_BENCHMARK_CONCURRENCY: ${SKILLWIRE_BENCHMARK_CONCURRENCY:-25}
+      SKILLWIRE_BENCHMARK_WARMUP: ${SKILLWIRE_BENCHMARK_WARMUP:-100}
+      SKILLWIRE_BENCHMARK_SAMPLES: ${SKILLWIRE_BENCHMARK_SAMPLES:-1000}
+      SKILLWIRE_BENCHMARK_CACHE_STATE: ${SKILLWIRE_BENCHMARK_CACHE_STATE:-catalog-warm}
+    secrets:
+      - bootstrap_api_key
+    depends_on:
+      skillwire:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+      - /app/benchmarks/results:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    profiles: ["benchmark"]
+    restart: "no"
+
+secrets:
+  bootstrap_api_key:
+    file: ${SKILLWIRE_BOOTSTRAP_API_KEY_SECRET_FILE:-./.secrets/api-key}

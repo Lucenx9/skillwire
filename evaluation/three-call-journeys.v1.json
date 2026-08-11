@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "matrixId": "three-call-journeys-v1",
+  "cases": [
+    {
+      "id": "journey-dependency-01",
+      "task": "Plan dependency upgrades and rollback",
+      "expectedSkillId": "dependency-upgrade-planning",
+      "resourcePath": "references/upgrade-checklist.md"
+    },
+    {
+      "id": "journey-dependency-02",
+      "task": "Research compatibility for version changes",
+      "expectedSkillId": "dependency-upgrade-planning",
+      "resourcePath": "references/upgrade-checklist.md"
+    },
+    {
+      "id": "journey-docker-01",
+      "task": "Harden a Dockerfile for least privilege",
+      "expectedSkillId": "dockerfile-hardening",
+      "resourcePath": "references/hardening-checklist.md"
+    },
+    {
+      "id": "journey-docker-02",
+      "task": "Review container security and secret safety",
+      "expectedSkillId": "dockerfile-hardening",
+      "resourcePath": "references/hardening-checklist.md"
+    },
+    {
+      "id": "journey-github-01",
+      "task": "Design a GitHub Actions CI workflow",
+      "expectedSkillId": "github-actions-ci",
+      "resourcePath": "references/ci-checklist.md"
+    },
+    {
+      "id": "journey-github-02",
+      "task": "Improve continuous integration pipelines",
+      "expectedSkillId": "github-actions-ci",
+      "resourcePath": "references/ci-checklist.md"
+    },
+    {
+      "id": "journey-node-01",
+      "task": "Design secure Node.js REST endpoints",
+      "expectedSkillId": "node-api-design",
+      "resourcePath": "references/api-review-checklist.md"
+    },
+    {
+      "id": "journey-node-02",
+      "task": "Review service interfaces for backward compatibility",
+      "expectedSkillId": "node-api-design",
+      "resourcePath": "references/api-review-checklist.md"
+    },
+    {
+      "id": "journey-postgres-01",
+      "task": "Review PostgreSQL constraints and indexes",
+      "expectedSkillId": "postgres-schema-review",
+      "resourcePath": "references/schema-review-checklist.md"
+    },
+    {
+      "id": "journey-postgres-02",
+      "task": "Check database migrations and data integrity",
+      "expectedSkillId": "postgres-schema-review",
+      "resourcePath": "references/schema-review-checklist.md"
+    },
+    {
+      "id": "journey-react-01",
+      "task": "Review React accessibility and ARIA",
+      "expectedSkillId": "react-accessibility",
+      "resourcePath": "references/accessibility-checklist.md"
+    },
+    {
+      "id": "journey-react-02",
+      "task": "Check keyboard input and focus management",
+      "expectedSkillId": "react-accessibility",
+      "resourcePath": "references/accessibility-checklist.md"
+    },
+    {
+      "id": "journey-docs-01",
+      "task": "Write a README with validation instructions",
+      "expectedSkillId": "technical-documentation",
+      "resourcePath": "references/documentation-checklist.md"
+    },
+    {
+      "id": "journey-docs-02",
+      "task": "Create technical documentation for an operator audience",
+      "expectedSkillId": "technical-documentation",
+      "resourcePath": "references/documentation-checklist.md"
+    },
+    {
+      "id": "journey-threat-01",
+      "task": "Threat model trust boundaries and attacker goals",
+      "expectedSkillId": "threat-modeling",
+      "resourcePath": "references/threat-model-template.md"
+    },
+    {
+      "id": "journey-threat-02",
+      "task": "Identify assets, abuse cases, and mitigations",
+      "expectedSkillId": "threat-modeling",
+      "resourcePath": "references/threat-model-template.md"
+    },
+    {
+      "id": "journey-typescript-01",
+      "task": "Review TypeScript type safety and correctness",
+      "expectedSkillId": "typescript-code-review",
+      "resourcePath": "references/review-checklist.md"
+    },
+    {
+      "id": "journey-typescript-02",
+      "task": "Check type narrowing and regression analysis",
+      "expectedSkillId": "typescript-code-review",
+      "resourcePath": "references/review-checklist.md"
+    },
+    {
+      "id": "journey-vitest-01",
+      "task": "Design Vitest unit and integration tests",
+      "expectedSkillId": "vitest-test-design",
+      "resourcePath": "references/test-design-checklist.md"
+    },
+    {
+      "id": "journey-vitest-02",
+      "task": "Test mocking and failure paths with Vitest",
+      "expectedSkillId": "vitest-test-design",
+      "resourcePath": "references/test-design-checklist.md"
+    }
+  ]
+}

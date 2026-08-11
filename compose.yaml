@@ -1,0 +1,104 @@
+name: skillwire
+
+services:
+  postgres:
+    image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: skillwire
+      POSTGRES_USER: skillwire
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skillwire -d skillwire"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    image: skillwire:local
+    command: ["node", "dist/src/persistence/postgres/migration-runner.js"]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  skillwire:
+    image: skillwire:local
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      SKILLWIRE_API_KEY_PEPPER_FILE: /run/secrets/api_key_pepper
+      SKILLWIRE_BIND_HOST: 0.0.0.0
+      SKILLWIRE_PORT: 3000
+      SKILLWIRE_ALLOWED_HOSTS: ${SKILLWIRE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      SKILLWIRE_CATALOG_ROOT: /app
+      SKILLWIRE_CATALOG_RELEASE: ${SKILLWIRE_CATALOG_RELEASE:-launch-catalog-v1}
+      SKILLWIRE_ACCOUNT_REQUESTS_PER_MINUTE: ${SKILLWIRE_ACCOUNT_REQUESTS_PER_MINUTE:-120}
+      SKILLWIRE_API_KEY_REQUESTS_PER_MINUTE: ${SKILLWIRE_API_KEY_REQUESTS_PER_MINUTE:-120}
+      SKILLWIRE_RATE_LIMIT_BURST: ${SKILLWIRE_RATE_LIMIT_BURST:-30}
+      SKILLWIRE_AUDIT_CLEANUP_INTERVAL_SECONDS: ${SKILLWIRE_AUDIT_CLEANUP_INTERVAL_SECONDS:-3600}
+      SKILLWIRE_SHUTDOWN_GRACE_MS: ${SKILLWIRE_SHUTDOWN_GRACE_MS:-10000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - database_url
+      - api_key_pepper
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - 127.0.0.1:${SKILLWIRE_PORT:-3000}:3000
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+
+secrets:
+  database_url:
+    file: ${SKILLWIRE_DATABASE_URL_SECRET_FILE:-./.secrets/database-url}
+  postgres_password:
+    file: ${SKILLWIRE_POSTGRES_PASSWORD_SECRET_FILE:-./.secrets/postgres-password}
+  api_key_pepper:
+    file: ${SKILLWIRE_API_KEY_PEPPER_SECRET_FILE:-./.secrets/api-key-pepper}
+
+volumes:
+  postgres_data:

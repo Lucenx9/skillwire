@@ -78,4 +78,38 @@ describe("erasure-audit expiration", () => {
     );
     expect(remainingExpired.rows[0]?.count).toBe("0");
   });
+
+  it("includes only rows strictly before their exact expiration boundary", async () => {
+    const future = randomUUID();
+    const atBoundary = randomUUID();
+    const expired = randomUUID();
+    await database.pool.query(
+      `
+        WITH boundary AS (SELECT statement_timestamp() AS now)
+        INSERT INTO repository_erasure_audit (
+          account_id,
+          request_id,
+          created_at,
+          expires_at,
+          operation_result,
+          removed_record_count
+        )
+        SELECT $1, request_id, expires_at - interval '30 days', expires_at, 'forgotten', 0
+        FROM boundary
+        CROSS JOIN LATERAL (VALUES
+          ($2::uuid, boundary.now + interval '1 second'),
+          ($3::uuid, boundary.now),
+          ($4::uuid, boundary.now - interval '1 millisecond')
+        ) AS values_to_insert(request_id, expires_at)
+      `,
+      [accountId, future, atBoundary, expired],
+    );
+
+    const visible = (await store.listActive(accountId)).map(
+      (row) => row.requestId,
+    );
+    expect(visible).toContain(future);
+    expect(visible).not.toContain(atBoundary);
+    expect(visible).not.toContain(expired);
+  });
 });

@@ -24,7 +24,7 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
       pino:
-        specifier: ^10.3.1
+        specifier: 10.3.1
         version: 10.3.1
       zod:
         specifier: 4.4.3

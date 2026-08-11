@@ -6,10 +6,11 @@ import type { SkillWireHonoEnvironment } from "../authentication/middleware.js";
 
 export function requestContext(
   deadlineMilliseconds: number,
+  now: () => number = Date.now,
 ): MiddlewareHandler<SkillWireHonoEnvironment> {
   return async (context, next) => {
     context.set("requestId", randomUUID());
-    context.set("deadline", Date.now() + deadlineMilliseconds);
+    context.set("deadline", now() + deadlineMilliseconds);
     await next();
   };
 }

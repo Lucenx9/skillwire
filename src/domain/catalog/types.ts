@@ -2,6 +2,14 @@ export type TrustAtPublication = "trusted";
 
 export type CurrentAdvisoryStatus = "available" | "unavailable" | "revoked";
 
+export interface CatalogSkill {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly capabilities: readonly string[];
+  readonly revisions: readonly string[];
+}
+
 export interface CatalogSkillInventoryEntry {
   readonly id: string;
   readonly name: string;

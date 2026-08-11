@@ -10,11 +10,12 @@ export interface SecurityLogger {
 
 export function createSecurityLogger(
   destination?: DestinationStream,
+  level = "info",
 ): SecurityLogger {
   const logger: Logger = pino(
     {
       base: null,
-      level: "info",
+      level,
       messageKey: "message",
       timestamp: pino.stdTimeFunctions.isoTime,
     },

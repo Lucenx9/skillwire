@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { publishCatalog } from "./catalog-publisher.js";
 import { verifyCatalog } from "./catalog-verifier.js";
 
@@ -126,6 +129,14 @@ const result =
         publishedAt: parsed.publishedAt,
       })
     : verifyCatalog(projectRoot, parsed.releaseId);
+
+if (
+  "created" in result &&
+  result.created &&
+  existsSync(join(projectRoot, "catalog", "releases", ".publish-claim"))
+) {
+  process.stderr.write("PUBLICATION_CLAIM_REMAINS\n");
+}
 
 process.stdout.write(`${JSON.stringify(result)}\n`);
 process.exitCode =

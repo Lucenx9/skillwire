@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createApiKeyToken } from "./api-key-token.js";
+import { readRequiredConfiguration } from "../config.js";
 import { PostgresApiKeyStore } from "../persistence/postgres/api-key-store.js";
 import { createPostgresPool } from "../persistence/postgres/client.js";
 import { runMigrations } from "../persistence/postgres/migration-runner.js";
@@ -25,11 +26,15 @@ async function main(): Promise<void> {
       "Expected account:create, key:create, key:revoke, or account:disable",
     );
   }
-  const connectionString = process.env["DATABASE_URL"];
-  const pepper = process.env["SKILLWIRE_API_KEY_PEPPER"];
-  if (connectionString === undefined)
-    throw new Error("DATABASE_URL is required");
-  if (pepper === undefined || Buffer.byteLength(pepper) < 32) {
+  const connectionString = readRequiredConfiguration(
+    process.env,
+    "DATABASE_URL",
+  );
+  const pepper = readRequiredConfiguration(
+    process.env,
+    "SKILLWIRE_API_KEY_PEPPER",
+  );
+  if (Buffer.byteLength(pepper) < 32) {
     throw new Error("SKILLWIRE_API_KEY_PEPPER must contain at least 32 bytes");
   }
 

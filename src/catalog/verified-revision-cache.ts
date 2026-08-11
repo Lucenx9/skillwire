@@ -1,7 +1,4 @@
-import {
-  canonicalizeRevision,
-  sha256Hex,
-} from "../domain/catalog/canonical-revision.js";
+import { assertRevisionIntegrity } from "../domain/catalog/revision-integrity.js";
 import type { SkillRevision } from "../domain/catalog/types.js";
 
 function cacheKey(
@@ -14,23 +11,7 @@ function cacheKey(
 }
 
 function verifyRevision(revision: SkillRevision): void {
-  if (sha256Hex(canonicalizeRevision(revision)) !== revision.bundleSha256) {
-    throw new Error("Cached revision bundle hash is invalid");
-  }
-  if (
-    revision.resources.length !== revision.resourceManifest.length ||
-    revision.resources.some((resource, index) => {
-      const manifest = revision.resourceManifest[index];
-      return (
-        manifest?.path !== resource.path ||
-        manifest.sha256 !== resource.sha256 ||
-        sha256Hex(resource.content) !== resource.sha256 ||
-        Buffer.byteLength(resource.content, "utf8") !== resource.byteLength
-      );
-    })
-  ) {
-    throw new Error("Cached revision resource integrity is invalid");
-  }
+  assertRevisionIntegrity(revision);
 }
 
 function immutableCopy(revision: SkillRevision): SkillRevision {

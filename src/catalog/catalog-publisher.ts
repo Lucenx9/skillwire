@@ -50,6 +50,7 @@ export interface PublishCatalogOptions {
   readonly genesis: boolean;
   readonly previousReleaseCommit: string | null;
   readonly publishedAt?: string | undefined;
+  readonly removePublicationClaim?: ((claimPath: string) => void) | undefined;
 }
 
 function publishedRevisionIdentities(releasesRoot: string): Set<string> {
@@ -260,6 +261,13 @@ export function publishCatalog(
   } finally {
     if (!published && existsSync(stagePath))
       rmSync(stagePath, { recursive: true, force: true });
-    if (claimAcquired && existsSync(claimPath)) rmdirSync(claimPath);
+    if (claimAcquired && existsSync(claimPath)) {
+      try {
+        (options.removePublicationClaim ?? rmdirSync)(claimPath);
+      } catch {
+        // A published batch remains truthful and complete. The surviving claim
+        // fails later publication closed until an operator safely removes it.
+      }
+    }
   }
 }

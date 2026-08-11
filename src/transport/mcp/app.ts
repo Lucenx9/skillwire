@@ -34,9 +34,26 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions) {
   const app = new Hono<SkillWireHonoEnvironment>();
-  const limiter = new AccountApiKeyRateLimiter(options.rateLimit, options.now);
+  const now = options.now ?? Date.now;
+  const limiter = new AccountApiKeyRateLimiter(options.rateLimit, now);
 
-  app.use("*", requestContext(options.requestDeadlineMilliseconds));
+  app.use("*", requestContext(options.requestDeadlineMilliseconds, now));
+  app.use("*", async (context, next) => {
+    if (now() >= context.get("deadline")) {
+      const requestId = context.get("requestId");
+      options.logger.emit("request_rejected", {
+        requestId,
+        code: "INTERNAL",
+        status: 503,
+      });
+      return context.json(
+        safeErrorEnvelope(new SkillWireError("INTERNAL"), requestId),
+        503,
+      );
+    }
+    await next();
+    return;
+  });
   app.use("*", async (context, next) => {
     const result = validateHostHeader(context.req.header("host"), [
       ...options.allowedHosts,

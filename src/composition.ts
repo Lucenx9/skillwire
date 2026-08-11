@@ -37,12 +37,10 @@ const TEST_KEY_ID = "00000000-0000-4000-8000-000000000002";
 
 function assembleUseCases(
   projectRoot: string,
+  releaseId: string,
   memoryStore: RepositoryMemoryStore,
 ): McpUseCases {
-  const provider = loadVerifiedCatalogProvider(
-    projectRoot,
-    "launch-catalog-v1",
-  );
+  const provider = loadVerifiedCatalogProvider(projectRoot, releaseId);
   return {
     searchSkills: createSearchSkills(provider.listMetadata(), memoryStore),
     loadSkill: createLoadSkill(provider, memoryStore),
@@ -93,17 +91,20 @@ export async function createApplication(
   config: ApplicationConfig,
   projectRoot = process.cwd(),
 ): Promise<Application> {
+  const catalogRoot = config.catalogRoot ?? projectRoot;
+  const catalogRelease = config.catalogRelease ?? "launch-catalog-v1";
   const pool = createPostgresPool(config.databaseUrl);
   const readiness = new ReadinessState();
-  const logger = createSecurityLogger();
+  const logger = createSecurityLogger(undefined, config.logLevel ?? "info");
   try {
-    await runMigrations(pool, `${projectRoot}/migrations`);
+    await runMigrations(pool, `${catalogRoot}/migrations`);
     const memoryStore = new PostgresRepositoryMemoryStore(pool);
     const auditStore = new PostgresErasureAuditStore(pool);
     const expiration = new AuditExpirationService(auditStore);
     const scheduler = new AuditCleanupScheduler(
       () => expiration.cleanupExpired(),
       readiness,
+      config.auditCleanupIntervalMilliseconds ?? 3_600_000,
     );
     const authenticator = createApiKeyAuthenticator(
       new PostgresApiKeyStore(pool, config.apiKeyPepper),
@@ -113,7 +114,7 @@ export async function createApplication(
       allowedHosts: config.allowedHosts ?? [config.host],
       authenticator,
       readiness,
-      useCases: assembleUseCases(projectRoot, memoryStore),
+      useCases: assembleUseCases(catalogRoot, catalogRelease, memoryStore),
       logger,
       maximumRequestBodyBytes: config.maximumRequestBodyBytes ?? 65_536,
       requestDeadlineMilliseconds: config.requestDeadlineMilliseconds ?? 10_000,
@@ -146,6 +147,7 @@ export interface TestApplicationOptions {
   readonly logger?: SecurityLogger | undefined;
   readonly allowedHosts?: readonly string[] | undefined;
   readonly maximumRequestBodyBytes?: number | undefined;
+  readonly requestDeadlineMilliseconds?: number | undefined;
   readonly rateLimit?:
     | {
         readonly accountRequestsPerMinute: number;
@@ -169,11 +171,13 @@ export function createTestApplication(
       readiness,
       useCases: assembleUseCases(
         projectRoot,
+        "launch-catalog-v1",
         options.memoryStore ?? unconfiguredMemoryStore,
       ),
       logger: options.logger ?? silentSecurityLogger,
       maximumRequestBodyBytes: options.maximumRequestBodyBytes ?? 65_536,
-      requestDeadlineMilliseconds: 10_000,
+      requestDeadlineMilliseconds:
+        options.requestDeadlineMilliseconds ?? 10_000,
       rateLimit: options.rateLimit ?? {
         accountRequestsPerMinute: 60_000,
         apiKeyRequestsPerMinute: 60_000,
