@@ -37,9 +37,10 @@ jobs:
           mkdir -p .secrets benchmarks/results
           openssl rand -hex 32 > .secrets/postgres-password
           openssl rand -hex 32 > .secrets/api-key-pepper
+          : > .secrets/github-token
           node -e "const fs=require('fs'); const p=fs.readFileSync('.secrets/postgres-password','utf8').trim(); fs.writeFileSync('.secrets/database-url', 'postgresql://skillwire:'+p+'@postgres:5432/skillwire\n', {mode:0o600})"
           : > .secrets/api-key
-          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/api-key
+          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token .secrets/api-key
       - name: Build fixed benchmark images
         run: |
           docker build --target runtime --tag skillwire:local .

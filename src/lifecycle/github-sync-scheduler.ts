@@ -133,100 +133,112 @@ export class GitHubSyncScheduler {
       ),
       operation,
     );
-    for (const run of runs) {
-      signal.throwIfAborted();
-      await this.#withLease(
-        `sync/${run.sourceId}`,
-        operation,
-        async (lease, jobContext) => {
-          await this.sources.markSyncRunning(run.runId, lease, jobContext);
-          try {
-            const result = await this.synchronization.syncScheduled(
-              run.sourceId,
-              lease,
-              jobContext,
-              run.requestedCommitSha,
-              run.requestedRepository,
-              run.requestedCandidateId,
-            );
-            const budget = jobContext.budget;
-            await this.sources.completeSyncRun(
+    const outcomes = await Promise.allSettled(
+      runs.map((run) => this.#executeSyncRun(run, operation)),
+    );
+    const failed = outcomes.find(
+      (outcome): outcome is PromiseRejectedResult =>
+        outcome.status === "rejected",
+    );
+    if (failed !== undefined) throw failed.reason;
+  }
+
+  async #executeSyncRun(
+    run: ClaimedSyncRun,
+    operation: OperationContext,
+  ): Promise<void> {
+    operation.signal?.throwIfAborted();
+    await this.#withLease(
+      `sync/${run.sourceId}`,
+      operation,
+      async (lease, jobContext) => {
+        await this.sources.markSyncRunning(run.runId, lease, jobContext);
+        try {
+          const result = await this.synchronization.syncScheduled(
+            run.sourceId,
+            lease,
+            jobContext,
+            run.requestedCommitSha,
+            run.requestedRepository,
+            run.requestedCandidateId,
+          );
+          const budget = jobContext.budget;
+          await this.sources.completeSyncRun(
+            run.runId,
+            lease,
+            {
+              commitSha: result.commitSha,
+              treeSha: result.treeSha,
+              candidates: result.candidateTraces.length,
+              published: result.traces.filter(
+                ({ result: state }) => state === "published",
+              ).length,
+              reused: result.traces.filter(
+                ({ result: state }) => state === "reused",
+              ).length,
+              quarantined: result.candidateTraces.filter(
+                ({ classification }) => classification === "quarantined",
+              ).length,
+              resources: result.resourceCount,
+              requests: budget?.requests ?? 0,
+              retries: budget?.retries ?? 0,
+              responseBytes: budget?.responseBytes ?? 0,
+            },
+            jobContext,
+          );
+        } catch (error) {
+          const code = syncFailureCode(error);
+          const cancelled =
+            jobContext.signal?.aborted === true || code === "CANCELLED";
+          const retryable =
+            !cancelled &&
+            run.attemptCount + 1 < this.options.maximumAttempts &&
+            [
+              "GITHUB_TRANSIENT",
+              "GITHUB_RATE_LIMITED",
+              "RESPONSE_BUDGET_EXCEEDED",
+              "REQUEST_BUDGET_EXCEEDED",
+              "DEADLINE_EXCEEDED",
+            ].includes(code);
+          const retryAfterMilliseconds =
+            error instanceof Error &&
+            "retryAfterMilliseconds" in error &&
+            typeof error.retryAfterMilliseconds === "number"
+              ? error.retryAfterMilliseconds
+              : undefined;
+          const retryDelayValid =
+            retryAfterMilliseconds === undefined ||
+            (Number.isFinite(retryAfterMilliseconds) &&
+              retryAfterMilliseconds >= 0 &&
+              retryAfterMilliseconds <= 604_800_000);
+          if (isDeterministicQuarantine(code)) {
+            await this.sources.quarantineSyncRun(
               run.runId,
               lease,
-              {
-                commitSha: result.commitSha,
-                treeSha: result.treeSha,
-                candidates: result.candidateTraces.length,
-                published: result.traces.filter(
-                  ({ result: state }) => state === "published",
-                ).length,
-                reused: result.traces.filter(
-                  ({ result: state }) => state === "reused",
-                ).length,
-                quarantined: result.candidateTraces.filter(
-                  ({ classification }) => classification === "quarantined",
-                ).length,
-                resources: result.resourceCount,
-                requests: budget?.requests ?? 0,
-                retries: budget?.retries ?? 0,
-                responseBytes: budget?.responseBytes ?? 0,
-              },
+              code,
               jobContext,
             );
-          } catch (error) {
-            const code = syncFailureCode(error);
-            const cancelled =
-              jobContext.signal?.aborted === true || code === "CANCELLED";
-            const retryable =
-              !cancelled &&
-              run.attemptCount + 1 < this.options.maximumAttempts &&
-              [
-                "GITHUB_TRANSIENT",
-                "GITHUB_RATE_LIMITED",
-                "RESPONSE_BUDGET_EXCEEDED",
-                "REQUEST_BUDGET_EXCEEDED",
-                "DEADLINE_EXCEEDED",
-              ].includes(code);
-            const retryAfterMilliseconds =
-              error instanceof Error &&
-              "retryAfterMilliseconds" in error &&
-              typeof error.retryAfterMilliseconds === "number"
-                ? error.retryAfterMilliseconds
-                : undefined;
-            const retryDelayValid =
-              retryAfterMilliseconds === undefined ||
-              (Number.isFinite(retryAfterMilliseconds) &&
-                retryAfterMilliseconds >= 0 &&
-                retryAfterMilliseconds <= 604_800_000);
-            if (isDeterministicQuarantine(code)) {
-              await this.sources.quarantineSyncRun(
-                run.runId,
-                lease,
-                code,
-                jobContext,
-              );
-              return;
-            }
-            await this.sources
-              .failSyncRun(
-                run.runId,
-                lease,
-                code,
-                {
-                  cancelled,
-                  retryable: retryable && retryDelayValid,
-                  ...(retryAfterMilliseconds === undefined
-                    ? {}
-                    : { retryAfterMilliseconds }),
-                },
-                jobContext,
-              )
-              .catch(() => undefined);
-            if (!retryable && !cancelled) throw error;
+            return;
           }
-        },
-      );
-    }
+          await this.sources
+            .failSyncRun(
+              run.runId,
+              lease,
+              code,
+              {
+                cancelled,
+                retryable: retryable && retryDelayValid,
+                ...(retryAfterMilliseconds === undefined
+                  ? {}
+                  : { retryAfterMilliseconds }),
+              },
+              jobContext,
+            )
+            .catch(() => undefined);
+          if (!retryable && !cancelled) throw error;
+        }
+      },
+    );
   }
 
   async #withLease(

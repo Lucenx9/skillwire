@@ -142,8 +142,9 @@ jobs:
           mkdir -p .secrets
           openssl rand -hex 32 > .secrets/postgres-password
           openssl rand -hex 32 > .secrets/api-key-pepper
+          : > .secrets/github-token
           node -e "const fs=require('fs'); const p=fs.readFileSync('.secrets/postgres-password','utf8').trim(); fs.writeFileSync('.secrets/database-url', 'postgresql://skillwire:'+p+'@postgres:5432/skillwire\n', {mode:0o600})"
-          chmod 0444 .secrets/database-url .secrets/api-key-pepper
+          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token
       - name: Validate Compose and build production image
         run: |
           docker compose config --quiet

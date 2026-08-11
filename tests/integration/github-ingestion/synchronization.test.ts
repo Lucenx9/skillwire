@@ -419,6 +419,74 @@ describe("immutable source synchronization", () => {
 
   afterAll(async () => database.close());
 
+  it("restores a reused historical snapshot as the current source head", async () => {
+    const isolated = await createTestDatabase();
+    await isolated.migrate();
+    try {
+      const provider = new MutableNestedFixtureProvider(6011);
+      const store = new PostgresExternalCatalogStore(isolated.pool);
+      const registration = await new SourceRegistrationService(
+        provider,
+        store,
+      ).add(
+        { owner: "fixture-org", repository: provider.repositoryName },
+        "historical-head-admin",
+      );
+      const synchronization = new SourceSynchronizationService(provider, store);
+      const catalog = new PostgresImportedSkillCatalogProvider(isolated.pool);
+
+      const first = await synchronization.sync(registration.sourceId);
+      const firstMetadata = await catalog.listMetadata();
+      const omega = firstMetadata.find(({ name }) => name === "omega");
+      if (omega === undefined) throw new Error("omega fixture missing");
+
+      provider.index = 1;
+      await synchronization.sync(registration.sourceId);
+      const secondMetadata = await catalog.listMetadata();
+      const gamma = secondMetadata.find(({ name }) => name === "gamma");
+      if (gamma === undefined) throw new Error("gamma fixture missing");
+      expect(await catalog.advisoryStatus(omega.id, omega.revision)).toBe(
+        "unavailable",
+      );
+
+      provider.index = 0;
+      const restored = await synchronization.sync(registration.sourceId);
+      expect(restored).toMatchObject({
+        snapshotId: first.snapshotId,
+        created: false,
+      });
+      const source = await isolated.pool.query<{
+        current_published_snapshot_id: string | null;
+      }>(
+        "SELECT current_published_snapshot_id FROM github_sources WHERE id=$1",
+        [registration.sourceId],
+      );
+      expect(source.rows[0]?.current_published_snapshot_id).toBe(
+        first.snapshotId,
+      );
+      expect(await catalog.advisoryStatus(omega.id, omega.revision)).toBe(
+        "available",
+      );
+      expect(await catalog.advisoryStatus(gamma.id, gamma.revision)).toBe(
+        "unavailable",
+      );
+      expect((await catalog.listMetadata()).map(({ name }) => name)).toEqual([
+        "alpha",
+        "beta",
+        "omega",
+      ]);
+      expect(
+        (
+          await isolated.pool.query<{ count: string }>(
+            "SELECT count(*)::text AS count FROM external_source_snapshots",
+          )
+        ).rows[0]?.count,
+      ).toBe("2");
+    } finally {
+      await isolated.close();
+    }
+  }, 120_000);
+
   it("anchors snapshots to the final advisory head for zero, one, and multiple events with rollback", async () => {
     const isolated = await createTestDatabase();
     await isolated.migrate();

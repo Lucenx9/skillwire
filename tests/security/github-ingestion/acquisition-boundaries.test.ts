@@ -156,6 +156,13 @@ describe("GitHub acquisition security boundaries", () => {
     expect(requiredCi).not.toMatch(/advisory:verify[^\n]*--github/);
     const composeTest = await readFile("compose.test.yaml", "utf8");
     expect(composeTest).toContain('SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"');
+    const compose = await readFile("compose.yaml", "utf8");
+    expect(compose).toContain(
+      "SKILLWIRE_GITHUB_TOKEN_FILE: /run/secrets/github_token",
+    );
+    expect(compose).toContain("github_token:");
+    expect(compose).not.toMatch(/^\s+SKILLWIRE_GITHUB_TOKEN:/mu);
+    expect(requiredCi).toContain(": > .secrets/github-token");
     const live = await readFile(
       ".github/workflows/github-live-smoke.yml",
       "utf8",

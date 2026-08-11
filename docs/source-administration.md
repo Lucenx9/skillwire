@@ -16,6 +16,12 @@ pnpm source:admin source:list
 pnpm source:admin source:sync --source-id '<source-uuid>'
 ```
 
+With Docker Compose, write the token to the host path configured by
+`SKILLWIRE_GITHUB_TOKEN_SECRET_FILE` (default `.secrets/github-token`) and set
+`SKILLWIRE_GITHUB_INGESTION_ENABLED=true`. Compose mounts it read-only as
+`/run/secrets/github_token`; it never injects the token value into the service
+environment. Keep the placeholder file empty while ingestion is disabled.
+
 Registration and synchronization commands enqueue durable PostgreSQL jobs and
 return a run ID; they do not perform GitHub ingestion in the CLI process.
 Repeated requests reuse active work. Revoking the administrator authority makes

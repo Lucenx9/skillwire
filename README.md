@@ -52,11 +52,12 @@ cp .env.example .env
 install -d -m 700 .secrets
 openssl rand -hex 32 > .secrets/postgres-password
 openssl rand -hex 32 > .secrets/api-key-pepper
+: > .secrets/github-token
 postgres_password="$(tr -d '\n' < .secrets/postgres-password)"
 printf 'postgresql://skillwire:%s@postgres:5432/skillwire\n' "$postgres_password" \
   > .secrets/database-url
 chmod 400 .secrets/postgres-password
-chmod 444 .secrets/database-url .secrets/api-key-pepper
+chmod 444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token
 unset postgres_password
 docker compose up --build --wait
 curl --fail http://127.0.0.1:3000/health/live

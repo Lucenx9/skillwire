@@ -102,4 +102,108 @@ describe("GitHub synchronization scheduler", () => {
     ]);
     await scheduler.stop();
   });
+
+  it("starts every claimed source job within the configured concurrency window", async () => {
+    const firstSource = "550e8400-e29b-41d4-a716-446655440001";
+    const secondSource = "550e8400-e29b-41d4-a716-446655440002";
+    const started: string[] = [];
+    let releaseSecondStart: (() => void) | undefined;
+    const secondStarted = new Promise<void>((resolve) => {
+      releaseSecondStart = resolve;
+    });
+    const leases: SyncLeaseStore = {
+      acquire(key, holderId) {
+        return Promise.resolve({
+          key,
+          holderId,
+          fencingToken: 1n,
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+      },
+      renew() {
+        throw new Error("unused");
+      },
+      release() {
+        return Promise.resolve();
+      },
+    };
+    const scheduler = new GitHubSyncScheduler(
+      leases,
+      { claimQueuedDiscovery: () => Promise.resolve(undefined) },
+      {
+        enqueueScheduled: () => Promise.resolve(undefined),
+        execute: () => Promise.reject(new Error("unused")),
+      },
+      {
+        recoverAbandonedJobs: () => Promise.resolve(0),
+        enqueueSync: () => Promise.reject(new Error("unused")),
+        enqueueCandidateVerification: () => Promise.reject(new Error("unused")),
+        enqueueDueSourceSyncs: () => Promise.resolve(2),
+        claimQueuedSyncRuns: () =>
+          Promise.resolve([
+            {
+              runId: "660e8400-e29b-41d4-a716-446655440001",
+              sourceId: firstSource,
+              state: "queued" as const,
+              created: false,
+              attemptCount: 0,
+            },
+            {
+              runId: "660e8400-e29b-41d4-a716-446655440002",
+              sourceId: secondSource,
+              state: "queued" as const,
+              created: false,
+              attemptCount: 0,
+            },
+          ]),
+        markSyncRunning: () => Promise.resolve(),
+        completeSyncRun: () => Promise.resolve(),
+        failSyncRun: () => Promise.reject(new Error("unused")),
+        quarantineSyncRun: () => Promise.reject(new Error("unused")),
+      },
+      {
+        async syncScheduled(sourceId) {
+          started.push(sourceId);
+          if (sourceId === secondSource) releaseSecondStart?.();
+          if (sourceId === firstSource) {
+            await Promise.race([
+              secondStarted,
+              new Promise<never>((_resolve, reject) => {
+                setTimeout(() => {
+                  reject(new Error("source jobs were serialized"));
+                }, 250);
+              }),
+            ]);
+          }
+          return {
+            snapshotId: randomSnapshotId(sourceId),
+            sourceId,
+            commitSha: "a".repeat(40),
+            treeSha: "b".repeat(40),
+            resourceCount: 0,
+            traces: [],
+            candidateTraces: [],
+            created: true,
+          };
+        },
+      },
+      {
+        leaseDurationMs: 60_000,
+        sourceCadenceMs: 3_600_000,
+        discoveryCadenceMs: 3_600_000,
+        maximumSourcesPerTick: 2,
+        operationTimeoutMs: 300_000,
+        maximumAttempts: 3,
+        maximumConcurrentJobs: 2,
+      },
+    );
+
+    await scheduler.runOnce();
+    expect(started).toEqual([firstSource, secondSource]);
+    await scheduler.stop();
+  });
 });
+
+function randomSnapshotId(sourceId: string): string {
+  return sourceId.replace(/^55/, "77");
+}

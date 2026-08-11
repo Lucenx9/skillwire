@@ -1010,6 +1010,13 @@ export class PostgresGitHubSourceStore
           cacheKeySha(`${runId}:${reasonCode}`),
         ],
       );
+      await client.query(
+        `UPDATE github_source_registrations SET
+           last_terminal_run_id=$2,
+           next_sync_at=clock_timestamp()+synchronization_interval_seconds*interval '1 second'
+         WHERE source_id=(SELECT source_id FROM github_sync_runs WHERE id=$1)`,
+        [runId, runId],
+      );
       await assertLeaseHeld(client, lease);
     });
   }

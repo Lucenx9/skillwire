@@ -151,6 +151,13 @@ describe("durable GitHub synchronization runs", () => {
       source.sourceId,
       "administrator",
     );
+    await database.pool.query(
+      `UPDATE github_source_registrations
+       SET next_sync_at=clock_timestamp()-interval '1 minute',
+           last_terminal_run_id=NULL
+       WHERE source_id=$1`,
+      [source.sourceId],
+    );
     const quarantineLease = await leases.acquire(
       `sync/${source.sourceId}`,
       randomUUID(),
@@ -199,6 +206,18 @@ describe("durable GitHub synchronization runs", () => {
     expect(quarantineResults.rows[0]?.evidence_sha256).toMatch(
       /^[0-9a-f]{64}$/,
     );
+    const quarantineSchedule = await database.pool.query<{
+      last_terminal_run_id: string | null;
+      scheduled: boolean;
+    }>(
+      `SELECT last_terminal_run_id,next_sync_at>clock_timestamp() AS scheduled
+       FROM github_source_registrations WHERE source_id=$1`,
+      [source.sourceId],
+    );
+    expect(quarantineSchedule.rows[0]).toEqual({
+      last_terminal_run_id: quarantined.runId,
+      scheduled: true,
+    });
 
     const discovery = await store.enqueueDiscovery("d".repeat(64), {
       maximumQueries: 2,

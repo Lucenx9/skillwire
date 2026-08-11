@@ -253,6 +253,31 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           client,
           existing.id,
         );
+        if (traces.length > 0) {
+          await this.#recordMissingAndAdvisories(
+            client,
+            input.sourceId,
+            undefined,
+            candidates,
+          );
+          for (const candidate of candidateTraces) {
+            if (candidate.revision !== undefined) {
+              await this.#restoreAvailabilityIfNeeded(
+                client,
+                candidate.candidateId,
+              );
+            }
+          }
+          await client.query(
+            "UPDATE github_sources SET current_published_snapshot_id=$2, source_classification='verified' WHERE id=$1",
+            [input.sourceId, existing.id],
+          );
+        } else {
+          await client.query(
+            "UPDATE github_sources SET source_classification='quarantined' WHERE id=$1",
+            [input.sourceId],
+          );
+        }
         if (input.lease !== undefined)
           await assertLeaseHeld(client, input.lease);
         return {
@@ -1012,7 +1037,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
   async #recordMissingAndAdvisories(
     client: PoolClient,
     sourceId: string,
-    snapshotId: string,
+    snapshotId: string | undefined,
     candidates: readonly ExternalCandidateInput[],
   ): Promise<void> {
     const current = await client.query<{
@@ -1030,9 +1055,14 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       skill_identity_id: string;
       normalized_skill_root: string;
       revision_id: string;
+      advisory_status: string | null;
     }>(
       `
-        SELECT o.skill_identity_id, i.normalized_skill_root, o.revision_id
+        SELECT o.skill_identity_id, i.normalized_skill_root, o.revision_id,
+               (SELECT e.advisory_status
+                FROM external_revision_advisory_events e
+                WHERE e.revision_id=o.revision_id
+                ORDER BY e.sequence DESC LIMIT 1) AS advisory_status
         FROM external_snapshot_skill_observations o
         JOIN external_skill_identities i ON i.id = o.skill_identity_id
         WHERE o.snapshot_id = $1 AND o.revision_id IS NOT NULL
@@ -1041,15 +1071,23 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     );
     for (const row of previous.rows) {
       if (roots.has(row.normalized_skill_root)) continue;
-      await client.query(
-        `
-          INSERT INTO external_snapshot_skill_observations (
-            snapshot_id, skill_identity_id, revision_id, result
-          ) VALUES ($1,$2,NULL,'missing')
-          ON CONFLICT DO NOTHING
-        `,
-        [snapshotId, row.skill_identity_id],
-      );
+      if (snapshotId !== undefined) {
+        await client.query(
+          `
+            INSERT INTO external_snapshot_skill_observations (
+              snapshot_id, skill_identity_id, revision_id, result
+            ) VALUES ($1,$2,NULL,'missing')
+            ON CONFLICT DO NOTHING
+          `,
+          [snapshotId, row.skill_identity_id],
+        );
+      }
+      if (
+        row.advisory_status === "unavailable" ||
+        row.advisory_status === "revoked"
+      ) {
+        continue;
+      }
       await appendAdvisory(
         client,
         row.revision_id,
