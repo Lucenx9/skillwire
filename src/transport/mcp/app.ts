@@ -1,24 +1,20 @@
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 
-import type { SearchSkills } from "../../application/use-cases/search-skills.js";
 import { bearerAuthentication } from "../../authentication/middleware.js";
-import { createMcpServer } from "./server-factory.js";
+import { createMcpServer, type McpUseCases } from "./server-factory.js";
 
 export interface CreateAppOptions {
   readonly host: string;
   readonly bearerToken: string;
-  readonly searchSkills: SearchSkills;
+  readonly useCases: McpUseCases;
 }
 
 export function createApp(options: CreateAppOptions) {
   const app = createMcpHonoApp({ host: options.host });
-  const handler = createMcpHandler(
-    () => createMcpServer(options.searchSkills),
-    {
-      legacy: "stateless",
-    },
-  );
+  const handler = createMcpHandler(() => createMcpServer(options.useCases), {
+    legacy: "stateless",
+  });
 
   app.get("/health/live", (context) => context.json({ status: "ok" }));
   app.get("/health/ready", (context) => context.json({ status: "ready" }));

@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346",
+  "instructionsSha256": "f57879f294ce5c15f90210e6a9a14e39b5694cacfad95bbfb10b5c00babd9183",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/technical-documentation"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 479,
+      "mediaType": "text/markdown",
+      "path": "references/documentation-checklist.md",
+      "sha256": "87f35ec251208a6e97bd7cde1adb4189727c9b7dfa73b7ce17165f94c5e45b2d"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "technical-documentation",
+  "sourcePaths": {
+    "instructions": "catalog/skills/technical-documentation/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/technical-documentation/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/technical-documentation/1.0.0/references/documentation-checklist.md"
+    ]
+  }
+}

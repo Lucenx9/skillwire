@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0",
+  "instructionsSha256": "90f7cb149078ac30ee8dc3b2c26783df15f0e80219430b9a206e686b4ae93811",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/react-accessibility"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 482,
+      "mediaType": "text/markdown",
+      "path": "references/accessibility-checklist.md",
+      "sha256": "b635f2d6798f74f906f85265e8dce31336e1f5dc6a5556942dafd3fc201e9a4b"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "react-accessibility",
+  "sourcePaths": {
+    "instructions": "catalog/skills/react-accessibility/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/react-accessibility/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/react-accessibility/1.0.0/references/accessibility-checklist.md"
+    ]
+  }
+}

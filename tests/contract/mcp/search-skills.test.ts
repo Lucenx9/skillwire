@@ -39,10 +39,14 @@ describe("search_skills MCP contract", () => {
     await testClient?.close();
   });
 
-  it("exposes only search_skills", async () => {
+  it("exposes only the implemented progressive catalog tools", async () => {
     const { tools } = await client().client.listTools();
 
-    expect(tools.map((tool) => tool.name)).toEqual(["search_skills"]);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "load_skill",
+      "read_skill_resource",
+      "search_skills",
+    ]);
     expect(responseSessionIds.every((sessionId) => sessionId === null)).toBe(
       true,
     );

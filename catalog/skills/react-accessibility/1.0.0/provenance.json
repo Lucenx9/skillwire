@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "react-accessibility",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/react-accessibility"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/accessibility-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

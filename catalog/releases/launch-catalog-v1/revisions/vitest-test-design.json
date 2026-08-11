@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3",
+  "instructionsSha256": "85068c3901b4562872f2e1d87be7ec6988360b123819387ca1b4d4de65e8dc08",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/vitest-test-design"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 489,
+      "mediaType": "text/markdown",
+      "path": "references/test-design-checklist.md",
+      "sha256": "af7e3097a214f68c7857d4feceb10d5da8dbc38bc40e6e85acb51f62bb549a57"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "vitest-test-design",
+  "sourcePaths": {
+    "instructions": "catalog/skills/vitest-test-design/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/vitest-test-design/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/vitest-test-design/1.0.0/references/test-design-checklist.md"
+    ]
+  }
+}

@@ -10,6 +10,8 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "catalog:publish": "tsx src/catalog/admin-cli.ts publish",
+    "catalog:verify": "tsx src/catalog/admin-cli.ts verify",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/src/main.js",
     "format": "prettier --write src tests catalog package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json",

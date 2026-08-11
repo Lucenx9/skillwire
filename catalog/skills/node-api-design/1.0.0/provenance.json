@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "node-api-design",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/node-api-design"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/api-review-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

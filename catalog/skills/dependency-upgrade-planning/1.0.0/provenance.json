@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "dependency-upgrade-planning",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/dependency-upgrade-planning"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/upgrade-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}
