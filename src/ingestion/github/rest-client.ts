@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import type { OperationContext } from "../../application/ports/github-source-provider.js";
+import type {
+  ConditionalRepositoryResult,
+  OperationContext,
+} from "../../application/ports/github-source-provider.js";
 import {
   assertGitHubCoordinate,
   assertGitSha,
@@ -56,17 +59,58 @@ const blobSchema = z
     content: z.string(),
   })
   .loose();
+const searchItemSchema = z
+  .object({
+    path: z.string().min(1).max(1024),
+    repository: z
+      .object({
+        id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        name: z.string().min(1).max(100),
+        private: z.boolean(),
+        owner: z.object({ login: z.string().min(1).max(100) }).loose(),
+      })
+      .loose(),
+  })
+  .loose();
+const searchSchema = z
+  .object({
+    total_count: z.number().int().nonnegative(),
+    incomplete_results: z.boolean(),
+    items: z.array(searchItemSchema).max(100),
+  })
+  .loose();
 
 export interface GitHubRestClientOptions {
   readonly token?: string | undefined;
   readonly fetchImplementation?: typeof fetch | undefined;
   readonly maximumResponseBytes?: number | undefined;
+  readonly maximumAttempts?: number | undefined;
+  readonly maximumRetryDelayMs?: number | undefined;
+  readonly sleepImplementation?:
+    ((milliseconds: number, signal?: AbortSignal) => Promise<void>) | undefined;
+  readonly now?: (() => number) | undefined;
+}
+
+export interface GitHubSearchPage {
+  readonly items: readonly {
+    readonly repositoryId: number;
+    readonly owner: string;
+    readonly repository: string;
+    readonly path: string;
+  }[];
+  readonly incomplete: boolean;
+  readonly totalCount: number;
+  readonly etag?: string | undefined;
+  readonly link?: string | undefined;
+  readonly notModified: boolean;
 }
 
 function operationSignal(context?: OperationContext): AbortSignal | undefined {
   const signals: AbortSignal[] = [];
   if (context?.signal !== undefined) signals.push(context.signal);
   if (context?.deadline !== undefined) {
+    if (context.deadline <= Date.now())
+      throw new DOMException("deadline exceeded", "TimeoutError");
     signals.push(
       AbortSignal.timeout(Math.max(1, context.deadline - Date.now())),
     );
@@ -96,6 +140,7 @@ async function boundedBody(
   response: Response,
   limit: number,
   signal?: AbortSignal,
+  onBytes?: (length: number) => void,
 ): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared !== null && Number(declared) > limit)
@@ -149,6 +194,7 @@ async function boundedBody(
     result.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  onBytes?.(length);
   return result;
 }
 
@@ -162,53 +208,227 @@ export class GitHubRestClient {
   readonly #fetch: typeof fetch;
   readonly #token: string | undefined;
   readonly #maximumResponseBytes: number;
+  readonly #maximumAttempts: number;
+  readonly #maximumRetryDelayMs: number;
+  readonly #sleep: (
+    milliseconds: number,
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  readonly #now: () => number;
 
   constructor(options: GitHubRestClientOptions = {}) {
     this.#fetch = options.fetchImplementation ?? fetch;
     this.#token = options.token;
     this.#maximumResponseBytes =
       options.maximumResponseBytes ?? 8 * 1024 * 1024;
+    this.#maximumAttempts = options.maximumAttempts ?? 3;
+    this.#maximumRetryDelayMs = options.maximumRetryDelayMs ?? 60_000;
+    this.#now = options.now ?? Date.now;
+    this.#sleep = options.sleepImplementation ?? abortableSleep;
+    if (this.#maximumAttempts < 1 || this.#maximumAttempts > 4) {
+      throw new Error("INVALID_GITHUB_RETRY_CONFIGURATION");
+    }
   }
 
-  async #request(path: string, context?: OperationContext): Promise<Response> {
+  get authorizationScope(): "authenticated" | "anonymous" {
+    return this.#token === undefined ? "anonymous" : "authenticated";
+  }
+
+  async #request(
+    path: string,
+    context?: OperationContext,
+    conditionalEtag?: string,
+  ): Promise<Response> {
     safePath(path);
-    const headers = new Headers({
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": GITHUB_API_VERSION,
-      "User-Agent": "SkillWire/0.1.0",
-    });
-    if (this.#token !== undefined)
-      headers.set("Authorization", `Bearer ${this.#token}`);
-    const signal = operationSignal(context);
-    const init: RequestInit = {
-      method: "GET",
-      headers,
-      redirect: "manual",
-    };
-    if (signal !== undefined) init.signal = signal;
-    return this.#fetch(`${GITHUB_API_ORIGIN}${path}`, init);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.#maximumAttempts; attempt += 1) {
+      context?.signal?.throwIfAborted();
+      if (context?.deadline !== undefined && context.deadline <= this.#now()) {
+        throw new DOMException("deadline exceeded", "TimeoutError");
+      }
+      const budget = context?.budget;
+      if (budget !== undefined) {
+        if (budget.requests >= budget.maximumRequests)
+          throw new Error("REQUEST_BUDGET_EXCEEDED");
+        budget.requests += 1;
+      }
+      const headers = new Headers({
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": "SkillWire/0.1.0",
+      });
+      if (this.#token !== undefined)
+        headers.set("Authorization", `Bearer ${this.#token}`);
+      if (conditionalEtag !== undefined)
+        headers.set("If-None-Match", conditionalEtag);
+      const signal = operationSignal(context);
+      const init: RequestInit = { method: "GET", headers, redirect: "manual" };
+      if (signal !== undefined) init.signal = signal;
+      let response: Response;
+      try {
+        response = await this.#fetch(`${GITHUB_API_ORIGIN}${path}`, init);
+      } catch (error) {
+        if (context?.signal?.aborted === true || error instanceof DOMException)
+          throw error;
+        lastError = error;
+        if (attempt === this.#maximumAttempts) throw normalizeFetchError(error);
+        await this.#waitBeforeRetry(undefined, attempt, context);
+        continue;
+      }
+      if (!retryableResponse(response) || attempt === this.#maximumAttempts)
+        return response;
+      lastError = new Error(`GITHUB_HTTP_${String(response.status)}`);
+      await response.body?.cancel();
+      await this.#waitBeforeRetry(response, attempt, context);
+    }
+    throw normalizeFetchError(lastError);
+  }
+
+  async #waitBeforeRetry(
+    response: Response | undefined,
+    attempt: number,
+    context?: OperationContext,
+  ): Promise<void> {
+    const budget = context?.budget;
+    if (budget !== undefined) {
+      if (budget.retries >= budget.maximumRetries)
+        throw new Error("RETRY_BUDGET_EXCEEDED");
+      budget.retries += 1;
+    }
+    const delay = retryDelay(
+      response,
+      attempt,
+      this.#now(),
+      this.#maximumRetryDelayMs,
+    );
+    if (
+      context?.deadline !== undefined &&
+      this.#now() + delay >= context.deadline
+    ) {
+      throw new DOMException("deadline exceeded", "TimeoutError");
+    }
+    await this.#sleep(delay, operationSignal(context));
+  }
+
+  #recordResponseBytes(length: number, context?: OperationContext): void {
+    const budget = context?.budget;
+    if (budget === undefined) return;
+    budget.responseBytes += length;
+    if (budget.responseBytes > budget.maximumResponseBytes) {
+      throw new Error("RESPONSE_BUDGET_EXCEEDED");
+    }
   }
 
   async #json(path: string, context?: OperationContext): Promise<unknown> {
     const response = await this.#request(path, context);
-    if (!response.ok) throw new Error(`GITHUB_HTTP_${String(response.status)}`);
+    if (!response.ok) throw githubHttpError(response);
     return parseJson(
       await boundedBody(
         response,
         this.#maximumResponseBytes,
         operationSignal(context),
+        (length) => {
+          this.#recordResponseBytes(length, context);
+        },
       ),
     );
+  }
+
+  async searchCode(
+    query: string,
+    page: number,
+    perPage: number,
+    context?: OperationContext,
+    etag?: string,
+  ): Promise<GitHubSearchPage> {
+    if (
+      query.length < 1 ||
+      query.length > 256 ||
+      page < 1 ||
+      !Number.isInteger(page) ||
+      perPage < 1 ||
+      perPage > 100 ||
+      !Number.isInteger(perPage)
+    ) {
+      throw new Error("INVALID_DISCOVERY_QUERY");
+    }
+    const parameters = new URLSearchParams({
+      q: query,
+      per_page: String(perPage),
+      page: String(page),
+    });
+    const response = await this.#request(
+      `/search/code?${parameters.toString()}`,
+      context,
+      etag,
+    );
+    if (response.status === 304) {
+      return { items: [], incomplete: false, totalCount: 0, notModified: true };
+    }
+    if (!response.ok) throw githubHttpError(response);
+    const parsed = searchSchema.parse(
+      parseJson(
+        await boundedBody(
+          response,
+          this.#maximumResponseBytes,
+          operationSignal(context),
+          (length) => {
+            this.#recordResponseBytes(length, context);
+          },
+        ),
+      ),
+    );
+    return {
+      items: parsed.items
+        .filter((item) => !item.repository.private)
+        .map((item) => ({
+          repositoryId: item.repository.id,
+          owner: item.repository.owner.login,
+          repository: item.repository.name,
+          path: item.path,
+        })),
+      incomplete: parsed.incomplete_results,
+      totalCount: parsed.total_count,
+      notModified: false,
+      ...(response.headers.get("etag") === null
+        ? {}
+        : { etag: response.headers.get("etag") ?? undefined }),
+      ...(response.headers.get("link") === null
+        ? {}
+        : { link: response.headers.get("link") ?? undefined }),
+    };
   }
 
   async resolvePublicRepository(
     coordinate: GitHubRepositoryCoordinate,
     context?: OperationContext,
   ): Promise<GitHubRepositoryIdentity> {
+    const result = await this.resolvePublicRepositoryConditionally(
+      coordinate,
+      undefined,
+      context,
+    );
+    if (result.repository === undefined || result.notModified) {
+      throw new Error("CACHE_MISS_ON_NOT_MODIFIED");
+    }
+    return result.repository;
+  }
+
+  async resolvePublicRepositoryConditionally(
+    coordinate: GitHubRepositoryCoordinate,
+    etag: string | undefined,
+    context?: OperationContext,
+  ): Promise<ConditionalRepositoryResult> {
     assertGitHubCoordinate(coordinate);
     let path = `/repos/${encodeURIComponent(coordinate.owner)}/${encodeURIComponent(coordinate.repository)}`;
     let redirectedRepositoryId: number | undefined;
-    let response = await this.#request(path, context);
+    let response = await this.#request(path, context, etag);
+    if (response.status === 304) {
+      return {
+        notModified: true,
+        ...(etag === undefined ? {} : { etag }),
+      };
+    }
     if (response.status === 301) {
       const location = response.headers.get("location");
       if (location === null) throw new Error("REDIRECT_REJECTED");
@@ -221,6 +441,8 @@ export class GitHubRestClient {
       );
       if (
         target.origin !== GITHUB_API_ORIGIN ||
+        target.username !== "" ||
+        target.password !== "" ||
         target.search !== "" ||
         target.hash !== "" ||
         (coordinateMatch === null && numericMatch === null)
@@ -248,13 +470,16 @@ export class GitHubRestClient {
       if (response.status >= 300 && response.status < 400)
         throw new Error("REDIRECT_REJECTED");
     }
-    if (!response.ok) throw new Error(`GITHUB_HTTP_${String(response.status)}`);
+    if (!response.ok) throw githubHttpError(response);
     const parsed = repositorySchema.parse(
       parseJson(
         await boundedBody(
           response,
           this.#maximumResponseBytes,
           operationSignal(context),
+          (length) => {
+            this.#recordResponseBytes(length, context);
+          },
         ),
       ),
     );
@@ -266,10 +491,16 @@ export class GitHubRestClient {
       throw new Error("REDIRECT_REJECTED");
     }
     return {
-      repositoryId: parsed.id,
-      owner: parsed.owner.login,
-      repository: parsed.name,
-      defaultBranch: parsed.default_branch,
+      repository: {
+        repositoryId: parsed.id,
+        owner: parsed.owner.login,
+        repository: parsed.name,
+        defaultBranch: parsed.default_branch,
+      },
+      notModified: false,
+      ...(response.headers.get("etag") === null
+        ? {}
+        : { etag: response.headers.get("etag") ?? undefined }),
     };
   }
 
@@ -371,4 +602,79 @@ export class GitHubRestClient {
     if (objectSha !== sha) throw new Error("HASH_MISMATCH");
     return Uint8Array.from(decoded);
   }
+}
+
+function retryableResponse(response: Response): boolean {
+  return (
+    response.status === 429 ||
+    (response.status === 403 &&
+      (response.headers.get("retry-after") !== null ||
+        response.headers.get("x-ratelimit-remaining") === "0")) ||
+    response.status === 500 ||
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504
+  );
+}
+
+function githubHttpError(response: Response): Error {
+  if (response.status === 429 || response.status === 403) {
+    return new Error("GITHUB_RATE_LIMITED");
+  }
+  if (response.status >= 500) return new Error("GITHUB_TRANSIENT");
+  return new Error(`GITHUB_HTTP_${String(response.status)}`);
+}
+
+function normalizeFetchError(error: unknown): Error {
+  if (error instanceof Error && error.message.startsWith("GITHUB_"))
+    return error;
+  return new Error("GITHUB_TRANSIENT");
+}
+
+function retryDelay(
+  response: Response | undefined,
+  attempt: number,
+  now: number,
+  maximum: number,
+): number {
+  const retryAfter = response?.headers.get("retry-after");
+  if (
+    retryAfter !== null &&
+    retryAfter !== undefined &&
+    /^\d+$/.test(retryAfter)
+  ) {
+    return Math.min(maximum, Number(retryAfter) * 1000);
+  }
+  if (response?.headers.get("x-ratelimit-remaining") === "0") {
+    const reset = response.headers.get("x-ratelimit-reset");
+    if (reset !== null && /^\d+$/.test(reset)) {
+      return Math.min(maximum, Math.max(0, Number(reset) * 1000 - now));
+    }
+  }
+  return Math.min(maximum, 50 * 2 ** (attempt - 1));
+}
+
+async function abortableSleep(
+  milliseconds: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (milliseconds <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    function abort(): void {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new DOMException("aborted", "AbortError"),
+      );
+    }
+    function complete(): void {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }
+    const timeout = setTimeout(complete, milliseconds);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted === true) abort();
+  });
 }

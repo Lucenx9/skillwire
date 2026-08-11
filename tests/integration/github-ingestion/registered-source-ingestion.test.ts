@@ -148,10 +148,14 @@ describe("registered mattpocock/skills ingestion", () => {
 
     const grillDependencies = await database.pool.query<{
       target_skill_name: string;
+      target_skill_identity_id: string;
+      target_revision_id: string;
+      evidence_source_sha256: string;
       evidence_kind: string;
       evidence_locator: string;
     }>(`
-      SELECT d.target_skill_name, d.evidence_kind, d.evidence_locator
+      SELECT d.target_skill_name, d.target_skill_identity_id, d.target_revision_id,
+             d.evidence_source_sha256, d.evidence_kind, d.evidence_locator
       FROM external_revision_dependencies d
       JOIN external_skill_revisions r ON r.id = d.revision_id
       WHERE r.name = 'grill-with-docs'
@@ -160,11 +164,21 @@ describe("registered mattpocock/skills ingestion", () => {
     expect(grillDependencies.rows).toEqual([
       {
         target_skill_name: "domain-modeling",
+        target_skill_identity_id:
+          grillDependencies.rows[0]?.target_skill_identity_id,
+        target_revision_id: grillDependencies.rows[0]?.target_revision_id,
+        evidence_source_sha256:
+          grillDependencies.rows[0]?.evidence_source_sha256,
         evidence_kind: "explicit-invocation",
         evidence_locator: grillDependencies.rows[0]?.evidence_locator,
       },
       {
         target_skill_name: "grilling",
+        target_skill_identity_id:
+          grillDependencies.rows[1]?.target_skill_identity_id,
+        target_revision_id: grillDependencies.rows[1]?.target_revision_id,
+        evidence_source_sha256:
+          grillDependencies.rows[1]?.evidence_source_sha256,
         evidence_kind: "explicit-invocation",
         evidence_locator: grillDependencies.rows[1]?.evidence_locator,
       },
@@ -172,6 +186,18 @@ describe("registered mattpocock/skills ingestion", () => {
     expect(
       grillDependencies.rows.every(({ evidence_locator }) =>
         /^instructions:\d+$/.test(evidence_locator),
+      ),
+    ).toBe(true);
+    expect(
+      grillDependencies.rows.every(
+        ({
+          target_skill_identity_id,
+          target_revision_id,
+          evidence_source_sha256,
+        }) =>
+          /^[0-9a-f-]{36}$/.test(target_skill_identity_id) &&
+          /^[0-9a-f-]{36}$/.test(target_revision_id) &&
+          /^[0-9a-f]{64}$/.test(evidence_source_sha256),
       ),
     ).toBe(true);
     const resources = await database.pool.query<{ resource_path: string }>(

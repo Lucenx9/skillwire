@@ -28,6 +28,7 @@ describe("GitHub ingestion migrations", () => {
       "003",
       "004",
       "005",
+      "006",
     ]);
     expect(
       versions.rows.every(({ checksum }) => /^[0-9a-f]{64}$/.test(checksum)),

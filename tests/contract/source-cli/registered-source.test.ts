@@ -64,7 +64,6 @@ describe("registered-source administrator CLI", () => {
       ],
       ["source:sync", "--source-id", "main"],
       ["source:list", "--all"],
-      ["discover"],
     ]) {
       expect(() => parseSourceAdminCommand(args)).toThrow();
     }

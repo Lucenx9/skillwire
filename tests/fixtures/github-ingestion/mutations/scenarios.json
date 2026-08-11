@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "repositoryId": 2002,
+  "commits": {
+    "initial": "1111111111111111111111111111111111111111",
+    "changed": "2222222222222222222222222222222222222222",
+    "removed": "3333333333333333333333333333333333333333"
+  },
+  "expected": {
+    "initial": ["published", "published", "published"],
+    "changed": ["reused", "published", "missing", "published"],
+    "removed": ["reused", "missing", "missing"]
+  },
+  "transportCases": [
+    "rename-one-hop",
+    "etag-not-modified",
+    "rate-limit-retry-after",
+    "transient-retry",
+    "cancel-during-body",
+    "tree-truncated",
+    "source-unavailable-confirmation"
+  ],
+  "policyCases": [
+    "nested-layout",
+    "license-missing",
+    "license-conflict",
+    "license-unsupported",
+    "dependency-exact",
+    "dependency-missing"
+  ]
+}

@@ -16,6 +16,15 @@ const metadataSchema = z
     description: z.string().min(1).max(1024),
     "disable-model-invocation": z.boolean().optional(),
     "argument-hint": z.string().min(1).max(1024).optional(),
+    dependencies: z
+      .array(
+        z
+          .string()
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+          .max(120),
+      )
+      .max(32)
+      .optional(),
   })
   .strict();
 
@@ -45,8 +54,10 @@ function dependencies(body: string): readonly ExternalDependencyInput[] {
     readonly children?: readonly Node[] | undefined;
   }
   const searchable: string[] = [];
+  let nodes = 0;
   const visit = (node: Node, depth: number): void => {
-    if (depth > 64) throw new Error("SKILL_SCHEMA_INVALID");
+    nodes += 1;
+    if (nodes > 20_000 || depth > 64) throw new Error("SKILL_SCHEMA_INVALID");
     if (node.type === "code" || node.type === "html") return;
     if (
       (node.type === "text" || node.type === "inlineCode") &&
@@ -102,6 +113,18 @@ export function parseSkillDocument(bytes: Uint8Array): ParsedSkillDocument {
     invocationMode:
       metadata["disable-model-invocation"] === true ? "user-only" : "automatic",
     instructions: parts.body.normalize("NFC"),
-    dependencyEvidence: dependencies(parts.body),
+    dependencyEvidence: [
+      ...(metadata.dependencies ?? []).map((skillName, index) => ({
+        skillName,
+        required: true,
+        evidenceKind: "frontmatter" as const,
+        evidenceLocator: `frontmatter:dependencies:${String(index)}`,
+      })),
+      ...dependencies(parts.body),
+    ].filter(
+      (entry, index, values) =>
+        values.findIndex(({ skillName }) => skillName === entry.skillName) ===
+        index,
+    ),
   };
 }

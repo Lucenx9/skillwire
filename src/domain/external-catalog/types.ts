@@ -12,10 +12,38 @@ export type GitHubSyncRunState =
   | "cancelled"
   | "superseded";
 export type InvocationMode = "automatic" | "user-only";
-export type ImportResult = "published" | "reused" | "quarantined";
+export type ImportResult = "published" | "reused" | "quarantined" | "missing";
 export type TrustAtPublication = "structurally-verified";
 export type ExternalAdvisoryStatus = "available" | "unavailable" | "revoked";
-export type ValidationSeverity = "error" | "warning";
+export type ValidationSeverity = "error" | "warning" | "info";
+export type ClassificationActor =
+  "discovery" | "verifier" | "administrator" | "synchronization";
+export type DiscoveryEvidenceKind =
+  "claude-plugin-manifest" | "nested-skill-document";
+export type ExternalValidationReasonCode =
+  | "MANIFEST_INVALID"
+  | "MANIFEST_DUPLICATE_SKILL"
+  | "SKILL_SCHEMA_INVALID"
+  | "SKILL_DUPLICATE_IDENTITY"
+  | "COMMIT_MISMATCH"
+  | "TREE_TRUNCATED"
+  | "TREE_OVERSIZED"
+  | "TREE_AMBIGUOUS"
+  | "OBJECT_UNSUPPORTED"
+  | "PATH_UNSAFE"
+  | "RESOURCE_MISSING"
+  | "RESOURCE_NON_TEXT"
+  | "RESOURCE_OVERSIZED"
+  | "LICENSE_MISSING"
+  | "LICENSE_UNSUPPORTED"
+  | "LICENSE_CONFLICT"
+  | "ATTRIBUTION_MISSING"
+  | "DEPENDENCY_MISSING"
+  | "DEPENDENCY_AMBIGUOUS"
+  | "DEPENDENCY_CYCLE"
+  | "HASH_MISMATCH"
+  | "PUBLICATION_CONFLICT"
+  | "ADMIN_QUARANTINE";
 export type GitObjectMode =
   "100644" | "100755" | "040000" | "120000" | "160000";
 
@@ -40,6 +68,15 @@ export interface IngestionBudgets {
   readonly maximumTextBytes: number;
   readonly maximumBundleBytes: number;
   readonly maximumRepositoryBytes: number;
+}
+
+export interface DiscoveryBudgets {
+  readonly maximumQueries: number;
+  readonly maximumPagesPerQuery: number;
+  readonly resultsPerPage: number;
+  readonly maximumResults: number;
+  readonly maximumRequests: number;
+  readonly maximumResponseBytes: number;
 }
 
 export const DEFAULT_INGESTION_BUDGETS: IngestionBudgets = Object.freeze({
@@ -78,17 +115,30 @@ export interface ExternalResourceInput {
 
 export interface ExternalDependencyInput {
   readonly skillName: string;
+  readonly targetSkillId?: string | undefined;
+  readonly targetRevision?: string | undefined;
   readonly required: boolean;
   readonly evidenceKind: "manifest" | "frontmatter" | "explicit-invocation";
   readonly evidenceLocator: string;
 }
 
 export interface ExternalValidationFinding {
-  readonly code: string;
+  readonly code: ExternalValidationReasonCode;
   readonly severity: ValidationSeverity;
   readonly subjectKind:
     "source" | "snapshot" | "candidate" | "revision" | "resource";
   readonly subjectId: string;
+}
+
+export interface GitHubDiscoveryHint extends GitHubRepositoryCoordinate {
+  readonly repositoryId: number;
+}
+
+export interface GitHubDiscoveryEvidence {
+  readonly repositoryId: number;
+  readonly kind: DiscoveryEvidenceKind;
+  readonly pathHash: string;
+  readonly basename: "plugin.json" | "SKILL.md";
 }
 
 export interface ExternalAdvisory {
@@ -131,6 +181,8 @@ export interface ExternalResourceManifestEntry {
 
 export interface ExternalDependency {
   readonly skillName: string;
+  readonly targetSkillId?: string | undefined;
+  readonly targetRevision?: string | undefined;
   readonly required: boolean;
   readonly evidenceKind: "manifest" | "frontmatter" | "explicit-invocation";
   readonly evidenceLocator: string;
@@ -160,6 +212,27 @@ export interface ImportTraceResult {
   readonly result: ImportResult;
   readonly revision: string;
   readonly bundleSha256: string;
+}
+
+export interface ExternalCandidateInput {
+  readonly skillPath: string;
+  readonly name: string;
+  readonly description: string;
+  readonly adapterKind: "claude-plugin" | "nested-skill";
+  readonly classification: "verified" | "quarantined";
+  readonly findings: readonly ExternalValidationFinding[];
+  readonly revision?: ExternalSkillRevision | undefined;
+}
+
+export interface CandidateTraceResult {
+  readonly candidateId: string;
+  readonly skillPath: string;
+  readonly skillName: string;
+  readonly classification: CandidateClassification;
+  readonly result: ImportResult;
+  readonly reasonCodes: readonly ExternalValidationReasonCode[];
+  readonly revision?: string | undefined;
+  readonly bundleSha256?: string | undefined;
 }
 
 export function assertGitSha(value: string): string {

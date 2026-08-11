@@ -1,4 +1,5 @@
 import type {
+  ConditionalRepositoryResult,
   GitHubSourceProvider,
   OperationContext,
 } from "../../application/ports/github-source-provider.js";
@@ -21,6 +22,18 @@ export class GitHubCommitTreeBlobReader implements GitHubSourceProvider {
     context?: OperationContext,
   ): Promise<GitHubRepositoryIdentity> {
     return this.client.resolvePublicRepository(coordinate, context);
+  }
+
+  resolvePublicRepositoryConditionally(
+    coordinate: GitHubRepositoryCoordinate,
+    etag: string | undefined,
+    context?: OperationContext,
+  ): Promise<ConditionalRepositoryResult> {
+    return this.client.resolvePublicRepositoryConditionally(
+      coordinate,
+      etag,
+      context,
+    );
   }
 
   async readDefaultSnapshot(

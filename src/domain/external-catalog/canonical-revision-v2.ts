@@ -80,8 +80,6 @@ export function createExternalSkillRevision(
     source: {
       provider: "github",
       repositoryId: input.provenance.repositoryId,
-      owner: input.provenance.owner,
-      repository: input.provenance.repository,
       skillPath: input.provenance.skillPath,
       sourceOwner: input.provenance.sourceOwner,
       spdxLicenseId: input.provenance.spdxLicenseId,
@@ -97,6 +95,8 @@ export function createExternalSkillRevision(
     ...immutableContent,
     source: {
       ...immutableContent.source,
+      owner: input.provenance.owner,
+      repository: input.provenance.repository,
       commitSha: input.provenance.commitSha,
     },
     licenseText: license.text,

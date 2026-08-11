@@ -189,4 +189,109 @@ describe("fixed-origin GitHub REST client", () => {
       replacedBlob.readBlob(repository, "1".repeat(40), 3),
     ).rejects.toThrow("HASH_MISMATCH");
   });
+
+  it("retries bounded rate/transient responses using shared headers and budgets", async () => {
+    let calls = 0;
+    const sleeps: number[] = [];
+    const client = new GitHubRestClient({
+      sleepImplementation(milliseconds) {
+        sleeps.push(milliseconds);
+        return Promise.resolve();
+      },
+      fetchImplementation: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve(
+            new Response(null, {
+              status: 429,
+              headers: { "retry-after": "0" },
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 1148788086,
+              name: "skills",
+              private: false,
+              default_branch: "main",
+              owner: { login: "mattpocock" },
+            }),
+          ),
+        );
+      },
+    });
+    const budget = {
+      requests: 0,
+      retries: 0,
+      responseBytes: 0,
+      maximumRequests: 2,
+      maximumRetries: 1,
+      maximumResponseBytes: 4096,
+    };
+    await expect(
+      client.resolvePublicRepository(
+        { owner: "mattpocock", repository: "skills" },
+        { budget },
+      ),
+    ).resolves.toEqual(repository);
+    expect(calls).toBe(2);
+    expect(sleeps).toEqual([0]);
+    expect(budget).toMatchObject({ requests: 2, retries: 1 });
+  });
+
+  it("does not sleep past a deadline or retry ordinary not-found responses", async () => {
+    let calls = 0;
+    const deadlineClient = new GitHubRestClient({
+      now: () => 1_000,
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response(null, { status: 429, headers: { "retry-after": "10" } }),
+        ),
+    });
+    await expect(
+      deadlineClient.resolvePublicRepository(
+        { owner: "mattpocock", repository: "skills" },
+        { deadline: 1_100 },
+      ),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+
+    const notFound = new GitHubRestClient({
+      fetchImplementation: () => {
+        calls += 1;
+        return Promise.resolve(new Response(null, { status: 404 }));
+      },
+    });
+    await expect(
+      notFound.resolvePublicRepository({
+        owner: "mattpocock",
+        repository: "skills",
+      }),
+    ).rejects.toThrow("GITHUB_HTTP_404");
+    expect(calls).toBe(1);
+  });
+
+  it("fails when a rate-limit retry would exceed the shared retry budget", async () => {
+    const client = new GitHubRestClient({
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response(null, { status: 429, headers: { "retry-after": "0" } }),
+        ),
+    });
+    await expect(
+      client.resolvePublicRepository(
+        { owner: "mattpocock", repository: "skills" },
+        {
+          budget: {
+            requests: 0,
+            retries: 0,
+            responseBytes: 0,
+            maximumRequests: 2,
+            maximumRetries: 0,
+            maximumResponseBytes: 4096,
+          },
+        },
+      ),
+    ).rejects.toThrow("RETRY_BUDGET_EXCEEDED");
+  });
 });
