@@ -1,0 +1,159 @@
+[
+  {
+    "id": "dependency-upgrade-planning",
+    "name": "Dependency Upgrade Planning",
+    "description": "Plan dependency upgrades with compatibility research, migration steps, tests, and rollback.",
+    "capabilities": [
+      "dependency upgrades",
+      "compatibility research",
+      "migration planning",
+      "rollback",
+      "version changes"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "dockerfile-hardening",
+    "name": "Dockerfile Hardening",
+    "description": "Review container builds for minimal images, least privilege, reproducibility, and secret safety.",
+    "capabilities": [
+      "Dockerfile",
+      "container security",
+      "least privilege",
+      "root user",
+      "reproducible builds",
+      "secret safety"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "github-actions-ci",
+    "name": "GitHub Actions CI",
+    "description": "Design maintainable GitHub Actions validation and delivery workflows.",
+    "capabilities": [
+      "GitHub Actions",
+      "continuous integration",
+      "CI workflows",
+      "pipelines",
+      "delivery automation"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "node-api-design",
+    "name": "Node API Design",
+    "description": "Design and review clear, compatible, secure Node.js service interfaces.",
+    "capabilities": [
+      "Node.js",
+      "API design",
+      "REST endpoints",
+      "service interfaces",
+      "backward compatibility",
+      "API security"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "postgres-schema-review",
+    "name": "PostgreSQL Schema Review",
+    "description": "Review PostgreSQL schemas, constraints, indexes, migrations, and data integrity.",
+    "capabilities": [
+      "PostgreSQL",
+      "schema review",
+      "constraints",
+      "indexes",
+      "database migrations",
+      "data integrity"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "react-accessibility",
+    "name": "React Accessibility",
+    "description": "Review React interfaces for accessible structure, semantics, input, focus, and feedback.",
+    "capabilities": [
+      "React",
+      "accessibility",
+      "ARIA",
+      "semantic HTML",
+      "keyboard input",
+      "focus management"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "technical-documentation",
+    "name": "Technical Documentation",
+    "description": "Produce accurate, audience-appropriate technical documentation and validation guides.",
+    "capabilities": [
+      "technical documentation",
+      "README",
+      "guides",
+      "audience analysis",
+      "validation instructions"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "threat-modeling",
+    "name": "Threat Modeling",
+    "description": "Identify assets, trust boundaries, attacker goals, abuse cases, and mitigations.",
+    "capabilities": [
+      "threat modeling",
+      "assets",
+      "trust boundaries",
+      "attacker goals",
+      "abuse cases",
+      "mitigations"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "typescript-code-review",
+    "name": "TypeScript Code Review",
+    "description": "Review TypeScript changes for correctness, type safety, maintainability, and regressions.",
+    "capabilities": [
+      "TypeScript",
+      "code review",
+      "type safety",
+      "type narrowing",
+      "correctness",
+      "regression analysis"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  },
+  {
+    "id": "vitest-test-design",
+    "name": "Vitest Test Design",
+    "description": "Design focused Vitest unit, contract, integration, and failure-path coverage.",
+    "capabilities": [
+      "Vitest",
+      "unit tests",
+      "contract tests",
+      "integration tests",
+      "mocking",
+      "failure paths"
+    ],
+    "revision": "1.0.0",
+    "trustAtPublication": "trusted",
+    "currentAdvisoryStatus": "available"
+  }
+]

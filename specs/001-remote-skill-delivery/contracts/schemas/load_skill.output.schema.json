@@ -4,22 +4,42 @@
   "title": "load_skill successful structured output",
   "type": "object",
   "additionalProperties": false,
-  "required": ["skillId", "name", "instructions", "provenance", "memoryRecorded"],
+  "required": [
+    "skillId",
+    "revision",
+    "revisionSha256",
+    "publishedProvenance",
+    "currentAdvisoryStatus",
+    "instructions",
+    "resourceManifest",
+    "memoryRecorded"
+  ],
   "properties": {
     "skillId": {
       "$ref": "./common.schema.json#/$defs/SkillId"
     },
-    "name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 120
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "revisionSha256": {
+      "$ref": "./common.schema.json#/$defs/Sha256"
+    },
+    "publishedProvenance": {
+      "$ref": "./common.schema.json#/$defs/PublishedProvenance"
+    },
+    "currentAdvisoryStatus": {
+      "$ref": "./common.schema.json#/$defs/CurrentAdvisoryStatus"
     },
     "instructions": {
       "type": "string",
       "maxLength": 262144
     },
-    "provenance": {
-      "$ref": "./common.schema.json#/$defs/Provenance"
+    "resourceManifest": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "./common.schema.json#/$defs/ResourceManifestEntry"
+      }
     },
     "memoryRecorded": {
       "type": "boolean"

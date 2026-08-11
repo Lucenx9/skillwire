@@ -1,0 +1,27 @@
+import { serve } from "@hono/node-server";
+
+import { createApplication } from "./composition.js";
+import { loadConfig } from "./config.js";
+
+const config = loadConfig();
+const { app } = createApplication(config);
+const server = serve(
+  { fetch: app.fetch, hostname: config.host, port: config.port },
+  (info) => {
+    process.stdout.write(
+      `SkillWire listening on http://${config.host}:${String(info.port)}\n`,
+    );
+  },
+);
+
+const shutdown = (): void => {
+  server.close((error) => {
+    if (error) {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+    }
+  });
+};
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

@@ -1,125 +1,219 @@
-# Integration and Test Strategy: Remote Skill Delivery MVP
+# Test, Evaluation, and Integration Strategy
 
-## Test Projects
+## Suite Ownership
 
-Vitest uses one configuration with five projects. Unit tests run by default; suites requiring
-PostgreSQL or the HTTP server are explicit scripts.
+Vitest projects are separated by responsibility, not merely directory.
 
-| Project | Scope | External dependencies |
-|---------|-------|-----------------------|
-| `unit` | Domain rules, ranking, canonicalization, path parsing, token parsing, redaction. | None. |
-| `contract` | Zod schemas, generated JSON Schemas, MCP tool registration, structured outputs, errors. | In-process server only. |
-| `integration` | SQL migrations/repositories, restart persistence, catalog provider/cache. | PostgreSQL 18. |
-| `e2e` | Authenticated Streamable HTTP calls through Hono to real use cases and PostgreSQL. | PostgreSQL 18 and bound test port. |
-| `security` | Tenant isolation, SSRF/path/content attacks, auth lifecycle, no-install invariant, log leakage. | PostgreSQL 18; isolated temporary directories. |
+| Project | Owns | Must not duplicate |
+|---------|------|--------------------|
+| `unit` | Pure functions and isolated domain objects. | HTTP, real PostgreSQL, CLI process, complete MCP journeys. |
+| `contract` | Zod/JSON schemas and observable MCP, HTTP, and admin-CLI boundaries. | SQL persistence semantics or adversarial matrices owned by security. |
+| `integration` | Real PostgreSQL, migrations, transactions, cleanup/readiness, and composed internal service. | Full external journey and client-filesystem assertions. |
+| `e2e` | Complete authenticated MCP journeys and no-client-write behavior. | Exhaustive low-level validation variants. |
+| `security` | Adversarial authentication, isolation, GitHub baseline, paths, SSRF, limits, and execution attempts. | Happy-path journey repetition. |
+| `evaluation` | Deterministic threshold calculation over frozen product fixtures. | Unit scoring internals already covered by unit tests. |
 
-Tests use deterministic clocks and fixture IDs. Integration projects run with isolated PostgreSQL
-schemas or databases and do not share mutable rows across workers. Database suites run migrations
-from empty state before fixtures and clean their own test database afterward.
+Shared parameterized fixtures define a case once. Each suite asserts only the additional property
+introduced at its layer.
 
-## Contract Strategy
+## Fixture-First Order
 
-- Each MCP tool has one strict Zod input and one strict successful `structuredContent` output schema.
-- Contract tests generate JSON Schema from Zod and compare it with the checked files under
-  `contracts/schemas/`; any drift is an intentional contract change.
-- A tool-list golden test asserts exactly six public tools and their descriptions.
-- Unknown fields, including URL/source/account fields, fail with invalid parameters.
-- Successful tool results contain both concise text content and schema-valid structured content.
-- Domain failures use the error codes in `contracts/mcp-tools.md` and omit `structuredContent`.
-- Stateless transport tests assert no session ID, no SSE/session state, and 405 for GET/DELETE.
-- Unsupported protocol revisions are rejected deterministically.
+Before evaluated behavior is implemented, version control contains:
 
-## Unit Coverage Matrix
+1. Exact ten-skill inventory, instructions, resources, and provenance.
+2. Canonical revision golden vector and corrupt variants independently reviewed against the format.
+3. Advisory chains for valid genesis, valid non-genesis append, mutation, deletion, insertion, and
+   reorder.
+4. GitHub API responses for fully paginated empty/nonempty release lists, published prereleases,
+   equal latest publication timestamps, lightweight tags, annotated tag/reference objects,
+   unavailable/malformed objects, and exact-commit global advisory content.
+5. Search corpus with at least 30 cases and three per launch skill.
+6. Journey matrix with at least 20 cases and optional exact resource paths.
+7. Repository scopes, API keys, audit timestamps, and monitored client-tree fixture.
 
-| Area | Required cases |
-|------|----------------|
-| Ranking | Field weights, normalization, stable ties, useful `0.2`, neutral/unrated `0.1`, unsuccessful `0`, memory never crosses a one-point relevance gap. |
-| Repository hash | Exact 64 lowercase hex accepted; uppercase, wrong length, whitespace, and nonhex rejected. |
-| Canonicalization | Manifest order independence, CRLF/LF equivalence, BOM handling, UTF-8 rejection, single-byte content change changes hash, golden RFC 8785 vectors. |
-| Resource paths | Valid nested POSIX paths; absolute, dot segments, encoded traversal, backslashes, drives, NUL, duplicate normalization rejected. |
-| API keys | Token grammar, HMAC digest, constant-time compare path, expiry, revocation, disabled account, rotation overlap. |
-| Redaction | Every forbidden field absent from serialized logs, nested errors sanitized, repository correlation irreversible without pepper. |
-| Outcomes | Null/useful/neutral/unsuccessful transitions; invalid values rejected; update does not create usage. |
+`tests/unit/evaluation/fixture-validation.test.ts` rejects malformed IDs, unknown skills, duplicate
+cases, missing skill coverage, invalid paths, and incomplete GitHub/advisory fixtures before any
+threshold runner executes.
 
-Domain, application, authentication, canonicalization, and repository adapter modules require at
-least 90% line and branch coverage; the whole service requires at least 80%. Coverage is a backstop,
-not a substitute for the named boundary tests.
+## Unit Tests
+
+Unit tests own:
+
+- strict construction of the seven catalog domain types and release records;
+- UTF-8 normalization, RFC 8785-compatible canonicalization, resource/bundle hashes, and golden
+  vectors;
+- advisory event hash, link, sequence, terminal revocation, and status folding;
+- path normalization/containment decisions over abstract file facts;
+- lexical score components, stable ties, and bounded outcome boost;
+- repository hash, usage, and outcome domain rules without storage;
+- API-key parsing/digest/constant-time comparison primitives;
+- redaction and allowlisted event construction;
+- fixture/corpus structural validation.
+
+They do not instantiate Hono, the MCP SDK, PostgreSQL, the CLI process, or a filesystem catalog.
+
+## Contract Tests
+
+### MCP and HTTP
+
+One file per tool validates strict input/output shape, unknown-field rejection, both trust fields,
+bounded safe errors, and omitted content. `streamable-http.test.ts` owns methods, headers, Host,
+statelessness, HTTP/MCP status translation, and unsupported capability absence.
+
+Contract tests use fake ports. They do not assert SQL, restart, or cross-tenant database behavior.
+
+### `catalog:publish`
+
+Run the real `pnpm catalog:publish` command against isolated filesystem fixtures and assert:
+
+- exact two-subcommand CLI grammar and structured output schema;
+- complete ten-revision success result;
+- one final atomic release directory with release plus ten records;
+- invalid inventory/content/provenance/hash/advisory failure before visibility;
+- existing release path rejection;
+- any previously published revision-identity rejection;
+- fail-closed existing/stale publication claim;
+- two concurrent publishers produce exactly one complete winner and one ten-revision rejection;
+- injected failure after each staging step leaves no visible final batch;
+- post-rename claim-cleanup failure reports the batch as created and leaves later publication safely
+  blocked;
+- input files and PostgreSQL remain unchanged.
+
+### `catalog:verify`
+
+Run the real `pnpm catalog:verify` command with write APIs denied and no database service:
+
+- complete valid release and ten per-revision results;
+- canonical/resource/release/advisory drift detection;
+- no repair behavior;
+- a present publication claim returns invalid without mutation;
+- workspace snapshot unchanged on success and failure;
+- no PostgreSQL import/connection attempt;
+- structured output and exit codes.
+
+GitHub response variation belongs to the security suite; the contract suite checks only request and
+result boundaries with one valid baseline fixture.
 
 ## PostgreSQL Integration Tests
 
-1. Apply migrations to an empty database and verify schema/constraints/indexes.
-2. Re-run migrations and verify no changes.
-3. Change a copied applied migration and verify checksum rejection.
-4. Start two migration runners and verify advisory-lock serialization.
-5. Load one revision twice and verify count, first/last timestamps, and hash-preserving upsert.
-6. Attempt the same skill/revision label with a different revision hash and verify integrity failure.
-7. Record each outcome and verify replacement without outcome history.
-8. Forget one account/hash and verify complete deletion without affecting another hash or account.
-9. Restart the service/database connection and verify acknowledged memory persists and erased memory
-   does not return.
-10. Verify all SQL injection-shaped values remain data through parameterized queries.
+Use one disposable authoritative database with versioned migrations.
 
-## End-to-End Acceptance Matrix
+- Migration checksums and concurrent migration serialization.
+- API-key lifecycle persistence and immediate database-observed revocation.
+- Usage upsert uniqueness, timestamps, count, and exact revision binding.
+- Direct PostgreSQL list/ranking projection with account/repository predicates.
+- Outcome replacement and missing-usage rejection.
+- Forget deletion plus six-field audit insertion in one transaction.
+- Rollback on delete/audit/commit failure and idempotent lost-response retry.
+- No repository-memory cache module, query bypass, invalidation stage, or secondary authority.
+- Restart persistence and post-erasure non-resurrection.
+- Every audit read filters `expires_at > database_now`.
+- Boundary behavior immediately before, at, and after expiration.
+- Startup cleanup before readiness and hourly idempotent deletion.
+- Multiple service instances may run cleanup concurrently without incorrect results.
+- After simulated database downtime, readiness remains false until cleanup succeeds.
 
-| Scenario | Verification |
-|----------|--------------|
-| Search previews only | Response validates; no instructions, manifest, or resource body occurs. |
-| Exact load | Requested ID/revision, source, trust, bundle hash, instructions, and complete manifest match fixtures. |
-| Progressive resource | One declared path returns one body and per-resource hash; no sibling body is returned. |
-| Hashless calls | Search/load succeed; list remains unchanged. |
-| Remembered load | Load with account/hash creates one usage; repeat increments count. |
-| Ranking memory | Equal base relevance sorts useful, then neutral/unrated, then unsuccessful/absent. |
-| Outcome | Only three enum values work and only for remembered usage. |
-| Erasure | Forget is idempotent and removes every row in the account/hash scope across restart. |
-| Cached fallback | Verified exact cache succeeds during provider failure; corrupt/missing cache returns unavailable. |
-| Client non-installation | Snapshot a temporary client repo before and after all success/failure/retry/cache calls; byte-for-byte tree is unchanged. |
+The physical one-hour assertion uses a continuously available service/database fixture. Downtime
+tests assert cleanup-before-readiness, not an impossible deletion bound while PostgreSQL is absent.
 
-## Security Failure Matrix
+## End-to-End Tests
 
-- Missing, malformed, wrong, expired, and revoked bearer tokens return identical 401 responses.
-- Two account keys with the same repository hash cannot observe or mutate one another's memory or
-  ranking signal.
-- Account ID, URL, source, owner/repository/ref, and extra nested input fields are rejected.
-- Path attacks cover raw and percent-encoded `..`, double encoding, absolute POSIX/Windows paths,
-  backslashes, NUL, long paths, symlinks, and time-of-check/time-of-use replacement in fixtures.
-- Size tests cover one byte below, at, and one byte above request, task, instructions, resource,
-  manifest count, and bundle limits.
-- Revision substitution tests cover unknown revisions, floating labels, altered source content,
-  altered manifest, altered resource, and cache poisoning.
-- Malicious Markdown contains shell commands, package-manager instructions, hooks, code fences, and
-  binary-looking text; assertions prove no execution API is called and content remains text.
-- Log-capture tests exercise every failure and assert absence of authorization, token, secret,
-  repository hash, task, prompt, local path, instructions, and resource content.
-- Rate-limit tests use a deterministic clock and verify 429, `Retry-After`, bounded key state, and no
-  use-case invocation after rejection.
+Use the official MCP client over the running Streamable HTTP endpoint:
 
-## Failure Injection
+1. Search returns compact ranked previews in a representative complete HTTP journey.
+2. Load returns exact immutable content/provenance and records usage only with repository context.
+3. Resource read returns exactly one declared verified text resource.
+4. Repository memory survives restart and remains isolated by account/hash.
+5. Outcome replacement and constant-shape erasure work through all six MCP tools.
+6. One representative catalog-covered task completes with one search, one load, and at most one
+   resource read; aggregate matrix scoring remains solely in the evaluation suite.
+7. A monitored client tree remains byte/type/mode identical across normal, failure, retry,
+   unavailable-source, valid/corrupt catalog-cache, authentication, rate-limit, and erasure journeys.
 
-Adapters expose only deterministic test seams:
+The first check asserts preview-only response boundaries for a representative journey; it does not
+recalculate the search corpus threshold. The no-client-write harness is implemented once and
+parameterized with journey callbacks; other
+suites do not repeat its filesystem matrix.
 
-- Catalog fixture provider can return unavailable, incomplete, hash-mismatched, oversized, or
-  path-invalid bundles.
-- Clock controls key expiry, timestamps, and rate-limit windows.
-- Repository adapters can fail before or during transactions to verify rollback and safe errors.
-- Log sink captures structured events before external serialization.
+## Security Tests
 
-No general-purpose plugin/mocking framework is added. Tests inject the same small ports used by the
-composition root.
+### Authentication and isolation
 
-## Commands and Release Gate
+- Missing, malformed, unknown, expired, revoked, and disabled-account credentials share one failure
+  shape.
+- Two accounts with the same repository hash and two hashes in one account never cross-read or
+  mutate PostgreSQL rows.
+- Raw hashes, bearer values, tasks, content, SQL, and paths never appear in logs or audit rows.
 
-Planned package scripts:
+### GitHub advisory baseline
+
+Parameterized fixtures cover:
+
+- valid explicit genesis with accessible, fully paginated releases, zero non-draft releases, no
+  earlier local batch, and an initial chain;
+- genesis rejected when any non-draft release—including a prerelease—exists or the local chain is
+  not initial;
+- valid uniquely latest non-draft release by `published_at` with lightweight tag;
+- valid latest published prerelease and one or more annotated tag objects peeled to a commit;
+- missing/unavailable GitHub token, repository, release page, selected release, tag, tag object,
+  exact commit, candidate release metadata, or prior advisory bytes;
+- incomplete pagination, malformed/missing publication timestamp, and a tie for greatest timestamp;
+- malformed/non-40-character commit, tag cycle, and non-commit terminal object;
+- `previousReleaseCommit` mismatch;
+- prior event mutation, deletion, insertion, reorder, broken link, or head mismatch;
+- proof that no merge-base, branch, `target_commitish`, or fallback request is attempted.
+
+Every failure is closed and performs no catalog/database write.
+
+### Content and transport
+
+- Caller URL/source/ref fields are rejected recursively before provider/network access.
+- Raw/encoded traversal, absolute paths, backslashes, NUL, symlink, TOCTOU, cross-revision,
+  undeclared, binary, invalid UTF-8, and size boundaries fail safely.
+- Executable-looking Markdown remains inert; production imports cannot invoke child processes, VM,
+  package managers, installers, or catalog-driven dynamic imports.
+- Host, body, task, content, response, deadline, and rate boundaries are adversarially tested.
+
+## Evaluation Runners
+
+### Search
+
+Validate at least 30 cases and at least three per launch skill, then calculate:
 
 ```text
-pnpm test                 # unit + contract
-pnpm test:integration     # PostgreSQL integration
-pnpm test:e2e             # HTTP/MCP acceptance
-pnpm test:security        # adversarial and no-install suites
-pnpm test:coverage        # all projects with V8 coverage
-pnpm typecheck
-pnpm lint
+topThreeSuccess = matchingTopThreeCases / allValidCases
 ```
 
-A release requires typecheck, lint, every Vitest project, schema drift checks, migration checks, and
-the Docker Compose quickstart. Any failure in provenance, isolation, resource safety, persistence,
-redaction, no execution, or no-client-installation blocks release regardless of aggregate coverage.
+Require `topThreeSuccess >= 0.90`. Invalid cases fail the fixture, never leave the denominator.
+
+### Three-call journey
+
+Validate at least 20 cases, execute exactly one search and one load plus zero/one resource read, and
+require at least 90% to select the expected skill/resource within that budget.
+
+Evaluation runners do not modify fixtures, tune ranking, or write catalog/repository state except the
+explicit repository-context behavior required by a journey.
+
+## GitHub Actions
+
+Required jobs:
+
+1. formatting check;
+2. type-aware lint;
+3. strict typecheck;
+4. unit;
+5. contract and schema drift;
+6. evaluation thresholds;
+7. PostgreSQL integration;
+8. end-to-end;
+9. security;
+10. Docker/Compose and quickstart validation;
+11. read-only `catalog:verify` with `contents: read` and mandatory GitHub release baseline.
+
+CI never invokes `catalog:publish`. Manifest-changing setup work is sequential; jobs consume the
+committed frozen lockfile.
+
+## Informational Measurement
+
+CI validates operation-mix and result schemas but does not assert latency. Manual cold/warm
+measurements use the separate benchmark Compose profile and cannot change any required job result.

@@ -70,9 +70,11 @@ and requirements. It evaluates the requirements themselves, not the implementati
 - [ ] CHK019 - Is a “complete cached copy” defined by exact revision identity, full manifest and
   resource presence, fresh hash verification, and rejection of any extra or mismatched content?
   [Clarity, Spec §FR-014]
-- [ ] CHK020 - Is “completely erase” scoped explicitly with respect to live tables, indexes,
-  transaction logs, replicas, backups, audit records, and retention obligations? [Clarity,
-  Ambiguity, Spec §FR-028]
+- [ ] CHK020 - Is “completely erase” scoped explicitly to transactional deletion from the one
+  authoritative live database with no repository-memory cache or invalidation step, with
+  privacy-safe audit expiry and operator-managed backups and WAL identified as outside the API
+  guarantee?
+  [Clarity, Spec §FR-028]
 
 ## Requirement Consistency
 
@@ -88,9 +90,9 @@ and requirements. It evaluates the requirements themselves, not the implementati
 - [ ] CHK024 - Is the current no-network catalog requirement consistent with the future provider
   seam, so later network retrieval cannot silently introduce caller-controlled hosts, redirects, or
   revisions without a separate specification? [Consistency, Assumption, Spec §FR-004]
-- [ ] CHK025 - Is the catalog's `trusted` status consistently distinguished from the rule that every
-  skill document and resource remains untrusted input? [Consistency, Ambiguity, Spec §FR-003,
-  Spec §FR-006]
+- [ ] CHK025 - Are immutable `trustAtPublication` and derived `currentAdvisoryStatus` consistently
+  distinguished from the rule that every skill document and resource remains untrusted input?
+  [Consistency, Spec §FR-003, Spec §FR-006]
 - [ ] CHK026 - Are cached responses subject to the same authentication, tenant isolation, content
   validation, provenance, rate, audit, and failure-disclosure requirements as fresh retrieval?
   [Consistency, Spec §FR-014, Spec §FR-030–FR-032]
@@ -111,9 +113,10 @@ and requirements. It evaluates the requirements themselves, not the implementati
   Criteria, Spec §SC-008, Gap]
 - [ ] CHK031 - Are cache-integrity outcomes measurable for valid, incomplete, poisoned, stale,
   cross-revision, and hash-mismatched cache entries? [Acceptance Criteria, Spec §FR-014, Gap]
-- [ ] CHK032 - Can “complete erasure” and non-resurrection after restart be assessed objectively,
-  including the retention boundary chosen for logs, backups, and in-flight mutations?
-  [Measurability, Ambiguity, Spec §SC-007]
+- [ ] CHK032 - Can direct live-row erasure, the absence of repository-memory caching, restart
+  non-resurrection, idempotent existence-hiding responses, unconditional logical audit expiry, and
+  the availability-qualified one-hour physical-cleanup bound be assessed objectively?
+  [Measurability, Spec §SC-007]
 
 ## Scenario Coverage
 

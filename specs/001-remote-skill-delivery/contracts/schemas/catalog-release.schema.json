@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.example/schemas/catalog-release.schema.json",
+  "title": "Catalog release record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseId",
+    "genesis",
+    "previousReleaseCommit",
+    "inventorySha256",
+    "advisoryChainHead",
+    "revisionCount",
+    "revisions",
+    "publishedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "releaseId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 96 },
+    "genesis": { "type": "boolean" },
+    "previousReleaseCommit": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      ]
+    },
+    "inventorySha256": { "$ref": "common.schema.json#/$defs/Sha256" },
+    "advisoryChainHead": { "$ref": "common.schema.json#/$defs/Sha256" },
+    "revisionCount": { "type": "integer", "const": 10 },
+    "revisions": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skillId", "revision", "bundleSha256", "recordPath"],
+        "properties": {
+          "skillId": { "$ref": "common.schema.json#/$defs/SkillId" },
+          "revision": { "$ref": "common.schema.json#/$defs/Revision" },
+          "bundleSha256": { "$ref": "common.schema.json#/$defs/Sha256" },
+          "recordPath": { "type": "string", "pattern": "^revisions/[a-z0-9-]+\\.json$" }
+        }
+      }
+    },
+    "publishedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "genesis": { "const": true } }, "required": ["genesis"] },
+      "then": { "properties": { "previousReleaseCommit": { "type": "null" } } },
+      "else": { "properties": { "previousReleaseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" } } }
+    }
+  ]
+}

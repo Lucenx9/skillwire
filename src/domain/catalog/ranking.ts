@@ -1,0 +1,65 @@
+import type { CatalogSkillMetadata, RankedSkill } from "./types.js";
+
+const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
+
+function normalizeToken(token: string): string {
+  const normalized = token.normalize("NFKD").toLocaleLowerCase("en-US");
+  if (normalized.length > 3 && normalized.endsWith("s")) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function tokenize(value: string): Set<string> {
+  return new Set(
+    (value.match(TOKEN_PATTERN) ?? []).map((token) => normalizeToken(token)),
+  );
+}
+
+function intersectionSize(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): number {
+  let matches = 0;
+  for (const token of left) {
+    if (right.has(token)) matches += 1;
+  }
+  return matches;
+}
+
+function scoreSkill(skill: CatalogSkillMetadata, task: string): RankedSkill {
+  const queryTokens = tokenize(task);
+  const identityTokens = tokenize(`${skill.id} ${skill.name}`);
+  const descriptionTokens = tokenize(skill.description);
+  const capabilityTokens = tokenize(skill.capabilities.join(" "));
+  const normalizedTask = [...queryTokens].join(" ");
+
+  let score = intersectionSize(queryTokens, identityTokens) * 6;
+  score += intersectionSize(queryTokens, capabilityTokens) * 8;
+  score += intersectionSize(queryTokens, descriptionTokens) * 2;
+
+  const matchingCapabilities = skill.capabilities.filter((capability) => {
+    const tokens = tokenize(capability);
+    const matched = intersectionSize(queryTokens, tokens) > 0;
+    if (matched && normalizedTask.includes([...tokens].join(" "))) score += 4;
+    return matched;
+  });
+
+  return { skill, score, matchingCapabilities };
+}
+
+export function rankSkills(
+  skills: readonly CatalogSkillMetadata[],
+  task: string,
+  limit: number,
+): RankedSkill[] {
+  return skills
+    .filter((skill) => skill.currentAdvisoryStatus !== "revoked")
+    .map((skill) => scoreSkill(skill, task))
+    .sort((left, right) => {
+      const relevance = right.score - left.score;
+      if (relevance !== 0) return relevance;
+      return left.skill.id.localeCompare(right.skill.id, "en-US");
+    })
+    .slice(0, limit);
+}

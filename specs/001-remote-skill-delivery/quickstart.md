@@ -1,113 +1,193 @@
 # Quickstart and End-to-End Validation
 
-This guide describes the runnable interface the implementation must provide. It validates the
-finished MVP; it does not contain application implementation code.
+This guide validates the planned MVP. It does not install skills or dependencies on an MCP client.
+All project dependencies remain inside the SkillWire development/service environment.
 
 ## Prerequisites
 
-- Node.js 24 LTS
-- Corepack with pnpm 11
-- Docker Engine with Docker Compose v2
-- `curl` and a JSON formatter
+- Node.js 24
+- pnpm matching `packageManager`
+- Docker with Compose
+- GitHub token with `contents: read` for catalog release-baseline verification
+- Access to the repository named by `GITHUB_REPOSITORY`
 
-## Local Setup
+## Install and Static Checks
 
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-docker compose up -d postgres
-pnpm db:migrate
-pnpm admin account:create --id 00000000-0000-4000-8000-000000000001
-pnpm admin api-key:create --account 00000000-0000-4000-8000-000000000001
-pnpm dev
-```
-
-The key command prints the bearer token once. Store it in a local shell variable and do not place it
-in shell history, `.env`, source control, logs, or command output captured by CI. The implemented CLI
-must support reading secrets and output destinations safely; production usage is documented in
-[deployment.md](./deployment.md).
-
-Expected readiness endpoints:
-
-- `GET /health/live` returns success when the process is running.
-- `GET /health/ready` returns success only after catalog verification, migration compatibility, and
-  a PostgreSQL readiness check.
-- `POST /mcp` is the only MCP endpoint.
-
-## Contract Validation
-
-```bash
+pnpm format:check
+pnpm lint
 pnpm typecheck
-pnpm test
-pnpm test:integration
-pnpm test:e2e
-pnpm test:security
 ```
 
-Expected result: every command exits zero, generated Zod schemas match `contracts/schemas/`, and the
-security suite reports no client filesystem mutation or sensitive log fields.
-
-## MCP Journey
-
-Use an MCP v2 client or inspector configured with:
+Expected: strict TypeScript and type-aware ESLint pass. `package.json` includes `tsx` as a
+development dependency and exactly these catalog scripts:
 
 ```text
-URL: http://127.0.0.1:3000/mcp
-Authorization: Bearer <one-time-issued-token>
-Transport: Streamable HTTP, stateless JSON response mode
+catalog:publish -> tsx src/catalog/admin-cli.ts publish
+catalog:verify  -> tsx src/catalog/admin-cli.ts verify
 ```
 
-Perform these calls in order using the schemas under [contracts/schemas](./contracts/schemas/):
-
-1. Call `search_skills` with a task and no repository hash.
-   - Expect ranked previews only.
-   - Confirm no instructions, manifest, or resource content is present.
-2. Call `load_skill` for the exact skill ID and revision from one preview, still without a hash.
-   - Expect instructions, source, trust status, revision hash, and manifest.
-   - Confirm `memoryRecorded` is false.
-3. Call `read_skill_resource` for one declared path.
-   - Expect only that resource and its SHA-256.
-4. Call `list_repo_memory` using a valid repository hash.
-   - Expect an empty list because the earlier load was hashless.
-5. Repeat `load_skill` with that repository hash.
-   - Expect `memoryRecorded` true and a usage row on the next list.
-6. Record `useful`, list memory, then search with the same hash.
-   - Expect the stored outcome and only the bounded secondary ranking boost.
-7. Call `forget_repo_memory`, restart SkillWire, then list again.
-   - Expect an empty list; repeated forget also succeeds.
-
-## Isolation Validation
-
-Create a second account/key through the operator CLI. Use the same repository hash for both keys:
-
-1. Load and mark a skill useful under account A.
-2. List and search under account B.
-3. Verify B sees no A usage or ranking boost.
-4. Forget under B and verify A remains unchanged.
-5. Revoke A's key and verify its next call returns HTTP 401 while B remains valid.
-
-## Integrity and Failure Validation
-
-Run the named fixtures through the security suite rather than editing the launch catalog:
+## Validate Immutable Inputs First
 
 ```bash
-pnpm test:security -- --runInBand
+pnpm vitest --project unit tests/unit/evaluation/fixture-validation.test.ts
 ```
 
-The suite must prove rejection of traversal, symlinks, arbitrary URL fields, oversized content,
-unknown/floating revisions, bundle/resource hash mismatches, cache corruption, cross-account
-access, revoked keys, and executable-looking skill text. Expected failures expose stable safe codes
-and a request ID, never local paths, source details, secrets, or protected content.
+Expected: exact inventory, all ten source/provenance bundles, canonical vectors, GitHub/advisory
+fixtures, the >=30-case search corpus, and the >=20-case journey matrix are valid before evaluated
+behavior runs.
 
-## Full Compose Validation
+## Catalog Administration Contracts
+
+Run both real-command contract suites against isolated fixture directories:
+
+```bash
+pnpm vitest --project contract tests/contract/catalog-cli/catalog-publish.test.ts
+pnpm vitest --project contract tests/contract/catalog-cli/catalog-verify.test.ts
+```
+
+Expected publication evidence:
+
+- one atomic release directory appears only after all ten revision records are complete;
+- structured output reports every revision;
+- duplicate release/revision attempts fail without overwrite;
+- concurrent attempts produce one winner, while an existing/stale publication claim fails closed;
+- injected failures expose no partial batch.
+
+Expected verification evidence:
+
+- inventory, provenance, bundles, resource hashes, advisory chain, and release metadata validate;
+- the command performs no filesystem or database write on success or failure;
+- drift fails without repair.
+
+## Verify the Published Catalog Against GitHub
+
+```bash
+export GITHUB_REPOSITORY='OWNER/REPOSITORY'
+export GITHUB_TOKEN_FILE='/run/secrets/skillwire_github_token'
+export GITHUB_TOKEN="$(< "$GITHUB_TOKEN_FILE")"
+pnpm catalog:verify -- --release-id launch-catalog-v1
+unset GITHUB_TOKEN
+```
+
+Expected for genesis: GitHub is reachable, its release list is fully paginated, no non-draft release
+(including a prerelease) exists, no earlier local published batch exists, the candidate advisory
+chain is initial, and release metadata explicitly identifies genesis.
+
+Expected for later releases: the fully paginated release list selects the unique latest
+`draft: false` release by `published_at`, including a published prerelease. Its tag resolves to an
+exact 40-character commit equal to `previousReleaseCommit`; the previous chain is fetched at that
+exact commit and is an unchanged prefix. Missing/unavailable/ambiguous state fails closed. No merge
+base, branch, `target_commitish`, or fallback is used.
+
+The production launch batch is normally committed already. To exercise creation manually, use only
+an isolated catalog fixture:
+
+```bash
+pnpm catalog:publish -- --release-id launch-catalog-v1 --genesis
+```
+
+Re-running against the same fixture must reject the existing release and revision identities.
+
+## Start the Service
 
 ```bash
 docker compose up --build --wait
-docker compose run --rm skillwire pnpm test:e2e
-docker compose restart skillwire
-docker compose run --rm skillwire pnpm test:integration -- persistence
-docker compose down
+curl --fail http://127.0.0.1:3000/health/live
+curl --fail http://127.0.0.1:3000/health/ready
 ```
 
-Do not add `--volumes` when validating restart persistence. Use `docker compose down --volumes` only
-when deliberately discarding the local PostgreSQL test volume.
+Expected: readiness remains false until migrations, catalog verification, PostgreSQL connectivity,
+and startup expired-audit cleanup complete. Compose runs one service instance for local convenience;
+the architecture does not rely on a single instance.
+
+## Progressive MCP Journey
+
+```bash
+pnpm smoke:mcp -- \
+  --endpoint http://127.0.0.1:3000/mcp \
+  --api-key-file /run/secrets/skillwire_api_key \
+  --task 'Review strict TypeScript changes and identify unsafe narrowing'
+```
+
+Expected:
+
+1. `search_skills` returns previews only, including `trustAtPublication` and
+   `currentAdvisoryStatus`.
+2. `load_skill` returns exact instructions, immutable provenance, bundle hash, and manifest without
+   resource bodies.
+3. `read_skill_resource` returns one declared verified text resource.
+4. No skill, package, script, resource, or dependency is created on the client.
+
+## PostgreSQL-Only Repository Memory
+
+Run the memory end-to-end suite:
+
+```bash
+pnpm vitest --project e2e tests/e2e/repository-memory.test.ts
+pnpm vitest --project integration tests/integration/postgres/repository-memory-store.test.ts
+```
+
+Expected: load, ranking projection, list, outcome, and forget operations query the authoritative
+database directly. The implementation contains no repository-memory cache interface/module,
+invalidation step, scope lock, or secondary authority. Account/repository isolation and restart
+persistence pass.
+
+## Erasure and Audit Expiration
+
+```bash
+pnpm vitest --project e2e tests/e2e/outcomes-and-erasure.test.ts
+pnpm vitest --project integration tests/integration/postgres/repository-erasure.test.ts
+pnpm vitest --project integration tests/integration/postgres/erasure-audit-expiration.test.ts
+pnpm vitest --project integration tests/integration/service/audit-cleanup-readiness.test.ts
+```
+
+Expected:
+
+- forget deletes tenant-scoped usage and inserts the six-field audit row in one transaction;
+- output remains `{ "forgotten": true }` for present and empty scopes;
+- every audit query excludes rows at/after exact 30-day expiration;
+- with continuous service/database availability, hourly cleanup deletes within one hour;
+- after simulated downtime, readiness remains false until startup cleanup succeeds;
+- no physical-deletion guarantee is asserted while PostgreSQL is unavailable.
+
+## Security and No-Client-Write Validation
+
+```bash
+pnpm vitest --project security
+pnpm vitest --project e2e tests/e2e/no-client-write.test.ts
+```
+
+Expected: authentication, tenant isolation, GitHub baseline failures, SSRF inputs, traversal,
+binary/oversized content, execution attempts, and client filesystem snapshots all pass their
+dedicated responsibility without duplicate matrices.
+
+## Complete Release Readiness
+
+```bash
+pnpm test:unit
+pnpm test:contract
+pnpm test:evaluation
+pnpm test:integration
+pnpm test:e2e
+pnpm test:security
+pnpm catalog:verify -- --release-id launch-catalog-v1
+docker compose -f compose.yaml -f compose.test.yaml config --quiet
+docker build .
+```
+
+User Story 1 alone is only the first vertical slice. Release readiness requires all five stories,
+all six tools, both evaluation thresholds, all security/privacy evidence, and applicable checks
+above.
+
+## Optional Informational Benchmark
+
+```bash
+docker compose -f compose.yaml -f compose.benchmark.yaml up --build --wait
+pnpm benchmark:informational
+```
+
+Expected: report metadata and raw-result hash validate. Observed timings are evidence only and do not
+change release status.

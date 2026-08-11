@@ -31,8 +31,27 @@
 
 ## Notes
 
-- Validation passed on iteration 2 after making the curated source allowlist and MCP schema contract
-  coverage explicit.
-- The MCP protocol and six operation names are retained as required external product contracts; the
-  specification does not prescribe an internal language, framework, storage engine, or architecture.
-- No clarification markers or incomplete checklist items remain.
+- The 2026-08-11 MVP-scope-reduction update passed validation on its first iteration. All 41
+  functional requirements and 13 success criteria are sequential, measurable, and contain no
+  clarification markers.
+- The exact six MCP operation names, PostgreSQL authority boundary, SHA-256 fields, catalog
+  publication semantics, advisory-chain fields, and audit cleanup schedule are explicit external
+  product, integrity, privacy, and operational contracts requested for this feature. Internal code
+  structure and implementation choices remain planning concerns.
+- Search and load expose separate `trustAtPublication` and `currentAdvisoryStatus` fields; the
+  specification contains no ambiguous response field named only `trustStatus`.
+- Create-only publication, read-only verification, inventory-before-hashing order, and
+  advisory-chain tamper evidence are testable. Genesis is explicit; later advisory validation uses
+  a mandatory immutable previous-release commit SHA and fails closed without fallback discovery.
+- Repository memory is queried directly from the single authoritative database and is never cached.
+  Erasure therefore has no cache-invalidation requirement. Verified immutable catalog caching
+  remains allowed.
+- Audit logical expiration is unconditional. The one-hour physical cleanup bound is explicitly
+  qualified by continuous service and database availability, and startup cleanup must complete
+  before readiness after downtime.
+- User Story 1 is the first vertical slice, not a releasable MVP. Release readiness requires all five
+  stories, all six operations, security/privacy requirements, evaluation thresholds, and applicable
+  cross-cutting checks.
+- Replicas, WAL archives, backup systems, restore workflows, backup credentials, physical-media
+  deletion, and fixed release-blocking latency thresholds are explicitly outside the MVP.
+- Informative benchmark evidence remains required without imposing a fixed performance target.

@@ -2,7 +2,7 @@
 
 ## Public Surface
 
-SkillWire advertises exactly six tools:
+SkillWire exposes exactly these authenticated MCP tools:
 
 1. `search_skills`
 2. `load_skill`
@@ -11,138 +11,153 @@ SkillWire advertises exactly six tools:
 5. `record_skill_outcome`
 6. `forget_repo_memory`
 
-There are no MCP prompts, MCP resources, tasks, sampling, elicitation, installation operations,
-execution operations, source-registration operations, or administrative tools.
+There are no MCP prompts, resources, tasks, publication, verification, installation, execution, or
+admin capabilities. Catalog maintenance is an offline CLI contract.
 
-Every input and successful `structuredContent` output uses the checked JSON Schemas in
-[`schemas/`](./schemas/). Zod 4 schemas are the implementation source; contract tests generate JSON
-Schema and compare it with these artifacts. All input objects reject unknown properties.
+All input/output objects are strict: unknown properties are rejected. JSON Schemas in `schemas/`
+are generated from the Zod v4 source and checked for drift.
 
-## Authentication Context
+## Authentication and Repository Context
 
-Every call arrives with a `RequestPrincipal` created from the HTTP bearer API key. Tool inputs never
-accept account ID, API-key ID, permissions, or tenant. An optional `repositoryHash` changes only
-repository memory behavior; it never changes authentication.
+- Every tool requires `Authorization: Bearer <api-key>` before argument-dependent processing.
+- The authenticated key determines `accountId`; no MCP argument can select an account.
+- Optional repository context is exactly 64 lowercase hexadecimal characters.
+- Repository-memory tools and ranking queries access PostgreSQL directly with the combined
+  `(accountId, repositoryHash)` predicate.
+- No repository-memory response or projection is cached.
+- Omitting repository context permits search/load but creates no persistent memory.
 
 ## Operation Semantics
 
 ### `search_skills`
 
-- Accepts a nonblank natural-language `task`, optional repository hash, and optional result limit.
-- Trims outer whitespace for ranking but never persists or logs the task.
-- Returns at most the requested limit of compact previews; an empty match returns `skills: []`.
-- Computes deterministic integer task relevance first. For equal integer relevance, useful prior
-  usage adds `0.2`, neutral/unrated adds `0.1`, and unsuccessful/absent adds `0`.
-- Reads memory only for the authenticated account and supplied repository hash.
-- Never returns instructions, source details, a manifest, or resource bodies.
+**Input**: bounded natural-language `task`, optional `repositoryHash`, optional result limit up to 10.
+
+**Output**: ranked compact previews containing skill ID, name, description, capability summary,
+exact revision, immutable `trustAtPublication`, and derived `currentAdvisoryStatus`.
+
+**Rules**:
+
+- Never returns instructions, manifests, resource bodies, or raw advisory events.
+- Uses deterministic lexical relevance as primary score.
+- If repository context exists, reads the bounded usage/outcome projection directly from PostgreSQL
+  and applies only the limited specified secondary boost.
+- Omits security-revoked revisions and never fetches caller-selected content.
 
 ### `load_skill`
 
-- Requires exact `skillId` and `revision`; no default/fallback/floating resolution exists.
-- Verifies the complete canonical revision bundle before returning content.
-- Returns core Markdown instructions and complete provenance/manifest, but no resource body.
-- When `repositoryHash` is present, atomically inserts or increments remembered usage and returns
-  `memoryRecorded: true`.
-- When the hash is absent, returns the same skill content and `memoryRecorded: false` without a
-  persistence write.
+**Input**: `skillId`, exact `revision`, optional `repositoryHash`.
+
+**Output**: exact identity/revision, normalized Markdown instructions, bundle SHA-256, complete
+published provenance with `trustAtPublication`, top-level `currentAdvisoryStatus`, and complete
+resource manifest without resource bodies.
+
+**Rules**:
+
+- Rejects unknown/floating revisions without substitution.
+- Verifies the complete bundle before returning content.
+- May use only a complete immutable catalog-cache entry keyed by release/revision/bundle hash, and
+  re-verifies the bundle before fallback service.
+- Returns skill content as inert text and never executes it.
+- With a repository hash, directly upserts exact revision usage in PostgreSQL before acknowledging
+  the load; without a hash, performs no memory write.
 
 ### `read_skill_resource`
 
-- Requires exact skill ID, revision, and one safe manifest-declared logical path.
-- Verifies the revision and selected resource hash before returning only that resource.
-- Does not require a prior load in the same HTTP process because transport requests are stateless.
-- Does not create or update repository memory.
+**Input**: `skillId`, exact `revision`, exact manifest-declared normalized relative `resourcePath`.
+
+**Output**: exact identity/revision/path, media type, normalized UTF-8 byte length, resource SHA-256,
+and only that resource's text.
+
+**Rules**: Rejects absolute, traversal, encoded traversal, backslash, NUL, symlink, undeclared,
+cross-revision, binary, oversized, or hash-mismatched resources before returning content.
 
 ### `list_repo_memory`
 
-- Requires a repository hash and derives account from the bearer key.
-- Returns at most 100 usage rows ordered by `lastUsedAt DESC`, then skill ID and revision.
-- Omits `outcome` when unrated.
-- Returns an empty list for an unknown/erased scope without revealing another tenant's state.
+**Input**: required `repositoryHash`.
+
+**Output**: bounded deterministic list of exact skill/revision usage records with first/last used
+timestamps, use count, and current outcome.
+
+**Rules**:
+
+- Queries PostgreSQL directly for the authenticated account and supplied hash.
+- Returns the same empty shape for an absent scope.
+- Never returns task queries, content, paths, raw repository data, or another tenant's records.
 
 ### `record_skill_outcome`
 
-- Requires repository hash, exact skill ID/revision, and one bounded outcome.
-- Updates the current outcome only for an existing remembered usage in the authenticated tenant.
-- Does not create usage, append outcome history, or alter usage count/timestamps.
+**Input**: required `repositoryHash`, `skillId`, exact `revision`, and one of `useful`, `neutral`, or
+`unsuccessful`.
+
+**Output**: exact identity/revision and the current outcome.
+
+**Rules**: Replaces the outcome directly in PostgreSQL only for an existing usage row in the same
+tenant/repository scope. Unknown usage or invalid outcome is rejected without mutation.
 
 ### `forget_repo_memory`
 
-- Deletes all remembered loads and outcomes for the authenticated account/hash in one transaction.
-- Is idempotent and always returns `forgotten: true` after a successful authorized transaction.
-- Does not delete catalog content, API keys, another repository hash, or another account's rows.
+**Input**: required `repositoryHash`.
+
+**Success output**:
+
+```json
+{ "forgotten": true }
+```
+
+**Rules**:
+
+- In one PostgreSQL transaction, deletes all matching usage/outcome rows and inserts the six-field
+  privacy-safe audit record.
+- Returns success only after commit.
+- Has no cache invalidation step because repository memory is never cached.
+- Is idempotent and never returns removed count or prior-existence information.
+- Does not affect catalog data, another repository hash, or another account.
+- Database failure rolls back and returns `ERASURE_INCOMPLETE` without claiming success.
 
 ## Provenance and Canonical Hash Contract
 
 ### Text normalization
 
-- Decode UTF-8 in fatal mode.
-- Remove one leading UTF-8 BOM.
-- Normalize CRLF and lone CR to LF.
-- Preserve all other Unicode code points and trailing LF state; do not apply Unicode normalization.
-- Reject NUL bytes and content exceeding byte limits after normalization.
+1. Decode strict UTF-8 and reject invalid sequences/NUL.
+2. Remove one leading BOM.
+3. Convert CRLF and CR to LF.
+4. Apply the specified Unicode normalization.
+5. Preserve all remaining bytes, including trailing newline presence.
 
 ### Resource hash
 
-`sha256` is lowercase hexadecimal SHA-256 over the normalized UTF-8 bytes of that resource.
+`sha256(normalized UTF-8 resource bytes)` as 64 lowercase hexadecimal characters.
 
 ### Revision hash
 
-Create this logical value with manifest/resources sorted by ascending path:
+SHA-256 over RFC 8785-compatible canonical JSON containing schema version, skill ID, exact revision,
+complete published provenance, normalized instructions, sorted manifest entries, and sorted resource
+path/content pairs. `bundleSha256` and derived `currentAdvisoryStatus` are excluded.
 
-```text
-{
-  schemaVersion: "skillwire-revision-v1",
-  instructions: <normalized Markdown string>,
-  manifest: [
-    { path, mediaType, byteLength, sha256 }, ...
-  ],
-  resources: [
-    { path, content: <normalized text string> }, ...
-  ]
-}
-```
+## Advisory Status Contract
 
-Serialize the value with RFC 8785 JSON Canonicalization Scheme, encode as UTF-8, then compute
-lowercase hexadecimal SHA-256. The revision hash, source, trust status, skill ID, and revision label
-are not fields inside the hashed value. A change to instructions, manifest metadata, resource order
-after canonical sorting, or resource content is detected; reordering the source manifest alone is
-not a content change.
-
-`load_skill` returns:
-
-- provider-owned immutable `source`
-- exact `revision`
-- `revisionSha256`
-- `trustStatus: "trusted"`
-- complete path-sorted `resourceManifest`, including each resource hash and normalized byte length
+- `trustAtPublication` is immutable and bundle-hash covered.
+- `currentAdvisoryStatus` is derived from the verified version-controlled advisory chain.
+- Allowed current values are `available`, `unavailable`, and terminal `revoked`.
+- A chain/head/baseline failure makes affected catalog state unavailable; it never rewrites a
+  published batch.
+- Search omits revoked revisions and load rejects them.
 
 ## Tool Failure Contract
 
-Transport/auth failures occur before MCP tool invocation and follow
-[streamable-http.md](./streamable-http.md). Zod input failures use JSON-RPC invalid parameters.
-Expected domain failures return an MCP tool result with `isError: true`, one text content block
-containing a compact JSON error object, and no successful `structuredContent`.
+MCP errors have a stable bounded `code`, safe `message`, retryability flag, and request ID. They do
+not reveal credential status, other tenants, repository existence, source paths, content, SQL, or
+internal exceptions.
 
 | Code | Retryable | Meaning |
 |------|-----------|---------|
-| `SKILL_NOT_FOUND` | No | Skill ID is not in the curated catalog. |
-| `REVISION_NOT_FOUND` | No | Exact revision does not exist; no substitution occurred. |
-| `RESOURCE_NOT_FOUND` | No | Path is not declared for the exact revision. |
-| `CONTENT_REJECTED` | No | Path, text type, schema, or size policy failed. |
-| `REVISION_UNAVAILABLE` | Conditional | Integrity failure is non-retryable; temporary provider failure without valid cache is retryable. |
-| `USAGE_NOT_FOUND` | No | Outcome target was never loaded for this account/hash. |
-| `INTERNAL_ERROR` | Yes | Unexpected failure; response includes request ID only. |
-
-Error object fields are exactly `code`, `message`, `retryable`, and `requestId`. Messages never
-contain local paths, URLs, SQL, hashes from another tenant, raw inputs, catalog content, or internal
-exception text.
-
-## Schema Notes
-
-- JSON Schema `maxLength` is defense in depth. Runtime policy measures normalized UTF-8 bytes.
-- `Revision` schema rejects common floating labels; application validation applies the check
-  case-insensitively.
-- `ResourcePath` schema is preliminary syntax validation. The provider performs decoding,
-  normalization, containment, `lstat`, declaration, length, and hash checks.
-- Manifest path uniqueness and lexical ordering are semantic checks covered by contract tests.
+| `UNAUTHENTICATED` | No | Missing/malformed/unknown/expired/revoked key or disabled account. |
+| `INVALID_ARGUMENT` | No | Schema, repository hash, task, outcome, or limit failure. |
+| `NOT_FOUND` | No | Unknown exact skill/revision or undeclared resource after authentication. |
+| `REVISION_UNAVAILABLE` | Yes | Source/cache/advisory integrity cannot provide the exact verified revision. |
+| `RESOURCE_REJECTED` | No | Unsafe, binary, oversized, or hash-mismatched resource. |
+| `MEMORY_CONFLICT` | No | Outcome target was never loaded in this tenant scope. |
+| `ERASURE_INCOMPLETE` | Yes | Authoritative PostgreSQL transaction did not commit. |
+| `RATE_LIMITED` | Yes | Authenticated key exceeded the configured service policy. |
+| `INTERNAL` | Yes | Safe fallback without protected detail. |

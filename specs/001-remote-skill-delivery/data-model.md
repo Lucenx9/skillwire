@@ -2,214 +2,326 @@
 
 ## Model Boundaries
 
-SkillWire has two kinds of state:
+- Catalog source inputs and published batches are version-controlled files.
+- One authoritative PostgreSQL database stores accounts, API keys, repository memory, and erasure
+  audit records.
+- Repository memory is never cached; every operation queries PostgreSQL directly.
+- The only application cache stores complete verified immutable catalog bundles.
+- GitHub release responses and previous-chain bytes are transient verification inputs and are never
+  runtime data or persisted application state.
+- No source code, raw prompt, local path, repository metadata, secret, or caller URL is stored.
 
-1. **Version-controlled catalog state**: reviewed skill metadata, immutable Markdown revisions,
-   manifests, and declared text resources packaged with the server. It is not stored in PostgreSQL.
-2. **Account state**: accounts, bearer API-key digests, and repository-scoped skill usage stored in
-   PostgreSQL.
+## Catalog Domain Types
 
-Repository memory contains no repository record or repository metadata table. The opaque repository
-hash appears only on usage rows, so forgetting a repository is one tenant-scoped delete and leaves
-no empty repository object behind.
-
-## Domain Entities
-
-### CatalogSkill
+### `CatalogSkill`
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `skillId` | string | Lowercase kebab case, 1–80 characters, globally unique in the catalog. |
-| `name` | string | Human-readable, 1–120 characters. |
-| `summary` | string | Discovery-only text, at most 512 characters. |
-| `capabilities` | string array | At most 16 normalized discovery terms. |
-| `tags` | string array | At most 16 normalized ranking terms. |
-| `trustStatus` | `trusted` | The only MVP catalog status. |
-| `source` | SourceReference | Server-created provider and logical source reference. |
-| `revisions` | SkillRevision array | At least one immutable revision. |
+| `id` | string | Stable lowercase kebab-case identifier. |
+| `name` | string | Bounded display name. |
+| `description` | string | Compact preview-safe text, never instructions. |
+| `capabilities` | string[] | Bounded normalized ranking terms. |
+| `revisions` | string[] | Exact immutable revision identifiers; no floating aliases. |
 
-### SkillRevision
+### `SourceReference`
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `skillId` | string | References its catalog skill. |
-| `revision` | string | Exact immutable label; floating names such as `latest`, `main`, `master`, and `HEAD` are forbidden. |
-| `schemaVersion` | `skillwire-revision-v1` | Selects canonical serialization rules. |
-| `instructions` | string | Valid normalized UTF-8 Markdown, at most 256 KiB. |
-| `revisionSha256` | lowercase hex | Exactly 64 characters; covers instructions, canonical manifest, and all normalized resources. |
-| `manifest` | ResourceManifestEntry array | At most 64 unique entries sorted by logical path. |
-| `totalBytes` | integer | Total normalized instructions and resource bytes, at most 2 MiB. |
-| `source` | SourceReference | Immutable server-generated provenance reference. |
-| `trustStatus` | `trusted` | Copied into each successful load response. |
+| `repository` | string | Server-controlled logical source; never caller supplied. |
+| `path` | string | Normalized safe relative catalog path. |
+| `sourceRevision` | string | Immutable source revision. |
 
-Identity is the tuple `(skillId, revision, revisionSha256)`. A reused revision label with a different
-hash is an integrity failure, never a replacement.
-
-### ResourceManifestEntry
+### `PublishedProvenance`
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `path` | string | Normalized relative POSIX path, unique in the revision, at most 240 characters. |
-| `mediaType` | enum | `text/markdown` or `text/plain`. |
-| `byteLength` | integer | Normalized UTF-8 size, 0–262,144 bytes. |
-| `sha256` | lowercase hex | SHA-256 of the normalized resource bytes. |
+| `source` | `SourceReference` | Immutable and bundle-hash covered. |
+| `owner` | string | `SkillWire maintainers` for launch. |
+| `license` | string | `Apache-2.0` for launch. |
+| `trustAtPublication` | object | Immutable status and reviewed rationale. |
 
-Paths are rejected if absolute, empty, contain `.` or `..` segments, backslashes, NUL bytes,
-encoded traversal after decoding, or map to a symlink or non-regular file.
+`trustAtPublication` never changes after publication. Current security or availability state is
+derived separately from the advisory chain.
 
-### SourceReference
-
-| Field | Type | Rules |
-|-------|------|-------|
-| `provider` | string | Stable provider name such as `version-controlled`; not supplied by MCP callers. |
-| `reference` | string | Provider-owned immutable logical reference; never an absolute local path. |
-
-The application treats source references as opaque. Only the provider adapter interprets them.
-
-### SearchPreview
-
-Contains `skillId`, `name`, `summary`, matching capabilities, `trustStatus`, and one exact
-`revision`. It never contains instructions, source internals, the resource manifest, or resource
-bodies.
-
-### RequestPrincipal
+### `ResourceManifestEntry`
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `accountId` | UUID | Derived only from a valid bearer API key. |
-| `apiKeyId` | UUID | Public key identifier used for audit and rate limiting. |
+| `path` | string | Unique normalized safe relative path. |
+| `mediaType` | string | `text/plain` or `text/markdown`. |
+| `byteLength` | integer | Normalized UTF-8 byte length within policy. |
+| `sha256` | string | 64 lowercase hexadecimal characters. |
 
-Tool inputs never contain an account ID. Use cases receive the principal from authentication
-middleware, preventing a caller from selecting another tenant.
+Entries are ordered lexicographically by normalized path in the canonical bundle.
+
+### `SkillRevision`
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `skillId` | string | References one inventory entry. |
+| `revision` | string | Exact immutable revision identifier. |
+| `publishedProvenance` | `PublishedProvenance` | Complete immutable provenance. |
+| `instructions` | string | Validated normalized Markdown. |
+| `resources` | map | Declared normalized text keyed by manifest path. |
+| `resourceManifest` | `ResourceManifestEntry[]` | Complete, sorted, unique. |
+| `bundleSha256` | string | SHA-256 of the canonical complete revision bundle. |
+
+Canonical serialization includes schema version, skill identity, exact revision, all published
+provenance, normalized instructions, manifest metadata, resource hashes, and normalized resource
+content. The `bundleSha256` field itself is excluded from its preimage.
+
+### `RevisionAdvisory`
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `sequence` | positive integer | Starts at 1 and increments by exactly one. |
+| `skillId` | string | Exact catalog skill. |
+| `revision` | string | Exact published revision. |
+| `kind` | enum | `security-revoked`, `availability-unavailable`, or `availability-restored`. |
+| `reason` | string | Bounded maintainer explanation. |
+| `effectiveAt` | timestamp | UTC publication time. |
+| `previousEventHash` | string | Prior event hash; 64 zeroes for event 1. |
+| `eventHash` | string | SHA-256 of canonical event fields excluding this field. |
+
+The verified chain folds to `currentAdvisoryStatus`: `available`, `unavailable`, or terminal
+`revoked`.
+
+### `SearchPreview`
+
+Contains skill ID, name, description, capability summary, exact revision,
+`trustAtPublication`, derived `currentAdvisoryStatus`, and deterministic score components. It cannot
+contain instructions, resource bodies, or raw advisory events.
+
+## Catalog Publication Records
+
+### `CatalogInventoryEntry`
+
+Contains the exact required identifier, purpose, expected resource path, owner, license, logical
+repository source reference, immutable source revision, and reviewed trust rationale. The ten-entry
+inventory exists before any bundle construction.
+
+### `RevisionPublicationRecord`
+
+One generated JSON record per launch skill inside a published batch:
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `schemaVersion` | integer | Canonical record format version. |
+| `skillId` | string | Exact inventory ID. |
+| `revision` | string | Exact immutable revision. |
+| `bundleSha256` | string | Recomputed from the complete bundle. |
+| `publishedProvenance` | object | Exact immutable provenance. |
+| `instructionsSha256` | string | Hash of normalized instructions. |
+| `resourceManifest` | array | Complete sorted entries with hashes. |
+| `sourcePaths` | object | Repository-controlled instruction, provenance, and resource paths. |
+
+The record is traceable independently but becomes published only as part of its atomic release
+directory.
+
+### `CatalogRelease`
+
+Stored as `catalog/releases/<releaseId>/release.json`:
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `schemaVersion` | integer | Release format version. |
+| `releaseId` | string | Stable lowercase release identifier. |
+| `genesis` | boolean | True only for the first published release. |
+| `previousReleaseCommit` | string or null | Null for genesis; otherwise exact 40-character lowercase commit SHA. |
+| `inventorySha256` | string | Hash of canonical inventory. |
+| `advisoryChainHead` | string | Verified final event hash or 64 zeroes. |
+| `revisionCount` | integer | Exactly 10 for the launch batch. |
+| `revisions` | array | Ten records sorted by skill ID with revision, bundle hash, and record path. |
+| `publishedAt` | timestamp | Maintainer-supplied deterministic release timestamp. |
+
+For genesis, no earlier batch or non-draft GitHub release may exist, and the candidate advisory chain
+must be initial. Every later release must match `previousReleaseCommit` to the tag-resolved exact
+commit of the unique latest `draft: false` GitHub release by `published_at`, including a published
+prerelease.
+
+### `CatalogPublishResult`
+
+Structured stdout from `publish`: validated release ID (or null when that input is invalid), overall
+`created` result, final batch path when created, bounded errors, and exactly ten per-revision results.
+Revision, bundle hash, and record path are nullable only when rejection prevents safe derivation;
+every result is `created` or carries a bounded rejection code. On rejection, no final release
+directory exists.
+
+### `CatalogVerifyResult`
+
+Structured stdout from `verify`: release ID, overall validity, inventory/advisory/release checks,
+publication-claim absence, GitHub baseline check, and one result per revision. It contains no content
+bodies or secrets. Non-genesis output also records the selected GitHub release ID, its
+`published_at`, and the resolved commit; those fields are null for genesis.
+
+## Evaluation Types
+
+### `SearchEvaluationCase`
+
+Stable case ID, bounded task query, expected launch-skill ID, and rationale. The corpus has at least
+30 cases and at least three per skill.
+
+### `JourneyEvaluationCase`
+
+Stable case ID, task description, expected skill ID, optional exact resource path, selected result,
+and operation counts. The matrix has at least 20 cases.
+
+Both fixtures are committed before ranking and journey implementations.
+
+## Authentication and Repository Memory
+
+### `RequestPrincipal`
+
+Authenticated account ID, API-key ID, and request ID. Account identity is derived only from bearer
+authentication.
+
+### `RepositoryHash`
+
+Opaque client-generated value matching `^[0-9a-f]{64}$`. SkillWire never derives or enriches it.
+
+### `RepositoryMemoryScope`
+
+Composite `(accountId, repositoryHash)` tenant boundary used as a predicate in every query and
+mutation.
+
+### `SkillUsageRecord`
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `accountId` | UUID | Authenticated tenant. |
+| `repositoryHash` | char(64) | Opaque lowercase hash. |
+| `skillId` | string | Exact published skill. |
+| `revision` | string | Exact immutable revision. |
+| `bundleSha256` | char(64) | Published revision integrity binding. |
+| `firstUsedAt` | timestamp | Database time on first acknowledged load. |
+| `lastUsedAt` | timestamp | Database time on latest acknowledged load. |
+| `useCount` | positive integer | Incremented on repeated loads. |
+| `outcome` | enum or null | `useful`, `neutral`, `unsuccessful`, or null. |
+
+The composite `(account_id, repository_hash, skill_id, revision)` is unique. There is no outcome
+history and no repository-memory cache representation.
+
+### `ErasureAuditRecord`
+
+Exactly six permitted fields:
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `accountId` | UUID | Authenticated account only. |
+| `requestId` | UUID | Unique request correlation. |
+| `createdAt` | timestamp | Authoritative database time. |
+| `expiresAt` | timestamp | Exactly `createdAt + 30 days`. |
+| `operationResult` | enum | Bounded success result. |
+| `removedRecordCount` | nonnegative integer | Aggregate count only; never returned to caller. |
+
+No repository hash, skill identity, outcome, query, or usage detail is allowed.
 
 ## PostgreSQL Tables
 
 ### `accounts`
 
-| Column | PostgreSQL type | Constraints |
-|--------|-----------------|-------------|
-| `account_id` | `uuid` | Primary key. |
-| `status` | `text` | `active` or `disabled`; check constraint. |
-| `created_at` | `timestamptz` | Required; server time. |
-
-Accounts are provisioned out of band. Teams, organizations, roles, and account profile data are not
-part of the MVP.
+- `id uuid primary key`
+- `status text check (status in ('active','disabled'))`
+- `created_at timestamptz not null`
 
 ### `api_keys`
 
-| Column | PostgreSQL type | Constraints |
-|--------|-----------------|-------------|
-| `api_key_id` | `uuid` | Primary key; public token component. |
-| `account_id` | `uuid` | Required foreign key to `accounts`. |
-| `secret_digest` | `bytea` | Required 32-byte HMAC-SHA-256 digest; never the token. |
-| `created_at` | `timestamptz` | Required. |
-| `expires_at` | `timestamptz` | Optional; must be later than creation. |
-| `revoked_at` | `timestamptz` | Optional; terminal revocation timestamp. |
-| `rotated_from_key_id` | `uuid` | Optional self-reference used for operator audit. |
-| `last_used_at` | `timestamptz` | Optional; updated only after successful authentication. |
-
-Indexes: primary-key lookup by `api_key_id`; secondary index on `(account_id, revoked_at)` for
-operator key listings. Active means account active, `revoked_at IS NULL`, and `expires_at` absent or
-in the future.
+- `id uuid primary key`
+- `account_id uuid not null references accounts(id)`
+- `public_id text unique not null`
+- `secret_digest bytea not null`
+- `created_at`, `expires_at`, `revoked_at`, `last_used_at` timestamps
+- no plaintext or recoverable secret
 
 ### `repository_skill_usage`
 
-| Column | PostgreSQL type | Constraints |
-|--------|-----------------|-------------|
-| `account_id` | `uuid` | Required foreign key to `accounts`. |
-| `repository_hash` | `char(64)` | Required lowercase hexadecimal client-generated SHA-256. |
-| `skill_id` | `text` | Required catalog skill identity. |
-| `revision` | `text` | Required exact immutable revision label. |
-| `revision_sha256` | `char(64)` | Required revision bundle hash. |
-| `first_used_at` | `timestamptz` | Required; unchanged after insert. |
-| `last_used_at` | `timestamptz` | Required; updated on each remembered load. |
-| `usage_count` | `bigint` | Required, starts at 1, increments on remembered load, must remain positive. |
-| `outcome` | `text` | Optional; `useful`, `neutral`, or `unsuccessful`. |
+- fields from `SkillUsageRecord`
+- primary key `(account_id, repository_hash, skill_id, revision)`
+- check constraints for hash, outcome, count, and timestamps
+- tenant-first index for bounded listing/ranking queries
+- row access occurs only through account-and-repository predicates
 
-Primary key: `(account_id, repository_hash, skill_id, revision)`.
+### `repository_erasure_audit`
 
-Additional constraints:
-
-- Repository and revision hashes match `^[0-9a-f]{64}$`.
-- Floating revision labels are rejected before persistence.
-- A primary-key conflict with a different `revision_sha256` is an integrity error; it does not
-  update the existing row.
-- Index `(account_id, repository_hash, last_used_at DESC, skill_id, revision)` serves listing and
-  complete erasure.
-
-This table contains exactly the persistent repository-memory fields authorized by the specification:
-account identity, opaque repository hash, immutable skill revision identity, usage timestamps and
-count, and optional bounded outcome.
+- exactly the six fields from `ErasureAuditRecord`
+- `request_id` primary key
+- constraint `expires_at = created_at + interval '30 days'`
+- expiry index on `expires_at`
+- application reads require `expires_at > statement_timestamp()`
 
 ### `schema_migrations`
 
-| Column | PostgreSQL type | Constraints |
-|--------|-----------------|-------------|
-| `filename` | `text` | Primary key; ordered migration filename. |
-| `sha256` | `char(64)` | Hash of the exact migration bytes. |
-| `applied_at` | `timestamptz` | Required. |
-
-The migration runner obtains a fixed transaction-level advisory lock, creates this table if absent,
-verifies all applied checksums, and applies each pending SQL file in filename order inside its own
-transaction. Applied migration files are never edited; corrections use a new migration.
+Version, checksum, and applied timestamp. The migration runner rejects checksum drift and serializes
+concurrent migration attempts.
 
 ## State Transitions
+
+### Atomic release publication
+
+```text
+unpublished inputs
+  -> fully validated in-memory batch
+  -> exclusive publication claim acquired
+  -> complete sibling staging directory
+  -> atomic rename
+  -> published immutable release directory
+```
+
+Any validation, claim, or staging failure returns to `unpublished inputs` with no visible batch. An
+existing claim, final path, or revision identity transitions directly to rejection, never overwrite.
+The claim is held from the duplicate scan through rename; a stale claim blocks automatic progress.
+
+### Verification
+
+```text
+published files -> read-only recomputation -> valid | invalid
+```
+
+Verification has no transition that modifies state.
+
+### Advisory release baseline
+
+```text
+genesis + no non-draft GitHub release + initial local chain -> valid genesis
+non-genesis + unique latest non-draft published release -> tag -> exact commit -> prior bytes
+  -> valid append | invalid
+```
+
+Any absent/unavailable step is `invalid`; no fallback state exists.
 
 ### Repository usage
 
 ```text
-absent
-  ├─ load without repository hash ───────────────> absent
-  └─ load with valid account + repository hash ─> remembered(outcome = null, count = 1)
-
-remembered
-  ├─ repeated load ──────────────────────────────> remembered(count + 1, last_used_at updated)
-  ├─ valid outcome ──────────────────────────────> remembered(outcome replaced)
-  └─ forget repository ──────────────────────────> absent
+absent -> load upsert -> present
+present -> repeated load -> count/timestamp updated
+present -> valid outcome -> current outcome replaced
+present -> forget transaction -> absent
 ```
 
-`record_skill_outcome` requires an existing remembered row. `forget_repo_memory` deletes every row
-for `(account_id, repository_hash)` in one transaction and is idempotent.
+Every transition is committed in PostgreSQL before acknowledgment.
 
-### API key
+### Erasure audit
 
 ```text
-issued(active) ── expires_at reached ─> expired
-       │
-       ├─ revoke ────────────────────> revoked
-       └─ rotate ─> replacement active; original stays active during overlap, then is revoked
+active -> logically expired at expiresAt -> physically deleted by cleanup
 ```
 
-Expired and revoked states are terminal. Authentication checks database state on every request, so
-revocation takes effect immediately without cache invalidation.
+Logical expiry is unconditional. Physical deletion occurs within one hour only while service and
+database availability are continuous; after downtime, startup cleanup must complete before
+readiness.
 
-### Catalog revision
+## Transaction and Consistency Boundaries
 
-```text
-unverified ── validate paths/types/sizes + verify all hashes ─> available
-     └────── any validation/integrity failure ────────────────> rejected
+- Load usage upsert and outcome replacement use tenant-scoped PostgreSQL transactions/statements.
+- Forget deletes the exact tenant/repository scope and inserts its audit row in one transaction.
+- No repository-memory state is cached before or after commit.
+- Audit insertion uses one database time value for both timestamps.
+- Startup/hourly cleanup is idempotent and safe when multiple service instances run it.
+- Catalog publication writes no database state; runtime repository operations write no catalog
+  state.
 
-available ── source failure + verified cached bundle ─────────> available from cache
-available ── source/cache integrity mismatch ─────────────────> unavailable
-```
+## Data Never Stored
 
-Catalog states are process-local and reconstructed from the packaged version-controlled catalog at
-startup. No catalog content is written to client locations.
-
-## Transaction Boundaries
-
-- `load_skill` verifies the exact bundle before the memory transaction. If a repository hash exists,
-  one parameterized upsert increments count and last-used time only when the persisted revision hash
-  matches.
-- `record_skill_outcome` updates one row selected by account, repository hash, skill ID, and revision;
-  zero affected rows maps to `USAGE_NOT_FOUND`.
-- `forget_repo_memory` deletes the tenant/hash scope in one transaction and returns success even for
-  zero rows.
-- Memory reads always include `account_id` and `repository_hash` predicates and never accept an
-  account identifier from MCP input.
-
-## Data Not Stored
-
-Source code, repository paths or URLs, raw Git metadata, file contents, task descriptions, raw
-prompts, API-key secrets, authorization headers, skill instructions, skill resources, arbitrary
-source URLs, and outcome history are never stored in repository memory.
+Source code, client files, local paths, repository names/remotes, raw Git metadata, raw prompts,
+task queries, caller URLs, secrets, bearer tokens, skill/resource bodies in repository memory, and
+repository identifiers in deletion audit records or logs.

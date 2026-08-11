@@ -1,168 +1,202 @@
-# Security Decisions: Remote Skill Delivery MVP
+# Security and Privacy Decisions: Remote Skill Delivery MVP
 
 ## Security Invariants
 
-1. All six MCP tools require a valid account-wide bearer API key.
-2. Account identity comes only from authentication context, never from tool input.
-3. Repository memory is always addressed by `(accountId, repositoryHash)`.
-4. Catalog inputs are server-owned and allowlisted; no MCP schema contains a URL or source field.
-5. Catalog data is returned as validated text and is never executed or installed.
-6. An exact revision is returned only after complete bundle verification.
-7. Raw secrets, repository hashes, task text, instructions, resources, and prompts never enter logs.
+1. Catalog content crosses the client boundary only as MCP response data; SkillWire never installs or
+   executes it.
+2. Every MCP operation authenticates exactly one account before argument-dependent access.
+3. MCP callers cannot submit source URLs, release references, GitHub repositories, or fetch targets.
+4. Published revision identity, provenance, instructions, manifest, resource hashes, and resources
+   are immutable and hash-bound.
+5. Current advisory state is separate, version-controlled, release-anchored, and read-only at
+   runtime.
+6. Repository memory is stored and queried only in the authoritative PostgreSQL database. It is
+   never cached.
+7. A successful forget response follows committed tenant-scoped deletion and reveals no prior
+   existence or removed count.
+8. Expired audit events are unconditionally excluded from all reads and behavior.
+9. Catalog verification cannot write files or connect to the application database.
 
 ## Trust Boundaries
 
-| Boundary | Untrusted side | Trusted side | Required control |
-|----------|----------------|--------------|------------------|
-| HTTP edge | Network caller and headers/body | Hono/MCP request context | Host validation, body limit, bearer auth, rate limit, strict schema. |
-| MCP adapter | Tool name and arguments | Application use case | Only six registered tools; strict input/output validation; safe error mapping. |
-| Catalog provider | Version-controlled skill text/resources | Verified revision cache | Allowlisted index, safe paths, UTF-8/text checks, size limits, hashes. |
-| Persistence | Caller-selected repository hash | Tenant-scoped SQL | Principal-derived account ID, parameterized predicates, transactions, constraints. |
-| Observability | Errors and request metadata | Structured log sink | Allowlisted fields, explicit redaction, no raw payload serialization. |
-| Future provider | Remote source responses | Provider adapter | Server-owned source refs, host allowlist, redirect revalidation, byte/time limits. |
+| Boundary | Trusted inputs | Untrusted inputs | Enforcement |
+|----------|----------------|------------------|-------------|
+| MCP caller | Authenticated account after key verification | Headers, envelopes, tool arguments, task text, repository hashes | Host/body/rate controls, strict Zod schemas, tenant context |
+| Catalog source | Exact version-controlled allowlist and release configuration | Skill Markdown, resources, provenance files | Safe paths, strict text/size/schema checks, canonical hashes |
+| Published batch | Atomic create-only release directory | Any later filesystem drift | Complete read-only verification before runtime use |
+| Catalog cache | Verified immutable complete bundles | Partial, stale, wrong-hash entries | Immutable cache key and full re-verification |
+| PostgreSQL | Parameterized tenant-scoped store | Caller identifiers and concurrency | Account/repository predicates, transactions, constraints |
+| GitHub CI | Configured repository and read-only token | API responses, tag names, tag objects, prior bytes | Fixed API origin, schema/length checks, exact commit resolution, fail closed |
+| Client filesystem | None; SkillWire has no client path capability | Any attempt to install/materialize | Schemas expose no client path; end-to-end snapshots |
 
 ## Bearer API Keys
 
-### Token format and storage
+- Token format separates a public lookup ID from a high-entropy secret.
+- PostgreSQL stores only key ID, account ID, keyed digest, lifecycle timestamps, and status.
+- A deployment pepper comes from a secret mount and is never stored in the database or logs.
+- Digests are compared in constant time.
+- Expired/revoked keys and disabled accounts produce the same external 401 shape as unknown keys.
+- Authentication state is not cached; revocation applies to the next request.
+- Rotation permits a bounded overlap before explicit old-key revocation.
+- Authorization headers, token fragments, digests, and pepper values are recursively redacted.
 
-- Token format: `swk_<api-key-uuid>.<base64url-secret>`.
-- The secret is 32 cryptographically random bytes and is shown once at issuance.
-- PostgreSQL stores the public UUID and `HMAC-SHA-256(apiKeyPepper, secret)` only.
-- The pepper is a high-entropy deployment secret loaded from a mounted secret file; it is never in
-  the database, repository, image, logs, or command arguments.
-- Authentication parses the public UUID, fetches one active account/key row, recomputes the digest,
-  checks it with `timingSafeEqual`, then updates `last_used_at`.
-- Missing, malformed, expired, revoked, disabled-account, and digest-mismatch cases all return the
-  same HTTP 401 response with `WWW-Authenticate: Bearer` and no account-existence signal.
+## Tenant and Repository Isolation
 
-### Rotation and revocation
+- Account ID comes only from the authenticated principal.
+- Repository hash must match exactly 64 lowercase hexadecimal characters and is treated as opaque.
+- Every repository-memory SQL statement includes both `account_id` and `repository_hash`.
+- A repository hash is not a credential and can never select another account.
+- The raw hash appears only in the repository-memory table and transient parameter binding; it is
+  absent from logs and erasure audit.
+- Repository-memory results are not retained after request completion.
+- Two accounts using the same hash remain separate; two hashes in one account remain separate.
 
-- The operator CLI can create multiple active keys for an account; all have the same account-wide
-  authorization and no role or repository scope.
-- Rotation creates a new key linked by `rotated_from_key_id`. Both keys may work during an explicit
-  operational overlap; the operator then revokes the old key.
-- Revocation sets `revoked_at` and is terminal. No authentication result is cached, so the next
-  request fails.
-- Key creation output is never replayable. Losing a token requires rotation, not secret recovery.
-- Account/key management is not exposed through MCP or HTTP and has no web UI.
+## SSRF and Network Boundaries
 
-## Tenant Isolation
+MCP schemas contain no URL, host, repository, tag, commit, or source field. Unknown nested fields are
+rejected recursively. The bundled runtime provider performs no network I/O.
 
-- Tool schemas contain no `account_id`; middleware supplies an immutable `RequestPrincipal`.
-- Application use cases require the principal and pass its account ID to every memory repository
-  method.
-- Every memory select, insert, update, and delete includes `account_id` and `repository_hash`.
-- Composite keys and unique constraints include `account_id`.
-- Supplying the same repository hash under another key creates or reads only that other account's
-  namespace.
-- Empty list and idempotent forget responses do not reveal whether another tenant owns the same hash.
-- Security tests exercise two accounts with identical repository hashes and revisions for all memory
-  operations and ranking.
+The only GitHub network access belongs to `catalog:verify` in CI:
 
-PostgreSQL row-level security is not added in the MVP. The application uses one database role, so
-RLS would require transaction-local tenant state on every pooled connection and add a second policy
-system. Tenant-aware repository interfaces, SQL predicates, composite constraints, and boundary
-tests are the enforced control. Reconsider RLS only with a separate multi-tenant hardening spec.
+- API base is the configured GitHub API origin, not caller data.
+- Repository comes from trusted CI configuration and must match strict `owner/repo` syntax.
+- Token permission is `contents: read` only.
+- Only paginated release-list, exact tag/reference objects, and exact commit-addressed content reads
+  are permitted.
+- Redirects to a different origin, unexpected media types, oversized responses, invalid JSON, and
+  timeouts fail closed.
+- Tag names are path-encoded and never passed to a shell.
 
-## SSRF Prevention
+No GitHub access exists in the runtime MCP service.
 
-- No MCP input or shared application type accepts a URL, hostname, repository owner, or network
-  location.
-- The MVP provider reads only files listed in the packaged `catalog/catalog.json`; it performs no
-  outbound network request.
-- `SourceReference` is created by providers and is output-only.
-- The future GitHub provider port accepts a server configuration identifier, not a caller value.
-  Its eventual implementation must allowlist host, owner, repository, root path, and immutable
-  commit; disable redirects or validate every redirect target; reject private/link-local addresses;
-  and enforce response byte and time limits. That provider is not implemented by this feature.
-- Strict Zod objects reject unknown fields such as `url`, `source`, `repository`, or `ref`.
+## Resource and Text Safety
 
-## Resource Path Safety
+- Normalize and validate manifest paths before filesystem access.
+- Reject absolute paths, dot segments, percent/double encoding, backslashes, NUL, symlinks,
+  duplicates, undeclared paths, and containment escapes.
+- Open only regular files beneath the fixed allowlisted catalog root and protect against TOCTOU.
+- Decode strict UTF-8; reject binary, invalid UTF-8, NUL, unsupported media, and size violations.
+- Treat embedded commands, package instructions, code fences, and hooks as inert text.
+- Production dependencies/imports prohibit child processes, VM evaluation, installers, package
+  managers, and catalog-driven dynamic import.
 
-Manifest ingestion performs these checks before any content is available:
+## Atomic Create-Only Publication
 
-1. Decode once and reject malformed percent encodings.
-2. Require a relative POSIX path no longer than 240 characters.
-3. Reject empty, `.`, and `..` segments, leading slash, backslash, NUL, drive prefix, and duplicate
-   normalized paths.
-4. Join only beneath the selected immutable revision root.
-5. Resolve the real path and confirm it remains beneath that root.
-6. Use `lstat` and reject symlinks and non-regular files.
-7. Require the path to appear in the canonical manifest with the expected media type, byte length,
-   and SHA-256.
+`publish` is offline and the only catalog-writing capability.
 
-`read_skill_resource` resolves by manifest entry, never by directly passing caller input to a file
-API.
+- Validate exact inventory, all ten source bundles, complete provenance, paths, sizes, canonical
+  bytes, resource hashes, bundle hashes, advisories, release arguments, and duplicate identities
+  before creating published state.
+- Stage the complete release directory as a sibling on the same filesystem.
+- Atomically create an exclusive publication claim before rescanning published revisions; hold it
+  through the final rename.
+- Close and sync all staged files before one rename to a previously absent final path.
+- Reject any existing/stale claim, final release path, or revision identity; never overwrite or
+  automatically reclaim a claim.
+- A pre-rename failure exposes no batch. A post-rename batch is complete and independently
+  traceable for all ten revisions.
+- Publication reads/writes catalog files only and never connects to PostgreSQL.
 
-## Content and Execution Safety
+Command tests inject failures after every stage and verify that the final release path is either
+absent or complete—never partial. Concurrent invocations produce exactly one publisher; a stale
+claim fails closed. A post-rename claim-cleanup failure cannot relabel the already-created batch as
+rejected; it emits a bounded diagnostic and safely blocks later publication.
 
-- Accept only UTF-8 Markdown instructions and declared `text/markdown` or `text/plain` resources.
-- Decode with fatal UTF-8 handling; remove a leading BOM for canonicalization; normalize CRLF/CR to
-  LF; reject NUL bytes.
-- Enforce 256 KiB per instructions/resource, 64 resources, and 2 MiB per revision before caching.
-- Do not import, evaluate, compile, render, spawn, invoke, or install catalog content.
-- Production dependencies and code must not expose `child_process`, `vm`, dynamic import from catalog
-  values, package-manager execution, hooks, or writable client paths.
-- Code examples inside Markdown remain inert string content.
+## Strictly Read-Only Verification
 
-## Revision Integrity and Substitution Prevention
+`verify` recalculates inventory, bundle, resource, advisory, and release integrity and reports drift.
+It has no repair mode.
 
-- Requests identify both stable skill ID and exact revision; `latest`, branches, and fallback
-  resolution are rejected.
-- Resource reads identify the same exact skill/revision and a declared manifest path.
-- The provider verifies every resource hash and the RFC 8785 canonical bundle hash before returning
-  instructions or populating cache.
-- A revision label observed with a different bundle hash is quarantined as unavailable.
-- Source failure may use only a complete cached bundle for the exact requested revision after
-  re-verification. It never falls forward or backward to another revision.
-- Search results are derived from the same verified catalog index and contain an exact loadable
-  revision.
+- Its dependency graph excludes the publisher, writable filesystem adapter, migrations, and all
+  PostgreSQL code.
+- Contract tests deny filesystem write APIs and provide no database service.
+- A present publication claim makes verification invalid; verification never removes it.
+- The catalog is mounted read-only in verification and runtime containers.
+- Workspace snapshots and database probes are identical before and after every success/failure.
+- GitHub baseline calls are read-only and cannot publish releases, change refs, or edit contents.
 
-## HTTP and Abuse Controls
+## Advisory Release Integrity
 
-- The service accepts MCP POST requests only; stateless GET/DELETE session operations return 405.
-- Host-header allowlisting is mandatory through `createMcpHonoApp`, including explicit production
-  hosts when binding beyond loopback.
-- Request body limit is 64 KiB and content type must be JSON accepted by the SDK transport.
-- Per-key rate limit is 120 requests/minute with burst 30; rejected calls return HTTP 429 and
-  `Retry-After` before tool execution.
-- The limiter stores only API-key UUID and counters in a bounded process-local map. This is valid for
-  the single-instance MVP; no Redis or distributed quota is introduced.
-- Request timeout is 10 seconds. Provider reads and database statements must honor the remaining
-  deadline.
-- CORS is disabled by default because the MVP has no browser client.
+Advisory events contain monotonic sequence, previous-event hash, and their own canonical SHA-256.
+The release record contains the verified chain head.
 
-## Logging and Audit
+Genesis requires explicit `genesis: true`, null `previousReleaseCommit`, no previous local batch,
+an initial local chain, and a successful fully paginated GitHub check proving no non-draft release,
+including no prerelease. API unavailability is not absence.
 
-Allowed event fields are: timestamp, level, event name, request ID, MCP tool name, account ID,
-public API-key ID, non-reversible repository correlation, skill ID, revision, provider name, outcome,
-duration, result code, retryable flag, and bounded safe error class.
+For non-genesis verification:
 
-Forbidden fields include authorization headers, API-key secrets/digests/pepper, database URLs,
-repository hashes, task descriptions, MCP arguments, prompts, instructions, manifest bodies,
-resource paths or bodies, local paths, Git metadata, and raw errors containing request data.
+1. Fully paginate GitHub releases, filter `draft: false`, and select the unique greatest valid
+   `published_at`; published prereleases remain eligible and a timestamp tie fails closed.
+2. Resolve the selected release's exact tag reference and peel annotated tags to a commit.
+3. Require a 40-character lowercase commit SHA equal to release metadata.
+4. Retrieve prior advisory bytes from the global advisory path at that exact SHA; validate candidate
+   release metadata locally.
+5. Require an unchanged prior byte prefix and validate the proposed append/head.
 
-Pino explicit redact paths cover forbidden keys as defense in depth, but event constructors must
-allowlist fields first. Authentication failures omit account information. Audit events include key
-create/rotate/revoke, auth rejection, rate limiting, catalog integrity failure, memory outcome, and
-memory erasure; they never include the raw repository hash.
+Missing/unavailable release, tag, commit, metadata, or content fails closed. Merge bases, branches,
+`target_commitish`, and fallback references are forbidden. Runtime verifies only the already
+published local chain/head and cannot edit either.
 
-## Failure Disclosure
+## Verified Immutable Catalog Cache
 
-| Failure | External behavior |
-|---------|-------------------|
-| Missing/invalid/revoked bearer key | HTTP 401, identical body, no MCP processing. |
-| Rate limit | HTTP 429 with retry guidance, no tool execution. |
-| Oversized HTTP body | HTTP 413, no parsing or tool execution. |
-| Unknown skill/revision/resource | Stable non-retryable tool error without filesystem/source detail. |
-| Integrity or source/cache failure | `REVISION_UNAVAILABLE`, retryable only for source unavailability. |
-| Invalid path/content/schema | Non-retryable validation/content-policy error. |
-| Missing remembered usage for outcome | `USAGE_NOT_FOUND`, no mutation. |
-| Unexpected error | Generic internal tool error plus request ID; details only in redacted server log. |
+- Key: release ID + skill ID + exact revision + recorded bundle SHA-256.
+- Value: complete normalized instructions, provenance, manifest, and every resource.
+- Admission requires complete validation and bundle/resource hash checks.
+- Fallback serving re-verifies the complete bundle.
+- Partial, extra, mismatched, or advisory-revoked entries are rejected.
+- The cache contains no repository memory, API-key state, audit rows, or client data and needs no
+  mutable invalidation protocol.
 
-## Required Security Tests
+## PostgreSQL Repository-Memory Erasure
 
-See [testing-strategy.md](./testing-strategy.md). Release is blocked on SSRF-field rejection, path
-traversal variants, symlink rejection, size boundaries, revision substitution, hash mismatches,
-cross-account memory access, revoked keys, redaction assertions, inert malicious skill content, and
-no-client-write tests.
+`forget_repo_memory` runs one tenant-scoped transaction:
+
+1. delete every matching usage/outcome row;
+2. insert one six-field audit row using database time;
+3. commit;
+4. return constant `{ forgotten: true }`.
+
+There is no repository-memory cache, scope lock, distributed lock, or invalidation failure mode.
+Database failure rolls back and returns a bounded retryable error. Empty scopes and retries use the
+same success shape. Other accounts, hashes, and catalog files are unaffected.
+
+Backups, WAL, snapshots, restore processes, database replicas, and physical storage remain outside
+the service's API guarantee and credentials.
+
+## Audit Expiration and Readiness
+
+- `expires_at` equals the same row's `created_at + interval '30 days'`.
+- Every application audit query adds `expires_at > database_now`; no caller or code path may opt out.
+- Cleanup deletes `expires_at <= database_now` idempotently.
+- Startup cleanup completes before readiness is true; database outage/recovery returns the service
+  to this not-ready cleanup state.
+- Cleanup repeats hourly. With continuous service and database availability, physical delay after
+  expiration is at most one hour.
+- While the database is unavailable, SkillWire makes no physical-deletion guarantee; logical expiry
+  remains the application rule once queries can execute.
+- Audit/log output contains no repository hash, skill ID, outcome, query, or usage detail.
+
+## HTTP, Logging, and Safe Failures
+
+- Validate Host before authentication and arguments; bind/container host allowlists explicitly.
+- Enforce body/task/content/response/rate/deadline limits before sensitive access.
+- Structured event fields are allowlisted; nested secret, task, path, repository, SQL, and content
+  keys are recursively redacted.
+- Authentication failures are indistinguishable.
+- Integrity failure returns no partial or substituted content.
+- Readiness and cleanup failures expose no row counts or identifiers.
+- Error responses include only bounded codes, retryability, and request ID.
+
+## Mandatory Security Evidence
+
+- Authentication lifecycle and indistinguishable failures.
+- Cross-account and cross-repository PostgreSQL isolation.
+- Exact-version and provenance substitution rejection.
+- Atomic all-or-nothing publication and duplicate refusal.
+- Verifier no-write/no-database behavior.
+- Genesis and non-genesis GitHub baseline failure matrix.
+- Resource path, text, size, hash, SSRF, and execution boundaries.
+- Direct-database repository memory and idempotent erasure/restart behavior.
+- Unconditional logical audit expiry and availability-qualified physical cleanup/readiness.
+- No-client-write snapshots across success, failure, retry, and catalog-cache paths.

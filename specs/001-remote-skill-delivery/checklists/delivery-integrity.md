@@ -22,11 +22,11 @@ and requirements. It evaluates the requirements themselves, not the implementati
 - [ ] CHK004 - Are progressive-loading requirements defined for revisions with no resources, one
   resource, and multiple resources? [Coverage, Gap]
 - [ ] CHK005 - Does the provenance requirement define every required field and its normative shape,
-  including source, exact revision, revision SHA-256, trust status, and the complete resource
-  manifest? [Completeness, Spec §FR-012]
+  including source, exact revision, revision SHA-256, `trustAtPublication`,
+  `currentAdvisoryStatus`, and the complete resource manifest? [Completeness, Spec §FR-012]
 - [ ] CHK006 - Do immutability requirements cover instructions, resource content, manifest metadata,
-  source identity, trust status, and other published revision metadata, or explicitly identify
-  which of those may change? [Completeness, Ambiguity, Spec §FR-013]
+  source identity, `trustAtPublication`, and other published revision metadata, while explicitly
+  identifying `currentAdvisoryStatus` as separately derived? [Completeness, Spec §FR-013]
 - [ ] CHK007 - Does the hashing requirement enumerate all included canonical inputs, all excluded
   provenance fields, the per-resource hash rule, and the versioning rule for future canonical
   formats? [Completeness, Spec §FR-012–FR-014, Gap]
@@ -66,9 +66,9 @@ and requirements. It evaluates the requirements themselves, not the implementati
 - [ ] CHK017 - Is FR-013's prohibition on changed “content and manifest” consistent with the broader
   constitutional prohibition on silently changing published metadata? [Consistency, Conflict,
   Spec §FR-013]
-- [ ] CHK018 - Is the statement that source and trust status are excluded from the revision hash
-  consistent with claims that loaded provenance is immutable and verifiable? [Consistency,
-  Ambiguity, Spec §FR-012–FR-014]
+- [ ] CHK018 - Do the requirements consistently include source and `trustAtPublication` in the
+  revision bundle hash while excluding the separately verified, derived `currentAdvisoryStatus`?
+  [Consistency, Spec §FR-012–FR-014]
 - [ ] CHK019 - Are cached-retrieval requirements identical to fresh-retrieval requirements for
   authentication, complete-bundle verification, provenance, auditability, and client non-mutation?
   [Consistency, Spec §FR-014, Spec §SC-005]
@@ -136,9 +136,9 @@ and requirements. It evaluates the requirements themselves, not the implementati
 - [ ] CHK037 - Is “published revision” tied to an explicit publication event and lifecycle so that
   maintainers cannot silently reinterpret an existing revision before or after deployment?
   [Ambiguity, Spec §FR-013]
-- [ ] CHK038 - Is “verifiable provenance” separated clearly into content integrity protected by the
-  revision hash and provenance attributes protected by catalog governance or another integrity
-  mechanism? [Ambiguity, Spec §FR-012–FR-014]
+- [ ] CHK038 - Is “verifiable provenance” separated clearly into published bundle integrity protected
+  by the revision hash and current advisory state protected by the release-anchored advisory chain?
+  [Ambiguity, Spec §FR-012–FR-014]
 - [ ] CHK039 - Are requirements explicit about whether a provenance-only change requires a new
   revision, a new revision hash, both, or rejection of the catalog entry? [Conflict, Gap,
   Spec §FR-013]

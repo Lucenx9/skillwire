@@ -1,236 +1,236 @@
 # Research: Remote Skill Delivery MVP
 
-## Decision 1: Runtime and package baselines
+All implementation questions are resolved. Links point to primary project or vendor documentation.
 
-**Decision**: Target Node.js 24 LTS and strict TypeScript 7 ESM. Use pnpm 11 and commit the lockfile.
-Use PostgreSQL 18, Vitest 4, Hono 4, Zod 4, `pg` 8, and the stable MCP TypeScript SDK 2 packages.
-Exact patch releases are locked during implementation rather than copied into runtime code.
+## Decision 1: Node.js 24, TypeScript 6, pnpm, and typed linting
 
-**Rationale**: Node 24 is the active LTS line on the planning date. MCP SDK 2 is the stable package
-line for the 2026-07-28 protocol and requires the split `@modelcontextprotocol/server` and optional
-framework adapter packages. PostgreSQL 18 is current and supported through 2030. The chosen major
-lines are mutually compatible with Node 24.
+**Decision**: Use Node.js 24 LTS, strict ESM TypeScript 6.x, pnpm with a frozen lockfile, ESLint flat
+configuration with type-aware `typescript-eslint`, and `tsx` as a development dependency for the two
+catalog administration commands.
 
-**Alternatives considered**:
+**Rationale**: The selected runtime is active LTS, TypeScript 6 supplies the requested strict compiler
+baseline, pnpm provides reproducible dependency resolution, and `tsx` runs the TypeScript CLI without
+adding a separate build-only command path.
 
-- Node 26 is Current, not LTS, so it is unsuitable for the production baseline.
-- MCP SDK v1 is superseded and conflicts with the requested v2 package split.
-- An ORM or query builder would add a second model over a three-table persistence design.
-
-**Sources**:
-
-- [Node.js release status](https://nodejs.org/en/about/previous-releases)
-- [MCP TypeScript SDK v2 server package](https://www.npmjs.com/package/@modelcontextprotocol/server)
-- [MCP TypeScript SDK migration to v2](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/upgrade-to-v2.md)
-- [PostgreSQL versioning policy](https://www.postgresql.org/support/versioning/)
-- [Vitest v4 guide](https://v4.vitest.dev/guide/)
-
-## Decision 2: Stateless MCP over Hono
-
-**Decision**: Build a Hono application with `createMcpHonoApp`, mount one `/mcp` endpoint, and use
-the SDK v2 per-request handler/server factory in strict stateless mode. Advertise only MCP tools.
-Reject unsupported legacy/stateful protocol behavior; do not issue session IDs, expose SSE session
-routes, or enable prompts, MCP resources, sampling, elicitation, or tasks.
-
-**Rationale**: The v2 SDK provides a stable per-request stateless handler for the 2026-07-28
-protocol. `@modelcontextprotocol/hono` supplies the official thin Hono integration, JSON parsing,
-and host-header protection. A new MCP server context per request prevents cross-request principal or
-tool state leakage and removes any need for session affinity, Redis, queues, or message routing.
-
-**Alternatives considered**:
-
-- Stateful Streamable HTTP introduces session storage and routing without product value.
-- Stdio would require a local installation and is therefore constitutionally invalid.
-- Express or Fastify would ignore the user's explicit Hono decision.
+**Alternatives considered**: CommonJS, npm, Bun, untyped linting, or compiling administration
+commands separately. These would diverge from the established project direction or duplicate build
+paths.
 
 **Sources**:
 
-- [MCP v2 server guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/server.md)
-- [MCP v2 stateless handler](https://ts.sdk.modelcontextprotocol.io/v2/api/%40modelcontextprotocol/server/server/createMcpHandler.html)
-- [MCP Hono adapter](https://www.npmjs.com/package/@modelcontextprotocol/hono)
-- [Sessionless MCP guidance](https://modelcontextprotocol.io/seps/2567-sessionless-mcp)
+- [Node.js release schedule](https://nodejs.org/en/about/previous-releases)
+- [TypeScript 6 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html)
+- [typescript-eslint typed linting](https://typescript-eslint.io/getting-started/typed-linting/)
+- [tsx documentation](https://tsx.is/)
 
-## Decision 3: Strict Zod schemas are the contract source
+## Decision 2: Stateless MCP SDK v2 over Hono
 
-**Decision**: Define every tool input and successful structured output with Zod 4 strict objects.
-Reject unknown keys, validate byte-policy constraints after parsing, and generate/compare JSON
-Schema artifacts in contract tests. Return both concise text content and `structuredContent` for
-successful tool calls.
+**Decision**: Expose exactly six tools through the MCP TypeScript SDK v2 and
+`@modelcontextprotocol/hono`, using a fresh stateless Streamable HTTP request context and Zod v4 as
+the executable schema source.
 
-**Rationale**: Zod 4's `z.strictObject`, `safeParse`, and `z.toJSONSchema` provide one runtime and
-static contract source. Strict unknown-key rejection is essential to prevent hidden URL/source
-parameters. Separate byte checks are required because JSON Schema string lengths are character
-counts, not UTF-8 byte counts.
+**Rationale**: The v2 SDK separates server and Hono packages, supports stateless HTTP servers, and
+uses public Zod v4 schemas. Hono host validation and strict unknown-field rejection support the
+untrusted-caller boundary.
 
-**Alternatives considered**:
-
-- Handwritten TypeScript interfaces provide no runtime protection.
-- Independent handwritten runtime and JSON schemas are likely to drift.
-- Permissive objects could silently accept caller-supplied fetch targets.
+**Alternatives considered**: Stateful MCP sessions, stdio as the service transport, direct Hono
+protocol implementation, prompts/resources in addition to tools, or the v1 SDK. None is required by
+the six-tool contract.
 
 **Sources**:
 
-- [Zod 4 documentation](https://zod.dev/v4)
-- [Zod JSON Schema conversion](https://zod.dev/json-schema)
+- [MCP TypeScript SDK server guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/server.md)
+- [MCP SDK v2 migration guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/upgrade-to-v2.md)
+- [MCP server examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server)
+- [Zod v4](https://zod.dev/v4)
 
-## Decision 4: Version-controlled catalog behind one provider port
+## Decision 3: Modular monolith with scaffolded then final composition
 
-**Decision**: Package an allowlisted catalog index plus eight to twelve immutable skill directories
-with the service. Implement one `SkillCatalogProvider` port with preview listing, exact revision
-loading, and declared resource reading. The MVP adapter reads the packaged catalog. A GitHub adapter
-may later implement the same port using only server-owned allowlisted configuration.
+**Decision**: Keep domain, application ports/use cases, catalog adapters, PostgreSQL adapters,
+authentication, lifecycle, observability, and MCP transport in one package. Create only a compile-safe
+composition scaffold initially; complete `composition.ts` after all providers, stores, use cases,
+schedulers, readiness state, and handlers exist.
 
-**Rationale**: A checked-in catalog is reviewable, reproducible, deployable without runtime crawling,
-and cannot be redirected by MCP input. The explicit provider seam is required by the user, but a
-plugin system or provider registry would be speculative. Logical source references rather than URLs
-keep the application and MCP contracts provider-neutral.
+**Rationale**: The scaffold permits early boundary checking without pretending unavailable concrete
+dependencies can already be wired. Final composition remains the only place adapters meet.
 
-**Alternatives considered**:
+**Alternatives considered**: Final composition during foundation work, service locator access from
+handlers, monorepo packages, or microservices. The first is incorrectly ordered and the others add
+MVP scope.
 
-- Database-backed publishing adds workflows that are out of scope.
-- Caller-selected URLs create SSRF and violate the constitution.
-- Autonomous GitHub crawling is explicitly excluded.
+## Decision 4: Immutable inputs and evaluation fixtures precede behavior
 
-## Decision 5: Canonical revision and resource hashing
+**Decision**: Commit inventory, all ten instruction/resource bundles, provenance, independent
+canonical/hash fixtures, GitHub API fixtures, the search corpus, and the journey matrix before
+implementing publication, ranking, or journey behavior evaluated against them.
 
-**Decision**: Normalize textual files as UTF-8 without BOM and with LF line endings. Reject invalid
-UTF-8, NUL bytes, symlinks, and undeclared files. Sort manifest entries by logical POSIX path. Hash
-each normalized resource byte sequence with SHA-256. Build a typed revision object containing a
-format version, normalized instructions, canonical manifest entries, and each normalized resource;
-serialize it with RFC 8785 JSON Canonicalization Scheme and hash those UTF-8 bytes for the revision
-SHA-256. The revision hash field itself is excluded from the object.
+**Rationale**: Frozen inputs preserve the mandated publication order and reduce the risk that
+evaluation cases are selected to match an already-written ranker.
 
-**Rationale**: The procedure is deterministic across operating systems, has no hash cycle, binds
-instructions, manifest metadata, and resource bodies, and still lets a progressively read resource
-be checked independently. A format version allows a future hash-format change to require an
-explicit new revision.
+**Alternatives considered**: Generate fixtures from implementation output or author evaluation cases
+after tuning. Both weaken independent verification.
 
-**Alternatives considered**:
+## Decision 5: Atomic create-only launch publication is one directory
 
-- Hashing files in filesystem enumeration order is nondeterministic.
-- Hashing only the instructions fails to bind progressive resources.
-- A handwritten generic JSON canonicalizer risks subtle ordering and number-encoding errors.
+**Decision**: `catalog:publish` validates the complete ten-skill batch in memory, then atomically
+creates the exclusive `catalog/releases/.publish-claim` directory. While holding that fail-closed
+claim, it rescans all published revision identities, stages `release.json` and ten per-revision
+records in a sibling directory, syncs the complete stage, and performs one same-filesystem rename to
+a previously absent `catalog/releases/<release-id>/` path. It reports an outcome for every revision.
+An existing or stale claim rejects the run; it is never reclaimed automatically.
+
+**Rationale**: Exclusive directory creation serializes supported publishers from duplicate scanning
+through visibility, closing the absence-check/rename race. A single directory rename then makes the
+full batch visible at once. A claim left by a crashed process blocks publication until an operator
+proves no publisher is active and removes that exact claim outside the CLI.
+
+**Alternatives considered**: An unlocked absence precheck followed by rename, ten independent
+`revision.json` writes, overwrite-in-place, a database publication table, automatic stale-claim
+recovery, or compensating rollback. These introduce a race, partial visibility, mutation, a second
+catalog authority, unsafe concurrent recovery, or non-atomic observation.
 
 **Source**:
 
-- [RFC 8785: JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
+- [Node.js filesystem rename API](https://nodejs.org/api/fs.html#fspromisesrenameoldpath-newpath)
 
-## Decision 6: Deterministic lexical ranking with bounded memory boost
+## Decision 6: One CLI, two subcommands, separate capabilities
 
-**Decision**: Tokenize normalized task text and catalog title, summary, capabilities, and tags.
-Compute an integer relevance score from exact token matches with fixed field weights. Apply memory
-only after relevance as a fractional tie-break: `0.2` for useful prior usage, `0.1` for neutral or
-unrated usage, and `0` for unsuccessful or absent usage. Sort by relevance plus boost, then stable
-skill ID and revision.
+**Decision**: `src/catalog/admin-cli.ts` exposes exactly `publish` and `verify`. Package scripts use
+`tsx`. The publisher is the only catalog writer. The verifier imports no writer or PostgreSQL code,
+has no repair mode, and returns structured per-revision and release checks.
 
-**Rationale**: With integer relevance and a boost below one, repository history cannot overtake a
-skill with even one more relevance point. The algorithm is explainable, deterministic, easy to
-contract-test, and appropriate for approximately ten skills without embeddings.
+**Rationale**: One explicit entrypoint resolves command wiring while capability separation makes
+read-only verification enforceable through imports, filesystem permissions, write interception, and
+command contract tests.
 
-**Alternatives considered**:
+**Alternatives considered**: An unbounded admin CLI, runtime MCP administration, a verifier that
+repairs drift, or undocumented direct script execution. Each weakens scope or auditability.
 
-- Embeddings and vector search are explicitly excluded.
-- A pure history-first sort violates the requirement that relevance remain primary.
-- Fuzzy or learned ranking adds tuning and nondeterminism without launch-scale value.
+## Decision 7: Latest published GitHub release is the advisory authority
 
-## Decision 7: PostgreSQL and versioned SQL migrations
+**Decision**: Non-genesis CI fully paginates GitHub's release-list endpoint, retains releases with
+`draft: false` and a valid `published_at`, and selects the unique greatest `published_at`. Published
+prereleases remain eligible. A tie for greatest publication time fails closed. CI resolves the
+selected release tag through the exact `refs/tags/<tag>` reference, recursively peels annotated tag
+objects to a commit, and requires exactly 40 lowercase hexadecimal characters. That SHA must equal
+`previousReleaseCommit` in the locally verified candidate release metadata. CI then retrieves the
+global prior advisory chain through the Contents API with `ref` set to that exact SHA.
 
-**Decision**: Use `pg` with parameterized SQL and three application tables: accounts, API keys, and
-repository skill usage. Apply ordered SQL migration files transactionally through a small runner
-that takes a PostgreSQL transaction-level advisory lock and stores migration filename, SHA-256, and
-application time. Applied migration content is immutable; a checksum mismatch fails startup or the
-migration command.
+**Rationale**: This implements “latest published, non-draft” literally. GitHub's release list exposes
+`draft`, `prerelease`, and `published_at`; its `/latest` shortcut would instead exclude prereleases
+and order full releases by `created_at`. A release tag may be lightweight or annotated, so the tag
+reference must be peeled to its commit. Fetching the single global advisory path by the resulting
+immutable commit avoids mutable branches, ambiguous prior-release directories, and local-history
+assumptions.
 
-**Rationale**: Direct SQL keeps persistence visible for a small schema and satisfies the explicit
-versioned-SQL requirement. The advisory lock prevents concurrent deploys from racing, while stored
-checksums prevent silent mutation of an applied revision.
+**Genesis rule**: Genesis explicitly stores `genesis: true` and `previousReleaseCommit: null`. CI
+must successfully access and fully paginate the repository's release list and prove there is no
+non-draft release, including no prerelease. The local verifier proves there is no earlier published
+batch and that the candidate advisory chain is an initial chain (empty, or starting at sequence 1
+with the zero previous-event hash). A 404 or unavailable GitHub API is not accepted as evidence that
+the release list is empty.
 
-**Alternatives considered**:
+**Failure rule**: Missing token/repository access, incomplete pagination, selected release,
+unambiguous publication timestamp, tag reference, tag object, exact commit, valid candidate
+metadata, or exact-commit prior chain fails closed. Merge bases, branch names, and optional local
+fallbacks are prohibited.
 
-- An ORM is unnecessary for three stable tables.
-- Startup auto-migration couples serving availability to schema changes; deployment uses an
-  explicit one-shot migration step instead.
-- Shelling out to `psql` would require a database client in the runtime image.
-
-**Sources**:
-
-- [PostgreSQL transaction-level advisory locks](https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS)
-- [PostgreSQL transaction isolation](https://www.postgresql.org/docs/18/transaction-iso.html)
-
-## Decision 8: High-entropy bearer keys with keyed digests
-
-**Decision**: Issue tokens as a public UUID key ID plus a 32-byte random Base64URL secret. Store only
-the key ID and `HMAC-SHA-256(pepper, secret)` digest. Keep the pepper outside PostgreSQL, compare
-digests with `timingSafeEqual`, and never cache authorization across requests. Allow multiple active
-account-wide keys for overlap: rotation creates a replacement, then revocation timestamps the old
-key. Revoked or expired keys fail on the next request. Provisioning is an out-of-band operator CLI,
-not an MCP tool or web UI.
-
-**Rationale**: Random 256-bit API keys do not need password-style slow hashing; a keyed digest
-prevents a database-only compromise from validating stolen candidates, supports indexed lookup by
-public ID, and uses the Node standard library. Per-request database checks make revocation immediate.
-
-**Alternatives considered**:
-
-- Plain hashes omit defense against a database-only compromise.
-- Argon2 is appropriate for low-entropy passwords but adds cost and a native dependency for random
-  machine credentials.
-- A single replace-in-place key prevents safe rotation overlap.
-
-**Source**:
-
-- [Node.js crypto HMAC and timing-safe comparison](https://nodejs.org/api/crypto.html)
-
-## Decision 9: Structured logging with allowlisted fields
-
-**Decision**: Use Pino JSON logs. Log only typed, allowlisted event fields and never serialize raw
-HTTP requests, MCP arguments, tool outputs, catalog bodies, or database rows. Configure explicit
-redaction for authorization headers, tokens, secrets, database URLs, repository hashes, and nested
-error causes. Derive a separate non-reversible repository correlation value with HMAC when an audit
-event requires correlation; never log the raw hash.
-
-**Rationale**: Allowlisting prevents new payload fields from bypassing redaction. Pino's path
-redaction is a second defense and structured request IDs support auditing without capturing private
-content.
-
-**Alternatives considered**:
-
-- Logging full request objects creates a direct secret and prompt leak.
-- Plain console strings are difficult to query and redact reliably.
-- Metrics and distributed tracing are deferred because the MVP is a single service and structured
-  audit logs satisfy the current observability contract.
+**Alternatives considered**: GitHub's `/releases/latest` shortcut, merge-base comparison, a
+caller-provided ref, branch names, release `target_commitish`, or a locally available tag. The
+shortcut does not implement the requested prerelease/publication-time semantics; the others can be
+mutable, ambiguous, or absent in shallow CI history.
 
 **Sources**:
 
-- [Pino](https://github.com/pinojs/pino)
-- [Pino redaction](https://github.com/pinojs/redact)
+- [GitHub REST: list releases](https://docs.github.com/en/rest/releases/releases#list-releases)
+- [GitHub REST: get a Git reference](https://docs.github.com/en/rest/git/refs#get-a-reference)
+- [GitHub REST: get an annotated tag](https://docs.github.com/en/rest/git/tags#get-a-tag)
+- [GitHub REST: get repository content](https://docs.github.com/en/rest/repos/contents#get-repository-content)
 
-## Decision 10: Container and test topology
+## Decision 8: Cache only verified immutable catalog bundles
 
-**Decision**: Use one multi-stage Dockerfile and one Compose file with PostgreSQL, a one-shot
-migration service, and SkillWire. Compose gates migration on database health and the app on migration
-success. Vitest projects separate unit, contract, integration, and security suites; integration uses
-the Compose PostgreSQL service and security suites exercise the real MCP boundary.
+**Decision**: Permit one bounded in-process catalog cache keyed by release ID, exact revision, and
+verified bundle hash. Admit only complete verified bundles and re-verify before serving fallback
+content. Do not cache repository memory, API-key status, audit rows, or mutable advisory projections.
 
-**Rationale**: This mirrors the production process without introducing an orchestration platform,
-queue, or cache service. Separate Vitest projects keep fast logic tests independent from database and
-transport suites while retaining one runner and configuration.
+**Rationale**: Immutable bundle identities need no invalidation protocol. Removing mutable
+repository-memory caching removes stale reads, scope locks, cache failure modes, and the earlier
+single-process deployment restriction.
 
-**Alternatives considered**:
+**Alternatives considered**: Repository-memory cache, Redis, database query cache, or no catalog
+cache. Mutable caches add coordination; no catalog cache would remove the specified verified-source
+fallback.
 
-- Testcontainers adds another orchestration dependency when Compose is already required.
-- A monorepo is explicitly excluded.
-- Redis, queues, and multiple application services violate MVP scope.
+## Decision 9: PostgreSQL is the only repository-memory authority
+
+**Decision**: Every search boost, load upsert, list, outcome replacement, and forget operation uses
+tenant-scoped parameterized PostgreSQL statements. `forget_repo_memory` deletes usage and inserts the
+privacy-safe audit record in one transaction and returns only after commit.
+
+**Rationale**: Direct database access makes persistence, isolation, erasure, and restart behavior
+observable at one boundary. Idempotent SQL handles retries without process-local serialization.
+
+**Alternatives considered**: Repository cache plus invalidation, distributed locks, Redis, database
+replicas, or deletion journals. They are unnecessary or explicitly excluded.
 
 **Sources**:
 
-- [Docker Compose health-based startup](https://docs.docker.com/compose/how-tos/startup-order/)
-- [Docker Compose secrets](https://docs.docker.com/reference/compose-file/secrets/)
-- [Vitest projects](https://v4.vitest.dev/guide/projects)
-- [Vitest coverage](https://v4.vitest.dev/guide/coverage)
+- [PostgreSQL transaction processing](https://www.postgresql.org/docs/current/tutorial-transactions.html)
+- [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
 
-## Resolved Questions
+## Decision 10: Logical audit expiry is absolute; physical cleanup is availability-qualified
 
-There are no remaining unresolved research questions. Exact application limits, ranking boosts,
-canonical hash format, API-key lifecycle, supported protocol behavior, database/migration strategy,
-and deployment topology are fixed above and reflected in the Phase 1 artifacts.
+**Decision**: Use one database timestamp for `created_at` and `expires_at = created_at + interval
+'30 days'`. Every audit query includes `expires_at > database_now`. Run the idempotent delete for
+`expires_at <= database_now` before readiness on startup and hourly thereafter.
+
+**Rationale**: Query filtering makes logical expiration unconditional. With continuous service and
+database availability, hourly cleanup bounds physical delay to one hour. During database
+unavailability no deletion can be guaranteed; after recovery, readiness remains false until startup
+cleanup succeeds.
+
+**Alternatives considered**: Claiming an unconditional physical bound, returning expired rows until
+cleanup, operator-managed backup deletion, or a separate worker/queue. The first is impossible
+during downtime and the rest violate privacy or scope.
+
+## Decision 11: Bearer API keys remain non-recoverable and immediately revocable
+
+**Decision**: Parse a public key identifier plus high-entropy secret, store only a keyed digest,
+compare in constant time, and check account/key expiry or revocation on every request without auth
+caching. Redact authorization values and repository identifiers recursively.
+
+**Rationale**: Database lookup on each request gives revocation a clear boundary and avoids another
+mutable cache.
+
+**Alternatives considered**: Plaintext keys, reversible encryption, auth caching, JWT tenant claims,
+or repository hashes as credentials. These weaken revocation or isolation.
+
+## Decision 12: Test layers have non-overlapping responsibilities
+
+**Decision**: Use Vitest projects for unit, contract, integration, end-to-end, evaluation, and
+security suites. Shared parameterized fixtures own repeated matrices; higher layers assert only the
+additional boundary they introduce.
+
+**Rationale**: Clear ownership removes duplicate transport/security matrices while preserving the
+constitution's required evidence. PostgreSQL integration and full HTTP journeys remain separate.
+
+**Alternatives considered**: One undifferentiated test suite, repeating all failure cases at every
+layer, or shared-runner timing gates. These obscure failures or add noise.
+
+**Sources**:
+
+- [Vitest projects](https://vitest.dev/guide/projects)
+- [GitHub Actions workflow syntax](https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions)
+- [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/)
+
+## Decision 13: Performance measurement remains informational
+
+**Decision**: Keep a versioned operation mix, result schema, raw-result hash, cold/warm catalog-cache
+profiles, and reproducible Compose environment. CI validates inputs and report shape but does not run
+a timing release gate.
+
+**Rationale**: The MVP gathers comparable evidence without turning provisional measurements into a
+contract.
+
+**Alternatives considered**: Fixed p95 thresholds, shared-runner timing assertions, or no
+measurement method. The first two are unstable; the last loses useful evidence.
