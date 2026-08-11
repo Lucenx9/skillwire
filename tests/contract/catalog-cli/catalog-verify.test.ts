@@ -178,6 +178,9 @@ describe("catalog:verify", () => {
     const relativeGraph = graph.map((path) => relative(PROJECT_ROOT, path));
     expect(relativeGraph).not.toContain("src/catalog/catalog-publisher.ts");
     expect(
+      relativeGraph.some((path) => path.startsWith("src/ingestion/")),
+    ).toBe(false);
+    expect(
       relativeGraph.some((path) =>
         /(?:^|\/)(?:persistence|migrations)(?:\/|$)/.test(path),
       ),

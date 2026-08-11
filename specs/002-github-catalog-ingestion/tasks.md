@@ -31,7 +31,7 @@ stories in `spec.md`: Slice 1 is US2; Slice 2 combines US1, US4, and US5; Slice 
 **Purpose**: Add only the parsing/tooling surface required by Feature 002 and preserve the existing
 Node.js 24/TypeScript 6 modular monolith.
 
-- [ ] T001 Add pinned `yaml` and `mdast-util-from-markdown` dependencies without changing existing scripts in `package.json` and `pnpm-lock.yaml`
+- [X] T001 Add pinned `yaml` and `mdast-util-from-markdown` dependencies without changing existing scripts in `package.json` and `pnpm-lock.yaml`
 
 ---
 
@@ -43,10 +43,10 @@ new persistence or use case.
 **Critical**: Complete this phase before all vertical slices. Canonical v1 and existing catalog
 publisher/verifier behavior must remain byte-for-byte compatible.
 
-- [ ] T002 Define validated GitHub identities, budgets, source/snapshot/candidate states, imported provenance, invocation modes, findings, dependencies, and advisory types in `src/domain/external-catalog/types.ts`
-- [ ] T003 Implement canonical external revision schema v2, separate content-identity and complete-bundle SHA-256 serialization, and v1-preservation tests in `src/domain/external-catalog/canonical-revision-v2.ts` and `tests/unit/external-catalog/canonical-revision-v2.test.ts`
-- [ ] T004 [P] Define cancellation-aware source, external catalog, and fenced lease ports without URLs or transport types in `src/application/ports/github-source-provider.ts`, `src/application/ports/external-catalog-store.ts`, and `src/application/ports/sync-lease-store.ts`
-- [ ] T005 Add architecture and regression assertions that Feature 001 canonical fixtures, six-tool inventory, `catalog:verify`, publisher module isolation, and all existing payloads remain unchanged in `tests/unit/domain/canonical-revision.test.ts`, `tests/contract/catalog-cli/catalog-verify.test.ts`, and `tests/contract/schemas/schema-drift.test.ts`
+- [X] T002 Define validated GitHub identities, budgets, source/snapshot/candidate states, imported provenance, invocation modes, findings, dependencies, and advisory types in `src/domain/external-catalog/types.ts`
+- [X] T003 Implement canonical external revision schema v2, separate content-identity and complete-bundle SHA-256 serialization, and v1-preservation tests in `src/domain/external-catalog/canonical-revision-v2.ts` and `tests/unit/external-catalog/canonical-revision-v2.test.ts`
+- [X] T004 [P] Define cancellation-aware source, external catalog, and fenced lease ports without URLs or transport types in `src/application/ports/github-source-provider.ts`, `src/application/ports/external-catalog-store.ts`, and `src/application/ports/sync-lease-store.ts`
+- [X] T005 Add architecture and regression assertions that Feature 001 canonical fixtures, six-tool inventory, `catalog:verify`, publisher module isolation, and all existing payloads remain unchanged in `tests/unit/domain/canonical-revision.test.ts`, `tests/contract/catalog-cli/catalog-verify.test.ts`, and `tests/contract/schemas/schema-drift.test.ts`
 
 **Checkpoint**: External types and integrity contracts exist; Feature 001 regression tests still pass.
 
@@ -68,20 +68,20 @@ revision. Run all Feature 001 tests unchanged.
 
 ### Fixtures and Failing Tests
 
-- [ ] T006 [US2] Record and checksum the fixed official-host repository/ref/commit/tree/manifest/license/25-skill/resource responses plus an independently reviewed 25-entry expected inventory in `tests/fixtures/github-ingestion/mattpocock-skills-84fdeffd12f2ee307994d1eb6feb48173b6e0502/routes.json`, `expected-inventory.json`, and `responses/`
-- [ ] T007 [P] [US2] Write failing additive migration, checksum, immutable-table, and Feature 001 upgrade compatibility tests in `tests/integration/postgres/github-ingestion-migrations.test.ts`
-- [ ] T008 [P] [US2] Build the no-network route-manifest fixture harness and failing fixed-origin, header, redirect, deadline, streamed-byte, exact commit/tree/blob, mode, path, and SHA tests in `tests/helpers/github-ingestion-fixture.ts`, `tests/unit/ingestion/github-rest-client.test.ts`, and `tests/unit/ingestion/github-object-reader.test.ts`
-- [ ] T009 [P] [US2] Write failing authoritative plugin-manifest, strict frontmatter, invocation metadata, safe Markdown-resource, UTF-8, traversal, binary, and size-limit tests against the recorded skills in `tests/unit/ingestion/import-parsers.test.ts`
-- [ ] T010 [P] [US2] Write failing `source:add`, `source:list`, `source:sync`, atomic rollback, overwrite rejection, idempotence, and 25-result traceability tests in `tests/contract/source-cli/registered-source.test.ts` and `tests/integration/github-ingestion/registered-source-ingestion.test.ts`
+- [X] T006 [US2] Record and checksum the fixed official-host repository/ref/commit/tree/manifest/license/25-skill/resource responses plus an independently reviewed 25-entry expected inventory in `tests/fixtures/github-ingestion/mattpocock-skills-84fdeffd12f2ee307994d1eb6feb48173b6e0502/routes.json`, `expected-inventory.json`, and `responses/`
+- [X] T007 [P] [US2] Write failing additive migration, checksum, immutable-table, and Feature 001 upgrade compatibility tests in `tests/integration/postgres/github-ingestion-migrations.test.ts`
+- [X] T008 [P] [US2] Build the no-network route-manifest fixture harness and failing fixed-origin, header, redirect, deadline, streamed-byte, exact commit/tree/blob, mode, path, and SHA tests in `tests/helpers/github-ingestion-fixture.ts`, `tests/unit/ingestion/github-rest-client.test.ts`, and `tests/unit/ingestion/github-object-reader.test.ts`
+- [X] T009 [P] [US2] Write failing authoritative plugin-manifest, strict frontmatter, invocation metadata, safe Markdown-resource, UTF-8, traversal, binary, and size-limit tests against the recorded skills in `tests/unit/ingestion/import-parsers.test.ts`
+- [X] T010 [P] [US2] Write failing `source:add`, `source:list`, `source:sync`, atomic rollback, overwrite rejection, idempotence, and 25-result traceability tests in `tests/contract/source-cli/registered-source.test.ts` and `tests/integration/github-ingestion/registered-source-ingestion.test.ts`
 
 ### Implementation
 
-- [ ] T011 [US2] Add backward-compatible source/job and immutable external snapshot/content/revision/resource migrations with exact SHA/path constraints and create-only triggers in `migrations/004_github_sources_and_jobs.sql` and `migrations/005_external_catalog_revisions.sql`
-- [ ] T012 [US2] Implement the native-fetch fixed-origin GitHub REST client and exact public repository → default ref → commit → complete tree → selected blob reader with validated one-hop rename handling and no content-derived requests in `src/ingestion/github/rest-client.ts` and `src/ingestion/github/commit-tree-blob-reader.ts`
-- [ ] T013 [P] [US2] Implement the authoritative `.claude-plugin/plugin.json` adapter, constrained YAML frontmatter parser, MDAST textual-resource parser, safe tree-relative resolver, and inert-text validation in `src/ingestion/parsing/claude-plugin-manifest.ts`, `src/ingestion/parsing/frontmatter.ts`, and `src/ingestion/parsing/markdown-resources.ts`
-- [ ] T014 [US2] Implement source/snapshot/content stores and create-only canonical v2 batch publication with hash-collision checks, rollback, deduplication, and per-skill observations in `src/persistence/postgres/github-source-store.ts`, `src/persistence/postgres/external-catalog-store.ts`, and `src/ingestion/external-revision-publisher.ts`
-- [ ] T015 [US2] Implement register/list/one-shot exact synchronization services and strict JSON administrator commands without URL/ref/skill arguments in `src/application/services/source-registration-service.ts`, `src/application/services/source-synchronization-service.ts`, `src/ingestion/admin-cli.ts`, and `package.json`
-- [ ] T016 [US2] Make the recorded 25-skill atomic import and all Slice 1/Feature 001 gates pass, including exact MIT/Matt Pocock provenance, failure injection, and zero clone/checkout/exec/filesystem materialization assertions in `tests/integration/github-ingestion/registered-source-ingestion.test.ts` and `tests/security/transport/ssrf-and-execution-boundaries.test.ts`
+- [X] T011 [US2] Add backward-compatible source/job and immutable external snapshot/content/revision/resource migrations with exact SHA/path constraints and create-only triggers in `migrations/004_github_sources_and_jobs.sql` and `migrations/005_external_catalog_revisions.sql`
+- [X] T012 [US2] Implement the native-fetch fixed-origin GitHub REST client and exact public repository → default ref → commit → complete tree → selected blob reader with validated one-hop rename handling and no content-derived requests in `src/ingestion/github/rest-client.ts` and `src/ingestion/github/commit-tree-blob-reader.ts`
+- [X] T013 [P] [US2] Implement the authoritative `.claude-plugin/plugin.json` adapter, constrained YAML frontmatter parser, MDAST textual-resource parser, safe tree-relative resolver, and inert-text validation in `src/ingestion/parsing/claude-plugin-manifest.ts`, `src/ingestion/parsing/frontmatter.ts`, and `src/ingestion/parsing/markdown-resources.ts`
+- [X] T014 [US2] Implement source/snapshot/content stores and create-only canonical v2 batch publication with hash-collision checks, rollback, deduplication, and per-skill observations in `src/persistence/postgres/github-source-store.ts`, `src/persistence/postgres/external-catalog-store.ts`, and `src/ingestion/external-revision-publisher.ts`
+- [X] T015 [US2] Implement register/list/one-shot exact synchronization services and strict JSON administrator commands without URL/ref/skill arguments in `src/application/services/source-registration-service.ts`, `src/application/services/source-synchronization-service.ts`, `src/ingestion/admin-cli.ts`, and `package.json`
+- [X] T016 [US2] Make the recorded 25-skill atomic import and all Slice 1/Feature 001 gates pass, including exact MIT/Matt Pocock provenance, failure injection, and zero clone/checkout/exec/filesystem materialization assertions in `tests/integration/github-ingestion/registered-source-ingestion.test.ts` and `tests/security/transport/ssrf-and-execution-boundaries.test.ts`
 
 **Checkpoint**: Registered-source ingestion is runnable and independently verifiable; no discovery
 scheduler or agent-visible imported catalog exists yet.

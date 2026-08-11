@@ -33,6 +33,8 @@ describe("versioned PostgreSQL migrations", () => {
       "001",
       "002",
       "003",
+      "004",
+      "005",
     ]);
   });
 
@@ -45,6 +47,8 @@ describe("versioned PostgreSQL migrations", () => {
       "001_accounts_and_api_keys.sql",
       "002_repository_skill_usage.sql",
       "003_repository_erasure_audit.sql",
+      "004_github_sources_and_jobs.sql",
+      "005_external_catalog_revisions.sql",
     ]) {
       const content = await readFile(join(source, name), "utf8");
       await writeFile(
