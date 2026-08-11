@@ -61,6 +61,7 @@ export function createLoadSkill(
             revision: revision.revision,
             revisionSha256: revision.bundleSha256,
           },
+          principal,
         );
       }
       return {

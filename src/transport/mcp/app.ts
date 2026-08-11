@@ -15,6 +15,7 @@ import {
   type SkillWireHonoEnvironment,
 } from "../../authentication/middleware.js";
 import { safeErrorEnvelope, SkillWireError } from "../../application/errors.js";
+import { runWithRequestExecution } from "../../application/request-execution.js";
 import type { ReadinessState } from "../../lifecycle/readiness-state.js";
 import type { SecurityLogger } from "../../observability/logger.js";
 import { requestContext } from "../../observability/request-context.js";
@@ -24,6 +25,7 @@ export interface CreateAppOptions {
   readonly allowedHosts: readonly string[];
   readonly authenticator: ApiKeyAuthenticator;
   readonly readiness: ReadinessState;
+  readonly checkReadiness?: (() => Promise<boolean>) | undefined;
   readonly useCases: McpUseCases;
   readonly logger: SecurityLogger;
   readonly maximumRequestBodyBytes: number;
@@ -36,10 +38,14 @@ export function createApp(options: CreateAppOptions) {
   const app = new Hono<SkillWireHonoEnvironment>();
   const now = options.now ?? Date.now;
   const limiter = new AccountApiKeyRateLimiter(options.rateLimit, now);
+  const isReady =
+    options.checkReadiness ??
+    (() => Promise.resolve(options.readiness.isReady()));
 
   app.use("*", requestContext(options.requestDeadlineMilliseconds, now));
   app.use("*", async (context, next) => {
     if (now() >= context.get("deadline")) {
+      context.get("abortController").abort();
       const requestId = context.get("requestId");
       options.logger.emit("request_rejected", {
         requestId,
@@ -51,7 +57,43 @@ export function createApp(options: CreateAppOptions) {
         503,
       );
     }
-    await next();
+    const completion = runWithRequestExecution(
+      {
+        signal: context.get("abortController").signal,
+        deadline: context.get("deadline"),
+      },
+      () =>
+        next().then(
+          () => "completed" as const,
+          (error: unknown) => ({ error }) as const,
+        ),
+    );
+    const timeout = new Promise<"timed-out">((resolve) => {
+      const timer = setTimeout(() => {
+        context.get("abortController").abort();
+        resolve("timed-out");
+      }, options.requestDeadlineMilliseconds);
+      timer.unref();
+    });
+    const result = await Promise.race([completion, timeout]);
+    if (
+      result === "timed-out" ||
+      context.get("abortController").signal.aborted ||
+      now() >= context.get("deadline")
+    ) {
+      context.get("abortController").abort();
+      const requestId = context.get("requestId");
+      options.logger.emit("request_rejected", {
+        requestId,
+        code: "INTERNAL",
+        status: 503,
+      });
+      return context.json(
+        safeErrorEnvelope(new SkillWireError("INTERNAL"), requestId),
+        503,
+      );
+    }
+    if (typeof result === "object") throw result.error;
     return;
   });
   app.use("*", async (context, next) => {
@@ -75,14 +117,14 @@ export function createApp(options: CreateAppOptions) {
   });
 
   app.get("/health/live", (context) => context.json({ status: "ok" }));
-  app.get("/health/ready", (context) =>
-    options.readiness.isReady()
+  app.get("/health/ready", async (context) =>
+    (await isReady())
       ? context.json({ status: "ready" })
       : context.json({ status: "not-ready" }, 503),
   );
 
   app.use("/mcp", async (context, next) => {
-    if (!options.readiness.isReady()) {
+    if (!(await isReady())) {
       return context.json(
         safeErrorEnvelope(
           new SkillWireError("INTERNAL"),

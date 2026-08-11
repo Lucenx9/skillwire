@@ -104,19 +104,35 @@ and backup limits.
 
 ## Informational benchmark
 
-The benchmark is nonblocking. Bootstrap `.secrets/api-key`, then run separate
-cold and warm processes. A cold run starts a fresh service process with zero
-warmup operations; a warm run uses the frozen warmup count before recording:
+The full benchmark is nonblocking and runs only from the manually dispatched
+`informational-benchmark` workflow (or the equivalent local profile). Each cache
+state uses a distinct Compose project and disposable PostgreSQL volume. The
+runner erases its deterministic per-client repository scopes before warmup and
+again before measurement.
+
+`catalog-cold` disables catalog retention and re-verifies the immutable release
+for every search, load, and resource operation. `catalog-warm` preloads the same
+verified release. Both modes use the same 100 unmeasured warmup operations;
+warmup does not turn the cold mode into a retained cache.
+
+For a local run, start a disposable stack, then export its exact environment
+metadata before invoking the benchmark container:
 
 ```bash
+export SKILLWIRE_BENCHMARK_COMMIT="$(git rev-parse HEAD)"
+export SKILLWIRE_BENCHMARK_DOCKER_VERSION="$(docker version --format '{{.Server.Version}}')"
+export SKILLWIRE_BENCHMARK_COMPOSE_VERSION="$(docker compose version --short)"
+export SKILLWIRE_BENCHMARK_SKILLWIRE_IMAGE_DIGEST="$(docker image inspect skillwire:local --format '{{.Id}}')"
+export SKILLWIRE_BENCHMARK_POSTGRES_IMAGE_DIGEST="$(docker inspect "$(docker compose ps -q postgres)" --format '{{.Image}}')"
+export SKILLWIRE_BENCHMARK_CLIENT_IMAGE_DIGEST="$(docker image inspect skillwire-benchmark:local --format '{{.Id}}')"
+export SKILLWIRE_BENCHMARK_UID="$(id -u)"
+export SKILLWIRE_BENCHMARK_GID="$(id -g)"
 chmod 0444 .secrets/api-key
 trap 'chmod 0600 .secrets/api-key' EXIT
-docker compose stop skillwire
 SKILLWIRE_BENCHMARK_CACHE_STATE=catalog-cold \
-SKILLWIRE_BENCHMARK_WARMUP=0 \
+SKILLWIRE_BENCHMARK_WARMUP=100 \
   docker compose -f compose.yaml -f compose.benchmark.yaml --profile benchmark up \
   --build --abort-on-container-exit benchmark
-docker compose stop skillwire
 SKILLWIRE_BENCHMARK_CACHE_STATE=catalog-warm \
 SKILLWIRE_BENCHMARK_WARMUP=100 \
   docker compose -f compose.yaml -f compose.benchmark.yaml --profile benchmark up \
@@ -128,6 +144,11 @@ trap - EXIT
 The temporary read-only mode lets the capability-dropped benchmark container
 read the bind-mounted secret; the mode `0700` parent directory continues to
 protect it on the host, and the trap restores mode `0600` on failure.
+
+The manual workflow sets this metadata automatically, uses a fresh Compose
+project and volume for each mode, and uploads the complete cold/warm reports as
+an informational artifact. Required CI runs only schema validation and a
+100-operation functional smoke mix; it does not run the full benchmark.
 
 The Compose run prints completion totals and the raw-row hash. Running
 `pnpm benchmark:informational` directly with the documented environment writes

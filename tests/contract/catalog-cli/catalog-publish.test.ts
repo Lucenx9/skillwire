@@ -79,10 +79,10 @@ describe("catalog:publish", () => {
     ) as { scripts: Record<string, string> };
 
     expect(packageJson.scripts["catalog:publish"]).toBe(
-      "tsx src/catalog/admin-cli.ts publish",
+      "tsx src/catalog/publish-cli.ts",
     );
     expect(packageJson.scripts["catalog:verify"]).toBe(
-      "tsx src/catalog/admin-cli.ts verify",
+      "tsx src/catalog/verify-cli.ts",
     );
   });
 
@@ -131,6 +131,82 @@ describe("catalog:publish", () => {
     expect((JSON.parse(result.stdout) as PublishOutput).revisions).toHaveLength(
       10,
     );
+  });
+
+  it.each([
+    "after-claim",
+    "after-stage-created",
+    "after-revision:dependency-upgrade-planning",
+    "after-revision:dockerfile-hardening",
+    "after-revision:github-actions-ci",
+    "after-revision:node-api-design",
+    "after-revision:postgres-schema-review",
+    "after-revision:react-accessibility",
+    "after-revision:technical-documentation",
+    "after-revision:threat-modeling",
+    "after-revision:typescript-code-review",
+    "after-revision:vitest-test-design",
+    "after-revisions-written",
+    "after-release-written",
+    "before-rename",
+  ])("atomically rolls back the CLI fault point %s", async (faultPoint) => {
+    const workspace = createCatalogWorkspace();
+    workspaces.push(workspace);
+    const before = await snapshotTree(workspace);
+
+    const result = runCatalogCommand(workspace, "publish", {
+      NODE_ENV: "test",
+      SKILLWIRE_TEST_PUBLISH_FAULT: faultPoint,
+    });
+
+    expect(result.status).not.toBe(0);
+    expect((JSON.parse(result.stdout) as PublishOutput).errors).toEqual([
+      "PUBLICATION_FAILED",
+    ]);
+    expect(await snapshotTree(workspace)).toBe(before);
+  });
+
+  it("preserves a concurrently created final path instead of overwriting it", () => {
+    const workspace = createCatalogWorkspace();
+    workspaces.push(workspace);
+    const finalPath = join(workspace, "catalog/releases/launch-catalog-v1");
+
+    const output = publishCatalog({
+      projectRoot: workspace,
+      releaseId: "launch-catalog-v1",
+      genesis: true,
+      previousReleaseCommit: null,
+      faultInjection: (point) => {
+        if (point === "before-rename") {
+          mkdirSync(finalPath, { recursive: true });
+          writeFileSync(join(finalPath, "owner"), "concurrent publisher\n");
+        }
+      },
+    });
+
+    expect(output.created).toBe(false);
+    expect(output.errors).toEqual(["RELEASE_ALREADY_EXISTS"]);
+    expect(readFileSync(join(finalPath, "owner"), "utf8")).toBe(
+      "concurrent publisher\n",
+    );
+  });
+
+  it("rejects duplicate revision identities in a later release", async () => {
+    const workspace = createCatalogWorkspace();
+    workspaces.push(workspace);
+    expect(runCatalogCommand(workspace, "publish").status).toBe(0);
+    const before = await snapshotTree(workspace);
+
+    const output = publishCatalog({
+      projectRoot: workspace,
+      releaseId: "launch-catalog-v2",
+      genesis: false,
+      previousReleaseCommit: "a".repeat(40),
+    });
+
+    expect(output.created).toBe(false);
+    expect(output.errors).toEqual(["DUPLICATE_REVISION"]);
+    expect(await snapshotTree(workspace)).toBe(before);
   });
 
   it("fails closed on an existing publication claim without removing it", () => {
@@ -193,5 +269,6 @@ describe("catalog:publish", () => {
     expect(existsSync(join(workspace, "catalog/releases/.publish-claim"))).toBe(
       true,
     );
+    expect(output.errors).toEqual(["PUBLICATION_CLAIM_REMAINS"]);
   });
 });

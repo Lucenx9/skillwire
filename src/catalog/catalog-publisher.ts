@@ -51,6 +51,7 @@ export interface PublishCatalogOptions {
   readonly previousReleaseCommit: string | null;
   readonly publishedAt?: string | undefined;
   readonly removePublicationClaim?: ((claimPath: string) => void) | undefined;
+  readonly faultInjection?: ((point: string) => void) | undefined;
 }
 
 function publishedRevisionIdentities(releasesRoot: string): Set<string> {
@@ -157,11 +158,15 @@ export function publishCatalog(
   );
   let claimAcquired = false;
   let published = false;
+  let releasesRootCreated = false;
+  const diagnostics: string[] = [];
 
   try {
+    releasesRootCreated = !existsSync(releasesRoot);
     mkdirSync(releasesRoot, { recursive: true });
     mkdirSync(claimPath);
     claimAcquired = true;
+    options.faultInjection?.("after-claim");
 
     const existingReleases = readdirSync(releasesRoot, {
       withFileTypes: true,
@@ -200,12 +205,14 @@ export function publishCatalog(
     }
 
     mkdirSync(join(stagePath, "revisions"), { recursive: true });
+    options.faultInjection?.("after-stage-created");
     const releaseRevisions = revisions.map((revision) => {
       const record = publicationRecordFor(revision);
       writeCanonicalFile(
         join(stagePath, "revisions", `${revision.skillId}.json`),
         record,
       );
+      options.faultInjection?.(`after-revision:${revision.skillId}`);
       return {
         skillId: revision.skillId,
         revision: revision.revision,
@@ -214,6 +221,7 @@ export function publishCatalog(
       };
     });
     syncPath(join(stagePath, "revisions"));
+    options.faultInjection?.("after-revisions-written");
 
     const advisoryChain = loadVerifiedAdvisoryChain(
       options.projectRoot,
@@ -233,7 +241,17 @@ export function publishCatalog(
       publishedAt: options.publishedAt ?? new Date().toISOString(),
     };
     writeCanonicalFile(join(stagePath, "release.json"), release);
+    options.faultInjection?.("after-release-written");
     syncPath(stagePath);
+    options.faultInjection?.("before-rename");
+    if (existsSync(finalPath)) {
+      return rejectedResults(
+        revisions,
+        skillIds,
+        validReleaseId,
+        "RELEASE_ALREADY_EXISTS",
+      );
+    }
     renameSync(stagePath, finalPath);
     published = true;
     syncPath(releasesRoot);
@@ -250,7 +268,7 @@ export function publishCatalog(
         status: "created",
         code: null,
       })),
-      errors: [],
+      errors: diagnostics,
     };
   } catch (error) {
     const code =
@@ -265,9 +283,18 @@ export function publishCatalog(
       try {
         (options.removePublicationClaim ?? rmdirSync)(claimPath);
       } catch {
+        diagnostics.push("PUBLICATION_CLAIM_REMAINS");
         // A published batch remains truthful and complete. The surviving claim
         // fails later publication closed until an operator safely removes it.
       }
+    }
+    if (
+      !published &&
+      releasesRootCreated &&
+      existsSync(releasesRoot) &&
+      readdirSync(releasesRoot).length === 0
+    ) {
+      rmdirSync(releasesRoot);
     }
   }
 }

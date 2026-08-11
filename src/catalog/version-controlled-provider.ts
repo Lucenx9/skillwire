@@ -3,6 +3,8 @@ import type { SkillRevision } from "../domain/catalog/types.js";
 import { loadPublishedCatalog } from "./catalog-loader.js";
 import { VerifiedRevisionCache } from "./verified-revision-cache.js";
 
+export type CatalogCacheMode = "catalog-cold" | "catalog-warm";
+
 function freezeRevision(revision: SkillRevision): SkillRevision {
   return Object.freeze({
     ...revision,
@@ -22,16 +24,20 @@ function freezeRevision(revision: SkillRevision): SkillRevision {
 export function loadVerifiedCatalogProvider(
   projectRoot: string,
   releaseId: string,
-  cache = new VerifiedRevisionCache(),
+  cache: VerifiedRevisionCache = new VerifiedRevisionCache(),
+  mode: CatalogCacheMode = "catalog-warm",
 ): SkillCatalogProvider {
   const loaded = loadPublishedCatalog(projectRoot, releaseId);
   const metadata = Object.freeze(
     loaded.metadata.map((entry) => Object.freeze(entry)),
   );
-  const revisions = loaded.revisions.map(freezeRevision);
-  revisions.forEach((revision) => {
-    cache.admit(releaseId, revision);
-  });
+  const revisions =
+    mode === "catalog-warm" ? loaded.revisions.map(freezeRevision) : [];
+  if (mode === "catalog-warm") {
+    revisions.forEach((revision) => {
+      cache.admit(releaseId, revision);
+    });
+  }
   const revisionMap = new Map(
     revisions.map((revision) => [
       `${revision.skillId}@${revision.revision}`,
@@ -42,10 +48,25 @@ export function loadVerifiedCatalogProvider(
     metadata.map((entry) => [`${entry.id}@${entry.revision}`, entry]),
   );
   return Object.freeze({
-    listMetadata: () => metadata,
+    listMetadata: () =>
+      mode === "catalog-cold"
+        ? Object.freeze(
+            loadPublishedCatalog(projectRoot, releaseId).metadata.map((entry) =>
+              Object.freeze(entry),
+            ),
+          )
+        : metadata,
     findRevision: (skillId: string, revision: string) => {
       const key = `${skillId}@${revision}`;
       const status = metadataMap.get(key)?.currentAdvisoryStatus;
+      if (mode === "catalog-cold") {
+        if (status === "revoked" || status === "unavailable") return undefined;
+        const reverified = loadPublishedCatalog(projectRoot, releaseId);
+        const exact = reverified.revisions.find(
+          (entry) => entry.skillId === skillId && entry.revision === revision,
+        );
+        return exact === undefined ? undefined : freezeRevision(exact);
+      }
       const publishedRevision = revisionMap.get(key);
       if (publishedRevision === undefined || status === "revoked") {
         return undefined;

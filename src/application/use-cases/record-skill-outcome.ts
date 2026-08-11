@@ -37,6 +37,7 @@ export function createRecordSkillOutcome(
         input.skillId,
         input.revision,
         input.outcome,
+        principal,
       );
       if (!replaced) throw new SkillWireError("MEMORY_CONFLICT");
       return {

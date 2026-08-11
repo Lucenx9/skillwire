@@ -20,7 +20,7 @@ RUN pnpm build
 
 FROM dependencies AS test
 COPY . .
-RUN pnpm build
+RUN pnpm build && chmod -R a+rX /app
 CMD ["pnpm", "test"]
 
 FROM toolchain AS production-dependencies

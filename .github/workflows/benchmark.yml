@@ -1,0 +1,98 @@
+name: informational-benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      cache_state:
+        description: Immutable catalog mode to measure
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - catalog-cold
+          - catalog-warm
+
+permissions:
+  contents: read
+
+env:
+  PNPM_VERSION: 11.21.0
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - run:
+          corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Create disposable benchmark secrets
+        run: |
+          umask 077
+          mkdir -p .secrets benchmarks/results
+          openssl rand -hex 32 > .secrets/postgres-password
+          openssl rand -hex 32 > .secrets/api-key-pepper
+          node -e "const fs=require('fs'); const p=fs.readFileSync('.secrets/postgres-password','utf8').trim(); fs.writeFileSync('.secrets/database-url', 'postgresql://skillwire:'+p+'@postgres:5432/skillwire\n', {mode:0o600})"
+          : > .secrets/api-key
+          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/api-key
+      - name: Build fixed benchmark images
+        run: |
+          docker build --target runtime --tag skillwire:local .
+          docker build --target test --tag skillwire-benchmark:local .
+          docker pull postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+      - name: Run requested full measurements
+        env:
+          REQUESTED_CACHE_STATE: ${{ inputs.cache_state }}
+        run: |
+          set -eu
+          if [ "$REQUESTED_CACHE_STATE" = both ]; then
+            states="catalog-cold catalog-warm"
+          else
+            states="$REQUESTED_CACHE_STATE"
+          fi
+          for state in $states; do
+            project="skillwire-benchmark-${GITHUB_RUN_ID}-${state}"
+            cleanup() {
+              docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark down --volumes --remove-orphans || true
+            }
+            trap cleanup EXIT
+            export SKILLWIRE_BENCHMARK_CACHE_STATE="$state"
+            docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark up --detach --wait --no-build postgres migrate skillwire
+            account_json=$(docker compose -p "$project" exec -T skillwire node dist/src/authentication/admin-cli.js account:create)
+            account_id=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).accountId)" "$account_json")
+            key_json=$(docker compose -p "$project" exec -T skillwire node dist/src/authentication/admin-cli.js key:create --account-id "$account_id")
+            chmod 0600 .secrets/api-key
+            node -e "const fs=require('fs'); fs.writeFileSync('.secrets/api-key', JSON.parse(process.argv[1]).token+'\n', {mode:0o600})" "$key_json"
+            chmod 0444 .secrets/api-key
+            SKILLWIRE_BENCHMARK_COMMIT="$GITHUB_SHA"
+            SKILLWIRE_BENCHMARK_DOCKER_VERSION="$(docker version --format '{{.Server.Version}}')"
+            SKILLWIRE_BENCHMARK_COMPOSE_VERSION="$(docker compose version --short)"
+            SKILLWIRE_BENCHMARK_SKILLWIRE_IMAGE_DIGEST="$(docker image inspect skillwire:local --format '{{.Id}}')"
+            postgres_container=$(docker compose -p "$project" ps -q postgres)
+            SKILLWIRE_BENCHMARK_POSTGRES_IMAGE_DIGEST="$(docker inspect "$postgres_container" --format '{{.Image}}')"
+            SKILLWIRE_BENCHMARK_CLIENT_IMAGE_DIGEST="$(docker image inspect skillwire-benchmark:local --format '{{.Id}}')"
+            SKILLWIRE_BENCHMARK_UID="$(id -u)"
+            SKILLWIRE_BENCHMARK_GID="$(id -g)"
+            export SKILLWIRE_BENCHMARK_COMMIT SKILLWIRE_BENCHMARK_DOCKER_VERSION SKILLWIRE_BENCHMARK_COMPOSE_VERSION
+            export SKILLWIRE_BENCHMARK_SKILLWIRE_IMAGE_DIGEST SKILLWIRE_BENCHMARK_POSTGRES_IMAGE_DIGEST SKILLWIRE_BENCHMARK_CLIENT_IMAGE_DIGEST
+            export SKILLWIRE_BENCHMARK_UID SKILLWIRE_BENCHMARK_GID
+            SKILLWIRE_BENCHMARK_CONCURRENCY=25 \
+            SKILLWIRE_BENCHMARK_WARMUP=100 \
+            SKILLWIRE_BENCHMARK_SAMPLES=1000 \
+              docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark run --rm benchmark
+            chmod 0600 .secrets/api-key
+            cleanup
+            trap - EXIT
+          done
+      - name: Upload informational reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skillwire-informational-benchmark-${{ github.run_id }}
+          path: benchmarks/results/*.json
+          if-no-files-found: error
+          retention-days: 30

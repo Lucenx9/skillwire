@@ -166,7 +166,7 @@ describe("PostgreSQL repository-memory MCP journey", () => {
         await accountA.client.callTool({
           name: "search_skills",
           arguments: {
-            task: "quuxxyzzy",
+            task: "Vitest test design",
             repositoryHash: repositoryB,
             limit: 10,
           },

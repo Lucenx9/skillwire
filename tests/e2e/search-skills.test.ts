@@ -57,6 +57,14 @@ describe("authenticated search client journey", () => {
     const output = searchSkillsOutputSchema.parse(result.structuredContent);
 
     expect(output.skills[0]?.skillId).toBe("dockerfile-hardening");
+
+    const irrelevant = await testClient.client.callTool({
+      name: "search_skills",
+      arguments: { task: "quasar xylophone zephyr", limit: 10 },
+    });
+    expect(
+      searchSkillsOutputSchema.parse(irrelevant.structuredContent).skills,
+    ).toEqual([]);
     expect(await snapshotTree(clientTree)).toBe(before);
   });
 });

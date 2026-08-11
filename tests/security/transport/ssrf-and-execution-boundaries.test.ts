@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createTestApplication } from "../../../src/composition.js";
+import type { RepositoryMemoryStore } from "../../../src/application/ports/repository-memory-store.js";
 import type {
   SecurityEventFields,
   SecurityEventName,
@@ -136,6 +137,51 @@ describe("host, schema, size, rate, and execution boundaries", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "INTERNAL", retryable: true },
     });
+  });
+
+  it("cancels slow in-flight persistence before any late side effect", async () => {
+    let writes = 0;
+    const memoryStore: RepositoryMemoryStore = {
+      recordUsage: (_scope, _input, execution) =>
+        new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            writes += 1;
+            resolve();
+          }, 500);
+          execution?.signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(new Error("request cancelled"));
+            },
+            { once: true },
+          );
+        }),
+      list: () => Promise.resolve([]),
+      rankingProjection: () => Promise.resolve([]),
+      replaceOutcome: () => Promise.resolve(false),
+      forget: () => Promise.resolve(),
+    };
+    const client = await connectedClient({
+      memoryStore,
+      requestDeadlineMilliseconds: 100,
+    });
+    clients.push(client);
+    const startedAt = performance.now();
+
+    const result = await client.client.callTool({
+      name: "load_skill",
+      arguments: {
+        skillId: "typescript-code-review",
+        revision: "1.0.0",
+        repositoryHash: "a".repeat(64),
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(performance.now() - startedAt).toBeLessThan(400);
+
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(writes).toBe(0);
   });
 
   it("rejects malformed, oversized, traversal, URL, and unknown-revision inputs", async () => {

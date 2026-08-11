@@ -87,20 +87,29 @@ export function createPublishedCatalogWithStatus(
 export function runCatalogCommand(
   workspace: string,
   command: "publish" | "verify",
+  environment: Readonly<Record<string, string>> = {},
 ): SpawnSyncReturns<string> {
   return spawnSync(
     process.execPath,
     [
       join(PROJECT_ROOT, "node_modules", "tsx", "dist", "cli.mjs"),
-      join(PROJECT_ROOT, "src", "catalog", "admin-cli.ts"),
-      command,
+      join(
+        PROJECT_ROOT,
+        "src",
+        "catalog",
+        command === "publish" ? "publish-cli.ts" : "verify-cli.ts",
+      ),
       "--release-id",
       "launch-catalog-v1",
       ...(command === "publish" ? ["--genesis"] : []),
     ],
     {
       cwd: PROJECT_ROOT,
-      env: { ...process.env, SKILLWIRE_ROOT: workspace },
+      env: {
+        ...process.env,
+        ...environment,
+        SKILLWIRE_ROOT: workspace,
+      },
       encoding: "utf8",
     },
   );

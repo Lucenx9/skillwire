@@ -1,8 +1,16 @@
-import { rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { readCatalogText } from "../../../src/catalog/catalog-loader.js";
 import { loadVerifiedCatalogProvider } from "../../../src/catalog/version-controlled-provider.js";
 import { assertSafeResourcePath } from "../../../src/domain/catalog/resource-path.js";
 import { normalizeUtf8 } from "../../../src/domain/catalog/text-normalization.js";
@@ -53,6 +61,51 @@ describe("catalog resource safety", () => {
 
     expect(() =>
       loadVerifiedCatalogProvider(workspace, "launch-catalog-v1"),
+    ).toThrow();
+  });
+
+  it("rejects a symlinked intermediate path component", () => {
+    const workspace = publishedWorkspace();
+    const external = mkdtempSync(join(tmpdir(), "skillwire-catalog-external-"));
+    workspaces.push(workspace, external);
+    const referencesPath = join(
+      workspace,
+      "catalog/skills/typescript-code-review/1.0.0/references",
+    );
+    cpSync(referencesPath, external, { recursive: true });
+    rmSync(referencesPath, { recursive: true });
+    symlinkSync(external, referencesPath, "dir");
+
+    expect(() =>
+      loadVerifiedCatalogProvider(workspace, "launch-catalog-v1"),
+    ).toThrow();
+  });
+
+  it("detects in-place mutation after opening the resource", () => {
+    const workspace = publishedWorkspace();
+    workspaces.push(workspace);
+
+    expect(() =>
+      readCatalogText(workspace, resourceRelativePath, 262_144, {
+        afterOpen: () => {
+          writeFileSync(join(workspace, resourceRelativePath), "mutated\n");
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("detects replacement after opening the resource", () => {
+    const workspace = publishedWorkspace();
+    workspaces.push(workspace);
+    const resourcePath = join(workspace, resourceRelativePath);
+
+    expect(() =>
+      readCatalogText(workspace, resourceRelativePath, 262_144, {
+        afterOpen: () => {
+          rmSync(resourcePath);
+          writeFileSync(resourcePath, "replacement\n");
+        },
+      }),
     ).toThrow();
   });
 

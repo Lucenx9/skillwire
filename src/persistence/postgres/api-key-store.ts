@@ -8,6 +8,8 @@ import {
   apiKeyDigest,
   type ParsedApiKeyToken,
 } from "../../authentication/api-key-token.js";
+import type { RequestExecution } from "../../application/request-execution.js";
+import { requestTransaction } from "./request-transaction.js";
 
 interface ApiKeyRow {
   readonly id: string;
@@ -23,9 +25,11 @@ export class PostgresApiKeyStore implements ApiKeyStore {
 
   public async findActiveByPublicId(
     publicId: string,
+    execution: RequestExecution = {},
   ): Promise<StoredApiKey | undefined> {
-    const result = await this.pool.query<ApiKeyRow>(
-      `
+    return requestTransaction(this.pool, execution, async (client) => {
+      const result = await client.query<ApiKeyRow>(
+        `
         SELECT k.id, k.account_id, k.secret_digest
         FROM api_keys AS k
         JOIN accounts AS a ON a.id = k.account_id
@@ -34,23 +38,29 @@ export class PostgresApiKeyStore implements ApiKeyStore {
           AND k.revoked_at IS NULL
           AND (k.expires_at IS NULL OR k.expires_at > statement_timestamp())
       `,
-      [publicId],
-    );
-    const row = result.rows[0];
-    return row === undefined
-      ? undefined
-      : {
-          id: row.id,
-          accountId: row.account_id,
-          secretDigest: row.secret_digest,
-        };
+        [publicId],
+      );
+      const row = result.rows[0];
+      return row === undefined
+        ? undefined
+        : {
+            id: row.id,
+            accountId: row.account_id,
+            secretDigest: row.secret_digest,
+          };
+    });
   }
 
-  public async markUsed(keyId: string): Promise<void> {
-    await this.pool.query(
-      "UPDATE api_keys SET last_used_at = statement_timestamp() WHERE id = $1",
-      [keyId],
-    );
+  public async markUsed(
+    keyId: string,
+    execution: RequestExecution = {},
+  ): Promise<void> {
+    await requestTransaction(this.pool, execution, async (client) => {
+      await client.query(
+        "UPDATE api_keys SET last_used_at = statement_timestamp() WHERE id = $1",
+        [keyId],
+      );
+    });
   }
 
   public async createAccount(accountId: string): Promise<void> {

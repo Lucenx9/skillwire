@@ -1,9 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { publishCatalog } from "./catalog-publisher.js";
-import { verifyCatalog } from "./catalog-verifier.js";
-
 type Command = "publish" | "verify";
 
 interface ParsedArguments {
@@ -121,14 +118,16 @@ try {
 const projectRoot = process.env["SKILLWIRE_ROOT"] ?? process.cwd();
 const result =
   command === "publish"
-    ? publishCatalog({
+    ? (await import("./catalog-publisher.js")).publishCatalog({
         projectRoot,
         releaseId: parsed.releaseId,
         genesis: parsed.genesis,
         previousReleaseCommit: parsed.previousReleaseCommit,
         publishedAt: parsed.publishedAt,
       })
-    : verifyCatalog(projectRoot, parsed.releaseId);
+    : await (
+        await import("./catalog-verifier.js")
+      ).verifyCatalog(projectRoot, parsed.releaseId);
 
 if (
   "created" in result &&

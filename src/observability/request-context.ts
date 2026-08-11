@@ -11,6 +11,7 @@ export function requestContext(
   return async (context, next) => {
     context.set("requestId", randomUUID());
     context.set("deadline", now() + deadlineMilliseconds);
+    context.set("abortController", new AbortController());
     await next();
   };
 }

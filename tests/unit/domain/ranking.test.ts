@@ -88,7 +88,20 @@ describe("rankSkills", () => {
       "alpha-tie",
       "beta-tie",
       "middle-tie",
-      "irrelevant-useful",
     ]);
+  });
+
+  it("returns no candidates when every skill has zero textual relevance", () => {
+    const remembered = metadata("remembered-review", ["typescript"]);
+
+    expect(
+      rankSkills([remembered], "quasar xylophone", 10, [
+        {
+          skillId: remembered.id,
+          revision: remembered.revision,
+          outcome: "useful",
+        },
+      ]),
+    ).toEqual([]);
   });
 });

@@ -15,6 +15,8 @@ import {
   type ApiKeyAuthenticator,
 } from "./authentication/api-key-authenticator.js";
 import { loadVerifiedCatalogProvider } from "./catalog/version-controlled-provider.js";
+import type { CatalogCacheMode } from "./catalog/version-controlled-provider.js";
+import type { VerifiedRevisionCache } from "./catalog/verified-revision-cache.js";
 import type { ApplicationConfig } from "./config.js";
 import { AuditCleanupScheduler } from "./lifecycle/audit-cleanup-scheduler.js";
 import { ReadinessState } from "./lifecycle/readiness-state.js";
@@ -39,10 +41,25 @@ function assembleUseCases(
   projectRoot: string,
   releaseId: string,
   memoryStore: RepositoryMemoryStore,
+  catalogCache?: VerifiedRevisionCache,
+  catalogCacheMode: CatalogCacheMode = "catalog-warm",
 ): McpUseCases {
-  const provider = loadVerifiedCatalogProvider(projectRoot, releaseId);
+  const provider =
+    catalogCache === undefined
+      ? loadVerifiedCatalogProvider(
+          projectRoot,
+          releaseId,
+          undefined,
+          catalogCacheMode,
+        )
+      : loadVerifiedCatalogProvider(
+          projectRoot,
+          releaseId,
+          catalogCache,
+          catalogCacheMode,
+        );
   return {
-    searchSkills: createSearchSkills(provider.listMetadata(), memoryStore),
+    searchSkills: createSearchSkills(provider, memoryStore),
     loadSkill: createLoadSkill(provider, memoryStore),
     readSkillResource: createReadSkillResource(provider),
     listRepoMemory: createListRepoMemory(memoryStore),
@@ -84,7 +101,33 @@ export interface Application {
   readonly app: ReturnType<typeof createApp>;
   readonly pool: Pool;
   readonly readiness: ReadinessState;
+  checkReadiness(): Promise<boolean>;
   close(): Promise<void>;
+}
+
+async function probeRequiredDatabaseSchema(pool: Pool): Promise<void> {
+  const result = await pool.query<{
+    accounts: string | null;
+    apiKeys: string | null;
+    repositoryUsage: string | null;
+    erasureAudit: string | null;
+  }>(
+    `
+      SELECT
+        to_regclass('public.accounts')::text AS accounts,
+        to_regclass('public.api_keys')::text AS "apiKeys",
+        to_regclass('public.repository_skill_usage')::text AS "repositoryUsage",
+        to_regclass('public.repository_erasure_audit')::text AS "erasureAudit"
+    `,
+  );
+  const row = result.rows[0];
+  if (
+    [row?.accounts, row?.apiKeys, row?.repositoryUsage, row?.erasureAudit].some(
+      (value) => value === null || value === undefined,
+    )
+  ) {
+    throw new Error("Required database schema is unavailable");
+  }
 }
 
 export async function createApplication(
@@ -105,6 +148,7 @@ export async function createApplication(
       () => expiration.cleanupExpired(),
       readiness,
       config.auditCleanupIntervalMilliseconds ?? 3_600_000,
+      () => probeRequiredDatabaseSchema(pool),
     );
     const authenticator = createApiKeyAuthenticator(
       new PostgresApiKeyStore(pool, config.apiKeyPepper),
@@ -114,7 +158,14 @@ export async function createApplication(
       allowedHosts: config.allowedHosts ?? [config.host],
       authenticator,
       readiness,
-      useCases: assembleUseCases(catalogRoot, catalogRelease, memoryStore),
+      checkReadiness: () => scheduler.checkReadiness(),
+      useCases: assembleUseCases(
+        catalogRoot,
+        catalogRelease,
+        memoryStore,
+        undefined,
+        config.catalogCacheMode,
+      ),
       logger,
       maximumRequestBodyBytes: config.maximumRequestBodyBytes ?? 65_536,
       requestDeadlineMilliseconds: config.requestDeadlineMilliseconds ?? 10_000,
@@ -129,6 +180,7 @@ export async function createApplication(
       app,
       pool,
       readiness,
+      checkReadiness: () => scheduler.checkReadiness(),
       close: async () => {
         scheduler.stop();
         await pool.end();
@@ -144,6 +196,7 @@ export async function createApplication(
 export interface TestApplicationOptions {
   readonly memoryStore?: RepositoryMemoryStore | undefined;
   readonly authenticator?: ApiKeyAuthenticator | undefined;
+  readonly catalogCache?: VerifiedRevisionCache | undefined;
   readonly logger?: SecurityLogger | undefined;
   readonly allowedHosts?: readonly string[] | undefined;
   readonly maximumRequestBodyBytes?: number | undefined;
@@ -173,6 +226,7 @@ export function createTestApplication(
         projectRoot,
         "launch-catalog-v1",
         options.memoryStore ?? unconfiguredMemoryStore,
+        options.catalogCache,
       ),
       logger: options.logger ?? silentSecurityLogger,
       maximumRequestBodyBytes: options.maximumRequestBodyBytes ?? 65_536,

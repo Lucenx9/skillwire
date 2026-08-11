@@ -1,3 +1,5 @@
+import type { RequestExecution } from "../request-execution.js";
+
 export interface StoredApiKey {
   readonly id: string;
   readonly accountId: string;
@@ -5,6 +7,9 @@ export interface StoredApiKey {
 }
 
 export interface ApiKeyStore {
-  findActiveByPublicId(publicId: string): Promise<StoredApiKey | undefined>;
-  markUsed(keyId: string): Promise<void>;
+  findActiveByPublicId(
+    publicId: string,
+    execution?: RequestExecution,
+  ): Promise<StoredApiKey | undefined>;
+  markUsed(keyId: string, execution?: RequestExecution): Promise<void>;
 }

@@ -27,6 +27,7 @@ export function createForgetRepoMemory(
         await store.forget(
           repositoryMemoryScope(principal.accountId, input.repositoryHash),
           principal.requestId,
+          principal,
         );
       } catch {
         throw new SkillWireError("ERASURE_INCOMPLETE");

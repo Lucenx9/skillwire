@@ -11,6 +11,8 @@ export interface RequestPrincipal {
   readonly accountId: string;
   readonly apiKeyId: string;
   readonly requestId: string;
+  readonly signal?: AbortSignal | undefined;
+  readonly deadline?: number | undefined;
 }
 
 export type SkillOutcome = "useful" | "neutral" | "unsuccessful";

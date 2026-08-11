@@ -7,6 +7,7 @@ import type { ReadSkillResource } from "../../application/use-cases/read-skill-r
 import type { RecordSkillOutcome } from "../../application/use-cases/record-skill-outcome.js";
 import type { SearchSkills } from "../../application/use-cases/search-skills.js";
 import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
+import { assertRequestActive } from "../../application/request-execution.js";
 import {
   safeErrorEnvelope,
   safeSkillWireError,
@@ -69,9 +70,11 @@ export function registerLoadSkillTool(
     },
     async (input) => {
       try {
+        assertRequestActive(principal);
         const output = loadSkillOutputSchema.parse(
           await loadSkill.execute(input, principal),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,
@@ -100,9 +103,11 @@ export function registerReadSkillResourceTool(
     },
     (input) => {
       try {
+        assertRequestActive(principal);
         const output = readSkillResourceOutputSchema.parse(
           readSkillResource.execute(input),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,
@@ -130,9 +135,11 @@ export function registerSearchSkillsTool(
     },
     async (input) => {
       try {
+        assertRequestActive(principal);
         const output = searchSkillsOutputSchema.parse(
           await searchSkills.execute(input, principal),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,
@@ -161,9 +168,11 @@ export function registerListRepoMemoryTool(
     },
     async (input) => {
       try {
+        assertRequestActive(principal);
         const output = listRepoMemoryOutputSchema.parse(
           await listRepoMemory.execute(input, principal),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,
@@ -191,9 +200,11 @@ export function registerRecordSkillOutcomeTool(
     },
     async (input) => {
       try {
+        assertRequestActive(principal);
         const output = recordSkillOutcomeOutputSchema.parse(
           await recordSkillOutcome.execute(input, principal),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,
@@ -222,9 +233,11 @@ export function registerForgetRepoMemoryTool(
     },
     async (input) => {
       try {
+        assertRequestActive(principal);
         const output = forgetRepoMemoryOutputSchema.parse(
           await forgetRepoMemory.execute(input, principal),
         );
+        assertRequestActive(principal);
         return {
           content: [{ type: "text", text: JSON.stringify(output) }],
           structuredContent: output,

@@ -7,6 +7,15 @@ import {
   loadCatalogMetadata,
   loadPublishedCatalog,
 } from "./catalog-loader.js";
+import { verifyGitHubReleaseBaseline } from "./github-release-baseline.js";
+
+export interface CatalogVerificationOptions {
+  readonly requireGitHubBaseline?: boolean | undefined;
+  readonly repository?: string | undefined;
+  readonly token?: string | undefined;
+  readonly apiUrl?: string | undefined;
+  readonly fetchImplementation?: typeof fetch | undefined;
+}
 
 interface VerifyRevisionResult {
   readonly skillId: string;
@@ -48,6 +57,8 @@ function verifiedRevisions(
 function failedChecks(
   inventory: boolean,
   publicationClaimAbsent: boolean,
+  baselineMode: "genesis" | "non-genesis" = "genesis",
+  previousReleaseCommit: string | null = null,
 ): CatalogVerifyResult["checks"] {
   return {
     inventory,
@@ -55,18 +66,19 @@ function failedChecks(
     publicationClaimAbsent,
     advisoryChain: false,
     githubBaseline: false,
-    baselineMode: "genesis",
-    previousReleaseCommit: null,
+    baselineMode,
+    previousReleaseCommit,
     selectedGitHubReleaseId: null,
     selectedGitHubPublishedAt: null,
     resolvedPreviousReleaseCommit: null,
   };
 }
 
-export function verifyCatalog(
+export async function verifyCatalog(
   projectRoot: string,
   releaseId: string,
-): CatalogVerifyResult {
+  options: CatalogVerificationOptions = {},
+): Promise<CatalogVerifyResult> {
   let inventoryValid = false;
   let fallbackRevisions: VerifyRevisionResult[] = [];
   try {
@@ -97,11 +109,37 @@ export function verifyCatalog(
 
   try {
     const loaded = loadPublishedCatalog(projectRoot, releaseId);
-    if (!loaded.release.genesis) {
-      throw new CatalogValidationError(
-        "GITHUB_BASELINE_REQUIRED",
-        "Non-genesis verification requires the GitHub advisory command",
-      );
+    const baselineMode = loaded.release.genesis ? "genesis" : "non-genesis";
+    const requiresGitHub =
+      options.requireGitHubBaseline === true || !loaded.release.genesis;
+    let selectedGitHubReleaseId: number | null = null;
+    let selectedGitHubPublishedAt: string | null = null;
+    let resolvedPreviousReleaseCommit: string | null = null;
+    if (requiresGitHub) {
+      if (options.repository === undefined || options.token === undefined) {
+        throw new CatalogValidationError(
+          "GITHUB_BASELINE_UNAVAILABLE",
+          "The exact GitHub release baseline is required",
+        );
+      }
+      try {
+        const baseline = await verifyGitHubReleaseBaseline({
+          projectRoot,
+          release: loaded.release,
+          repository: options.repository,
+          token: options.token,
+          apiUrl: options.apiUrl,
+          fetchImplementation: options.fetchImplementation,
+        });
+        selectedGitHubReleaseId = baseline.selectedGitHubReleaseId;
+        selectedGitHubPublishedAt = baseline.selectedGitHubPublishedAt;
+        resolvedPreviousReleaseCommit = baseline.resolvedPreviousReleaseCommit;
+      } catch {
+        throw new CatalogValidationError(
+          "GITHUB_BASELINE_INVALID",
+          "The exact GitHub release baseline could not be verified",
+        );
+      }
     }
     return {
       releaseId,
@@ -112,20 +150,34 @@ export function verifyCatalog(
         publicationClaimAbsent: true,
         advisoryChain: true,
         githubBaseline: true,
-        baselineMode: "genesis",
-        previousReleaseCommit: null,
-        selectedGitHubReleaseId: null,
-        selectedGitHubPublishedAt: null,
-        resolvedPreviousReleaseCommit: null,
+        baselineMode,
+        previousReleaseCommit: loaded.release.previousReleaseCommit,
+        selectedGitHubReleaseId,
+        selectedGitHubPublishedAt,
+        resolvedPreviousReleaseCommit,
       },
       revisions: verifiedRevisions(loaded.revisions),
       errors: [],
     };
   } catch (error) {
+    let baselineMode: "genesis" | "non-genesis" = "genesis";
+    let previousReleaseCommit: string | null = null;
+    try {
+      const release = loadPublishedCatalog(projectRoot, releaseId).release;
+      baselineMode = release.genesis ? "genesis" : "non-genesis";
+      previousReleaseCommit = release.previousReleaseCommit;
+    } catch {
+      // The original failure remains authoritative and safely summarized.
+    }
     return {
       releaseId,
       valid: false,
-      checks: failedChecks(inventoryValid, true),
+      checks: failedChecks(
+        inventoryValid,
+        true,
+        baselineMode,
+        previousReleaseCommit,
+      ),
       revisions: fallbackRevisions,
       errors: [
         error instanceof CatalogValidationError

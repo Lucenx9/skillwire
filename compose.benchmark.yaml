@@ -7,22 +7,32 @@ services:
       SKILLWIRE_API_KEY_REQUESTS_PER_MINUTE: 100000
       SKILLWIRE_RATE_LIMIT_BURST: 10000
       SKILLWIRE_ALLOWED_HOSTS: skillwire,localhost,127.0.0.1
+      SKILLWIRE_CATALOG_CACHE_MODE: ${SKILLWIRE_BENCHMARK_CACHE_STATE:-catalog-warm}
 
   benchmark:
     build:
       context: .
       target: test
     image: skillwire-benchmark:local
+    user: ${SKILLWIRE_BENCHMARK_UID:-1000}:${SKILLWIRE_BENCHMARK_GID:-1000}
     entrypoint: ["/bin/sh", "-eu", "-c"]
     command:
       - export SKILLWIRE_API_KEY="$$(cat /run/secrets/bootstrap_api_key)"; exec
-        pnpm benchmark:informational
+        ./node_modules/.bin/tsx benchmarks/informational-benchmark.ts
     environment:
       SKILLWIRE_ENDPOINT: http://skillwire:3000/mcp
       SKILLWIRE_BENCHMARK_CONCURRENCY: ${SKILLWIRE_BENCHMARK_CONCURRENCY:-25}
       SKILLWIRE_BENCHMARK_WARMUP: ${SKILLWIRE_BENCHMARK_WARMUP:-100}
       SKILLWIRE_BENCHMARK_SAMPLES: ${SKILLWIRE_BENCHMARK_SAMPLES:-1000}
+      SKILLWIRE_BENCHMARK_REQUIRE_SUCCESS: ${SKILLWIRE_BENCHMARK_REQUIRE_SUCCESS:-false}
       SKILLWIRE_BENCHMARK_CACHE_STATE: ${SKILLWIRE_BENCHMARK_CACHE_STATE:-catalog-warm}
+      SKILLWIRE_BENCHMARK_COMMIT: ${SKILLWIRE_BENCHMARK_COMMIT:-unreported}
+      SKILLWIRE_BENCHMARK_DOCKER_VERSION: ${SKILLWIRE_BENCHMARK_DOCKER_VERSION:-unreported}
+      SKILLWIRE_BENCHMARK_COMPOSE_VERSION: ${SKILLWIRE_BENCHMARK_COMPOSE_VERSION:-unreported}
+      SKILLWIRE_BENCHMARK_SKILLWIRE_IMAGE_DIGEST: ${SKILLWIRE_BENCHMARK_SKILLWIRE_IMAGE_DIGEST:-unreported}
+      SKILLWIRE_BENCHMARK_POSTGRES_IMAGE_DIGEST: ${SKILLWIRE_BENCHMARK_POSTGRES_IMAGE_DIGEST:-unreported}
+      SKILLWIRE_BENCHMARK_CLIENT_IMAGE_DIGEST: ${SKILLWIRE_BENCHMARK_CLIENT_IMAGE_DIGEST:-unreported}
+      SKILLWIRE_BENCHMARK_POSTGRES_VERSION: ${SKILLWIRE_BENCHMARK_POSTGRES_VERSION:-17.10-alpine}
     secrets:
       - bootstrap_api_key
     depends_on:
@@ -31,7 +41,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,size=128m
-      - /app/benchmarks/results:rw,noexec,nosuid,size=64m
+    volumes:
+      - ./benchmarks/results:/app/benchmarks/results
     cap_drop:
       - ALL
     security_opt:

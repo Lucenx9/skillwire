@@ -4,12 +4,14 @@ import type {
   RecordUsageInput,
   RepositoryMemoryStore,
 } from "../../application/ports/repository-memory-store.js";
+import type { RequestExecution } from "../../application/request-execution.js";
 import type {
   RepositoryMemoryScope,
   RepositoryUsageProjection,
   SkillOutcome,
   SkillUsageRecord,
 } from "../../domain/repository-memory/types.js";
+import { requestTransaction } from "./request-transaction.js";
 
 interface UsageRow {
   readonly skill_id: string;
@@ -27,9 +29,11 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
   public async recordUsage(
     scope: RepositoryMemoryScope,
     input: RecordUsageInput,
+    execution: RequestExecution = {},
   ): Promise<void> {
-    const result = await this.pool.query(
-      `
+    await requestTransaction(this.pool, execution, async (client) => {
+      const result = await client.query(
+        `
         INSERT INTO repository_skill_usage (
           account_id,
           repository_hash,
@@ -44,24 +48,27 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
         WHERE repository_skill_usage.bundle_sha256 = EXCLUDED.bundle_sha256
         RETURNING 1
       `,
-      [
-        scope.accountId,
-        scope.repositoryHash,
-        input.skillId,
-        input.revision,
-        input.revisionSha256,
-      ],
-    );
-    if (result.rowCount !== 1) {
-      throw new Error("Stored revision integrity does not match catalog");
-    }
+        [
+          scope.accountId,
+          scope.repositoryHash,
+          input.skillId,
+          input.revision,
+          input.revisionSha256,
+        ],
+      );
+      if (result.rowCount !== 1) {
+        throw new Error("Stored revision integrity does not match catalog");
+      }
+    });
   }
 
   public async list(
     scope: RepositoryMemoryScope,
+    execution: RequestExecution = {},
   ): Promise<readonly SkillUsageRecord[]> {
-    const result = await this.pool.query<UsageRow>(
-      `
+    return requestTransaction(this.pool, execution, async (client) => {
+      const result = await client.query<UsageRow>(
+        `
         SELECT
           skill_id,
           revision,
@@ -75,41 +82,45 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
         ORDER BY last_used_at DESC, skill_id, revision
         LIMIT 100
       `,
-      [scope.accountId, scope.repositoryHash],
-    );
-    return result.rows.map((row) => ({
-      skillId: row.skill_id,
-      revision: row.revision,
-      revisionSha256: row.bundle_sha256,
-      firstUsedAt: row.first_used_at.toISOString(),
-      lastUsedAt: row.last_used_at.toISOString(),
-      usageCount: row.usage_count,
-      ...(row.outcome === null ? {} : { outcome: row.outcome }),
-    }));
+        [scope.accountId, scope.repositoryHash],
+      );
+      return result.rows.map((row) => ({
+        skillId: row.skill_id,
+        revision: row.revision,
+        revisionSha256: row.bundle_sha256,
+        firstUsedAt: row.first_used_at.toISOString(),
+        lastUsedAt: row.last_used_at.toISOString(),
+        usageCount: row.usage_count,
+        ...(row.outcome === null ? {} : { outcome: row.outcome }),
+      }));
+    });
   }
 
   public async rankingProjection(
     scope: RepositoryMemoryScope,
+    execution: RequestExecution = {},
   ): Promise<readonly RepositoryUsageProjection[]> {
-    const result = await this.pool.query<{
-      skill_id: string;
-      revision: string;
-      outcome: SkillOutcome | null;
-    }>(
-      `
+    return requestTransaction(this.pool, execution, async (client) => {
+      const result = await client.query<{
+        skill_id: string;
+        revision: string;
+        outcome: SkillOutcome | null;
+      }>(
+        `
         SELECT skill_id, revision, outcome
         FROM repository_skill_usage
         WHERE account_id = $1 AND repository_hash = $2
         ORDER BY last_used_at DESC, skill_id, revision
         LIMIT 100
       `,
-      [scope.accountId, scope.repositoryHash],
-    );
-    return result.rows.map((row) => ({
-      skillId: row.skill_id,
-      revision: row.revision,
-      outcome: row.outcome,
-    }));
+        [scope.accountId, scope.repositoryHash],
+      );
+      return result.rows.map((row) => ({
+        skillId: row.skill_id,
+        revision: row.revision,
+        outcome: row.outcome,
+      }));
+    });
   }
 
   public async replaceOutcome(
@@ -117,9 +128,11 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
     skillId: string,
     revision: string,
     outcome: SkillOutcome,
+    execution: RequestExecution = {},
   ): Promise<boolean> {
-    const result = await this.pool.query(
-      `
+    return requestTransaction(this.pool, execution, async (client) => {
+      const result = await client.query(
+        `
         UPDATE repository_skill_usage
         SET outcome = $5
         WHERE account_id = $1
@@ -127,18 +140,18 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
           AND skill_id = $3
           AND revision = $4
       `,
-      [scope.accountId, scope.repositoryHash, skillId, revision, outcome],
-    );
-    return result.rowCount === 1;
+        [scope.accountId, scope.repositoryHash, skillId, revision, outcome],
+      );
+      return result.rowCount === 1;
+    });
   }
 
   public async forget(
     scope: RepositoryMemoryScope,
     requestId: string,
+    execution: RequestExecution = {},
   ): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
+    await requestTransaction(this.pool, execution, async (client) => {
       await client.query(
         `
           WITH database_time AS (
@@ -168,12 +181,6 @@ export class PostgresRepositoryMemoryStore implements RepositoryMemoryStore {
         `,
         [scope.accountId, scope.repositoryHash, requestId],
       );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

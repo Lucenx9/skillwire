@@ -75,6 +75,7 @@ export function rankSkills(
         memoryByRevision.get(`${skill.id}\0${skill.revision}`) ?? 0,
       ),
     )
+    .filter((result) => result.score > 0)
     .sort((left, right) => {
       const relevance = right.score - left.score;
       if (relevance !== 0) return relevance;

@@ -88,14 +88,42 @@ describe("search_skills MCP contract", () => {
   });
 
   it("makes all ten curated metadata entries discoverable", async () => {
+    const discovered = new Set<string>();
+    for (const task of [
+      "dependency upgrades",
+      "Dockerfile",
+      "GitHub Actions",
+      "Node.js API",
+      "PostgreSQL schema",
+      "React accessibility",
+      "technical documentation",
+      "threat modeling",
+      "TypeScript review",
+      "Vitest tests",
+    ]) {
+      const result = await client().client.callTool({
+        name: "search_skills",
+        arguments: { task, limit: 10 },
+      });
+      for (const skill of searchSkillsOutputSchema.parse(
+        result.structuredContent,
+      ).skills) {
+        discovered.add(skill.skillId);
+      }
+    }
+
+    expect(discovered.size).toBe(10);
+  });
+
+  it("returns an empty list when no catalog text is relevant", async () => {
     const result = await client().client.callTool({
       name: "search_skills",
-      arguments: { task: "engineering", limit: 10 },
+      arguments: { task: "quasar xylophone zephyr", limit: 10 },
     });
-    const output = searchSkillsOutputSchema.parse(result.structuredContent);
 
-    expect(output.skills).toHaveLength(10);
-    expect(new Set(output.skills.map((skill) => skill.skillId)).size).toBe(10);
+    expect(
+      searchSkillsOutputSchema.parse(result.structuredContent).skills,
+    ).toEqual([]);
   });
 
   it("rejects unknown input properties", async () => {

@@ -9,6 +9,7 @@ export interface SkillWireHonoEnvironment {
   readonly Variables: {
     readonly requestId: string;
     readonly deadline: number;
+    readonly abortController: AbortController;
     readonly principal: RequestPrincipal;
     readonly parsedBody: unknown;
   };
@@ -118,7 +119,10 @@ export function bearerAuthentication(
     const authenticated =
       match === null
         ? undefined
-        : await authenticator.authenticate(match[1] ?? "");
+        : await authenticator.authenticate(match[1] ?? "", {
+            signal: context.get("abortController").signal,
+            deadline: context.get("deadline"),
+          });
     if (authenticated === undefined) {
       const requestId = context.get("requestId");
       logger.emit("authentication_failed", {
@@ -135,6 +139,8 @@ export function bearerAuthentication(
     context.set("principal", {
       ...authenticated,
       requestId: context.get("requestId"),
+      signal: context.get("abortController").signal,
+      deadline: context.get("deadline"),
     });
     await next();
     return;

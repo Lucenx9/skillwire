@@ -1,8 +1,19 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
+import { isAbsolute, join, sep } from "node:path";
 
 import { z } from "zod";
 
+import { assertCurrentRequestActive } from "../application/request-execution.js";
 import {
   canonicalJson,
   createSkillRevision,
@@ -13,7 +24,7 @@ import {
   parseAdvisoryChain,
   verifyAdvisoryChain,
 } from "../domain/catalog/advisory-chain.js";
-import { resolveResourcePath } from "../domain/catalog/resource-path.js";
+import { assertSafeResourcePath } from "../domain/catalog/resource-path.js";
 import { normalizeUtf8 } from "../domain/catalog/text-normalization.js";
 import type {
   CatalogRelease,
@@ -36,6 +47,177 @@ export class CatalogValidationError extends Error {
   ) {
     super(message);
     this.name = "CatalogValidationError";
+  }
+}
+
+export interface CatalogReadHooks {
+  readonly afterOpen?:
+    ((relativePath: string, descriptor: number) => void) | undefined;
+}
+
+interface OpenedCatalogFile {
+  readonly descriptor: number;
+  readonly descriptors: readonly number[];
+  readonly canonicalRoot: string;
+}
+
+function catalogReadFailure(): CatalogValidationError {
+  return new CatalogValidationError(
+    "UNSAFE_SOURCE",
+    "Catalog content could not be read safely",
+  );
+}
+
+function catalogPathSegments(relativePath: string): readonly string[] {
+  if (isAbsolute(relativePath) || relativePath.includes("\\")) {
+    throw catalogReadFailure();
+  }
+  const segments = relativePath.split("/");
+  if (
+    segments.length === 0 ||
+    segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === "." ||
+        segment === ".." ||
+        segment.includes("\0"),
+    )
+  ) {
+    throw catalogReadFailure();
+  }
+  return segments;
+}
+
+function descriptorPath(descriptor: number): string {
+  const resolved = readlinkSync(`/proc/self/fd/${String(descriptor)}`);
+  if (resolved.endsWith(" (deleted)")) throw catalogReadFailure();
+  return resolved;
+}
+
+function assertOpenedInsideRoot(
+  descriptor: number,
+  canonicalRoot: string,
+  allowRoot: boolean,
+): void {
+  const resolved = descriptorPath(descriptor);
+  if (
+    (allowRoot && resolved === canonicalRoot) ||
+    resolved.startsWith(`${canonicalRoot}${sep}`)
+  ) {
+    return;
+  }
+  throw catalogReadFailure();
+}
+
+function closeDescriptors(descriptors: readonly number[]): void {
+  for (const descriptor of descriptors.toReversed()) {
+    try {
+      closeSync(descriptor);
+    } catch {
+      // Preserve the original validation result while closing every descriptor.
+    }
+  }
+}
+
+function openCatalogFile(
+  trustedRoot: string,
+  relativePath: string,
+): OpenedCatalogFile {
+  const segments = catalogPathSegments(relativePath);
+  const descriptors: number[] = [];
+  try {
+    const canonicalRoot = realpathSync.native(trustedRoot);
+    const rootDescriptor = openSync(
+      canonicalRoot,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    descriptors.push(rootDescriptor);
+    assertOpenedInsideRoot(rootDescriptor, canonicalRoot, true);
+
+    let parentDescriptor = rootDescriptor;
+    for (const [index, segment] of segments.entries()) {
+      const final = index === segments.length - 1;
+      const flags = final
+        ? constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+        : constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+      const descriptor = openSync(
+        `/proc/self/fd/${String(parentDescriptor)}/${segment}`,
+        flags,
+      );
+      descriptors.push(descriptor);
+      assertOpenedInsideRoot(descriptor, canonicalRoot, false);
+      if (!final && !fstatSync(descriptor).isDirectory()) {
+        throw catalogReadFailure();
+      }
+      parentDescriptor = descriptor;
+    }
+
+    const descriptor = descriptors.at(-1);
+    if (descriptor === undefined || !fstatSync(descriptor).isFile()) {
+      throw catalogReadFailure();
+    }
+    return { descriptor, descriptors, canonicalRoot };
+  } catch (error) {
+    closeDescriptors(descriptors);
+    if (error instanceof CatalogValidationError) throw error;
+    throw catalogReadFailure();
+  }
+}
+
+function sameOpenedObject(
+  left: ReturnType<typeof fstatSync>,
+  right: ReturnType<typeof fstatSync>,
+): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.nlink === right.nlink &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
+export function readCatalogBytes(
+  trustedRoot: string,
+  relativePath: string,
+  maximumBytes: number,
+  hooks: CatalogReadHooks = {},
+): Buffer {
+  assertCurrentRequestActive();
+  const opened = openCatalogFile(trustedRoot, relativePath);
+  try {
+    assertCurrentRequestActive();
+    const before = fstatSync(opened.descriptor);
+    if (!before.isFile() || before.size < 0 || before.size > maximumBytes) {
+      throw catalogReadFailure();
+    }
+    hooks.afterOpen?.(relativePath, opened.descriptor);
+    assertCurrentRequestActive();
+    const bytes = readFileSync(opened.descriptor);
+    assertCurrentRequestActive();
+    const after = fstatSync(opened.descriptor);
+    assertOpenedInsideRoot(opened.descriptor, opened.canonicalRoot, false);
+    if (bytes.byteLength !== before.size || !sameOpenedObject(before, after)) {
+      throw catalogReadFailure();
+    }
+
+    assertCurrentRequestActive();
+    const rebound = openCatalogFile(trustedRoot, relativePath);
+    try {
+      if (!sameOpenedObject(after, fstatSync(rebound.descriptor))) {
+        throw catalogReadFailure();
+      }
+    } finally {
+      closeDescriptors(rebound.descriptors);
+    }
+    return bytes;
+  } catch (error) {
+    if (error instanceof CatalogValidationError) throw error;
+    throw catalogReadFailure();
+  } finally {
+    closeDescriptors(opened.descriptors);
   }
 }
 
@@ -177,20 +359,21 @@ const releaseSchema = z
     }
   });
 
-function readNormalizedFile(path: string): string {
-  const stats = lstatSync(path);
-  if (!stats.isFile() || stats.isSymbolicLink()) {
-    throw new CatalogValidationError(
-      "UNSAFE_SOURCE",
-      "Catalog content must be a regular file",
-    );
-  }
-  return normalizeUtf8(readFileSync(path)).text;
+export function readCatalogText(
+  trustedRoot: string,
+  relativePath: string,
+  maximumBytes = 262_144,
+  hooks: CatalogReadHooks = {},
+): string {
+  return normalizeUtf8(
+    readCatalogBytes(trustedRoot, relativePath, maximumBytes, hooks),
+    maximumBytes,
+  ).text;
 }
 
-function readJson(path: string): unknown {
+function readJson(trustedRoot: string, relativePath: string): unknown {
   try {
-    return JSON.parse(readNormalizedFile(path)) as unknown;
+    return JSON.parse(readCatalogText(trustedRoot, relativePath)) as unknown;
   } catch (error) {
     if (error instanceof CatalogValidationError) throw error;
     throw new CatalogValidationError(
@@ -204,7 +387,7 @@ export function loadCatalogMetadata(
   projectRoot = process.cwd(),
 ): readonly CatalogSkillInventoryEntry[] {
   const result = inventorySchema.safeParse(
-    readJson(join(projectRoot, "catalog", "inventory.json")),
+    readJson(projectRoot, "catalog/inventory.json"),
   );
   if (!result.success) {
     throw new CatalogValidationError(
@@ -233,14 +416,15 @@ export function loadSourceRevision(
   metadata: CatalogSkillInventoryEntry,
 ): SkillRevision {
   const revisionRoot = join(
-    projectRoot,
     "catalog",
     "skills",
     metadata.id,
     metadata.revision,
   );
   const provenancePath = join(revisionRoot, "provenance.json");
-  const parsed = sourceProvenanceSchema.safeParse(readJson(provenancePath));
+  const parsed = sourceProvenanceSchema.safeParse(
+    readJson(projectRoot, provenancePath),
+  );
   if (!parsed.success) {
     throw new CatalogValidationError(
       "INVALID_PROVENANCE",
@@ -257,13 +441,16 @@ export function loadSourceRevision(
     );
   }
 
-  const instructions = readNormalizedFile(join(revisionRoot, "SKILL.md"));
+  const instructions = readCatalogText(
+    projectRoot,
+    join(revisionRoot, "SKILL.md"),
+  );
   const resources = parsed.data.resources.map((resource) => {
-    const absolutePath = resolveResourcePath(revisionRoot, resource.path);
+    assertSafeResourcePath(resource.path);
     return {
       path: resource.path,
       mediaType: resource.mediaType,
-      content: readNormalizedFile(absolutePath),
+      content: readCatalogText(projectRoot, join(revisionRoot, resource.path)),
     };
   });
 
@@ -340,7 +527,10 @@ export function loadPublishedRevisionHashes(
     for (const record of readdirSync(revisionsRoot, { withFileTypes: true })) {
       if (!record.isFile() || !record.name.endsWith(".json")) continue;
       const parsed = publicationRecordSchema.safeParse(
-        readJson(join(revisionsRoot, record.name)),
+        readJson(
+          projectRoot,
+          join("catalog", "releases", release.name, "revisions", record.name),
+        ),
       );
       if (!parsed.success) {
         throw new CatalogValidationError(
@@ -367,7 +557,7 @@ export function loadVerifiedAdvisoryChain(
   expectedHead?: string,
 ): VerifiedAdvisoryChain {
   const serialized = normalizeUtf8(
-    readFileSync(join(projectRoot, "catalog", "advisories.jsonl")),
+    readCatalogBytes(projectRoot, "catalog/advisories.jsonl", 2 * 1024 * 1024),
     2 * 1024 * 1024,
   ).text;
   try {
@@ -401,9 +591,11 @@ export function loadPublishedCatalog(
   releaseId: string,
 ): LoadedPublishedCatalog {
   const inventory = loadCatalogMetadata(projectRoot);
-  const releaseRoot = join(projectRoot, "catalog", "releases", releaseId);
   const parsedRelease = releaseSchema.safeParse(
-    readJson(join(releaseRoot, "release.json")),
+    readJson(
+      projectRoot,
+      join("catalog", "releases", releaseId, "release.json"),
+    ),
   );
   if (!parsedRelease.success || parsedRelease.data.releaseId !== releaseId) {
     throw new CatalogValidationError(
@@ -442,7 +634,10 @@ export function loadPublishedCatalog(
       );
     }
     const recordResult = publicationRecordSchema.safeParse(
-      readJson(join(releaseRoot, summary.recordPath)),
+      readJson(
+        projectRoot,
+        join("catalog", "releases", releaseId, summary.recordPath),
+      ),
     );
     if (!recordResult.success) {
       throw new CatalogValidationError(

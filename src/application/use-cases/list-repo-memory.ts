@@ -27,6 +27,7 @@ export function createListRepoMemory(
     async execute(input, principal) {
       const entries = await store.list(
         repositoryMemoryScope(principal.accountId, input.repositoryHash),
+        principal,
       );
       return { entries };
     },

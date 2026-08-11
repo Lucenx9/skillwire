@@ -23,11 +23,12 @@ const pepper = "composition-pepper-that-is-at-least-thirty-two-bytes";
 describe("composed service startup", () => {
   let database: TestDatabase;
   let application: Application;
+  let accountId: string;
 
   beforeAll(async () => {
     database = await createTestDatabase();
     await database.migrate();
-    const accountId = randomUUID();
+    accountId = randomUUID();
     await new PostgresApiKeyStore(database.pool, pepper).createAccount(
       accountId,
     );
@@ -76,6 +77,45 @@ describe("composed service startup", () => {
         FROM repository_erasure_audit
         WHERE expires_at <= statement_timestamp()
       `,
+    );
+    expect(expired.rows[0]?.count).toBe("0");
+  });
+
+  it("transitions through a real PostgreSQL outage and recovery cleanup", async () => {
+    await database.simulateOutage();
+    const unavailable = await application.app.request("/health/ready", {
+      headers: { host: "127.0.0.1" },
+    });
+    expect(unavailable.status).toBe(503);
+    expect(application.readiness.isReady()).toBe(false);
+
+    await database.recover();
+    await database.pool.query(
+      `
+        INSERT INTO repository_erasure_audit (
+          account_id,
+          request_id,
+          created_at,
+          expires_at,
+          operation_result,
+          removed_record_count
+        ) VALUES (
+          $1,
+          $2,
+          statement_timestamp() - interval '31 days',
+          statement_timestamp() - interval '1 day',
+          'forgotten',
+          0
+        )
+      `,
+      [accountId, randomUUID()],
+    );
+    const recovered = await application.app.request("/health/ready", {
+      headers: { host: "127.0.0.1" },
+    });
+    expect(recovered.status).toBe(200);
+    const expired = await database.pool.query<{ count: string }>(
+      "SELECT count(*) FROM repository_erasure_audit WHERE expires_at <= statement_timestamp()",
     );
     expect(expired.rows[0]?.count).toBe("0");
   });

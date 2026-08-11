@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { z } from "zod";
 
 import {
@@ -9,7 +6,10 @@ import {
 } from "../domain/catalog/advisory-chain.js";
 import { normalizeUtf8 } from "../domain/catalog/text-normalization.js";
 import type { CatalogRelease } from "../domain/catalog/types.js";
-import { loadPublishedRevisionHashes } from "./catalog-loader.js";
+import {
+  loadPublishedRevisionHashes,
+  readCatalogText,
+} from "./catalog-loader.js";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_PAGES = 100;
@@ -88,6 +88,11 @@ function validateApiBase(value: string): URL {
   return url;
 }
 
+function apiUrl(apiBase: URL, path: string): URL {
+  const prefix = apiBase.pathname === "/" ? "" : apiBase.pathname;
+  return new URL(`${prefix}${path}`, apiBase.origin);
+}
+
 async function readJsonResponse(
   fetchImplementation: typeof fetch,
   url: URL,
@@ -127,10 +132,7 @@ async function listPublishedReleases(
 ) {
   const releases: z.infer<typeof releaseSchema>[] = [];
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const url = new URL(
-      `${apiBase.pathname}/repos/${repository}/releases`,
-      apiBase.origin,
-    );
+    const url = apiUrl(apiBase, `/repos/${repository}/releases`);
     url.searchParams.set("per_page", "100");
     url.searchParams.set("page", String(page));
     const value = await readJsonResponse(fetchImplementation, url, token);
@@ -183,9 +185,9 @@ async function resolveReleaseCommit(
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  const referenceUrl = new URL(
-    `${apiBase.pathname}/repos/${repository}/git/ref/tags/${encodedTag}`,
-    apiBase.origin,
+  const referenceUrl = apiUrl(
+    apiBase,
+    `/repos/${repository}/git/ref/tags/${encodedTag}`,
   );
   let parsed = gitObjectSchema.safeParse(
     await readJsonResponse(fetchImplementation, referenceUrl, token),
@@ -203,9 +205,9 @@ async function resolveReleaseCommit(
     }
     if (visited.has(object.sha)) return fail();
     visited.add(object.sha);
-    const tagUrl = new URL(
-      `${apiBase.pathname}/repos/${repository}/git/tags/${object.sha}`,
-      apiBase.origin,
+    const tagUrl = apiUrl(
+      apiBase,
+      `/repos/${repository}/git/tags/${object.sha}`,
     );
     parsed = gitObjectSchema.safeParse(
       await readJsonResponse(fetchImplementation, tagUrl, token),
@@ -222,9 +224,9 @@ async function fetchPreviousAdvisoryChain(
   token: string,
   commit: string,
 ): Promise<string> {
-  const url = new URL(
-    `${apiBase.pathname}/repos/${repository}/contents/catalog/advisories.jsonl`,
-    apiBase.origin,
+  const url = apiUrl(
+    apiBase,
+    `/repos/${repository}/contents/catalog/advisories.jsonl`,
   );
   url.searchParams.set("ref", commit);
   const parsed = contentSchema.safeParse(
@@ -310,10 +312,11 @@ export async function verifyGitHubReleaseBaseline(
     options.token,
     commit,
   );
-  const currentSerialized = normalizeUtf8(
-    readFileSync(join(options.projectRoot, "catalog", "advisories.jsonl")),
+  const currentSerialized = readCatalogText(
+    options.projectRoot,
+    "catalog/advisories.jsonl",
     MAX_RESPONSE_BYTES,
-  ).text;
+  );
   if (!currentSerialized.startsWith(previousSerialized)) return fail();
   try {
     const hashes = loadPublishedRevisionHashes(options.projectRoot);

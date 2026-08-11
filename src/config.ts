@@ -9,6 +9,7 @@ export interface ApplicationConfig {
   readonly apiKeyPepper: string;
   readonly catalogRoot?: string | undefined;
   readonly catalogRelease?: string | undefined;
+  readonly catalogCacheMode?: "catalog-cold" | "catalog-warm" | undefined;
   readonly auditCleanupIntervalMilliseconds?: number | undefined;
   readonly shutdownGraceMilliseconds?: number | undefined;
   readonly logLevel?:
@@ -150,6 +151,14 @@ export function loadConfig(
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(catalogRelease)) {
     throw new Error("SKILLWIRE_CATALOG_RELEASE is invalid");
   }
+  const catalogCacheMode =
+    environment["SKILLWIRE_CATALOG_CACHE_MODE"] ?? "catalog-warm";
+  if (
+    catalogCacheMode !== "catalog-cold" &&
+    catalogCacheMode !== "catalog-warm"
+  ) {
+    throw new Error("SKILLWIRE_CATALOG_CACHE_MODE is invalid");
+  }
   const logLevel = environment["LOG_LEVEL"] ?? "info";
   if (
     !["trace", "debug", "info", "warn", "error", "fatal", "silent"].includes(
@@ -171,6 +180,7 @@ export function loadConfig(
     apiKeyPepper,
     catalogRoot,
     catalogRelease,
+    catalogCacheMode,
     auditCleanupIntervalMilliseconds:
       readPositiveInteger(
         "SKILLWIRE_AUDIT_CLEANUP_INTERVAL_SECONDS",
