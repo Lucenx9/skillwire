@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -16,6 +16,8 @@ import type {
   GitTreeEntry,
 } from "../../../src/domain/external-catalog/types.js";
 import { PostgresExternalCatalogStore } from "../../../src/persistence/postgres/external-catalog-store.js";
+import { PostgresGitHubSourceStore } from "../../../src/persistence/postgres/github-source-store.js";
+import { PostgresImportedSkillCatalogProvider } from "../../../src/persistence/postgres/imported-skill-catalog-provider.js";
 import { PostgresSyncLeaseStore } from "../../../src/persistence/postgres/sync-lease-store.js";
 import {
   createTestDatabase,
@@ -56,8 +58,10 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
   index = 0;
   renamed = false;
   abortOnNextBlob: AbortController | undefined;
+  beforeNextSnapshot: (() => Promise<void>) | undefined;
   metadataConditionalCalls = 0;
   metadataNotModified = 0;
+  readonly exactCommitReads: string[] = [];
   #sequence = 1;
 
   constructor(
@@ -126,12 +130,28 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
     };
   }
 
-  readDefaultSnapshot(
+  async readDefaultSnapshot(
     repository: GitHubRepositoryIdentity,
     _context?: OperationContext,
   ): Promise<GitHubRepositorySnapshot> {
+    const before = this.beforeNextSnapshot;
+    this.beforeNextSnapshot = undefined;
+    await before?.();
     const fixture = this.#commits[this.index];
     if (fixture === undefined) throw new Error("fixture commit missing");
+    return Promise.resolve({ ...fixture.snapshot, repository });
+  }
+
+  readSnapshotAtCommit(
+    repository: GitHubRepositoryIdentity,
+    commitSha: string,
+    _context?: OperationContext,
+  ): Promise<GitHubRepositorySnapshot> {
+    this.exactCommitReads.push(commitSha);
+    const fixture = this.#commits.find(
+      ({ commitSha: candidate }) => candidate === commitSha,
+    );
+    if (fixture === undefined) throw new Error("COMMIT_MISMATCH");
     return Promise.resolve({ ...fixture.snapshot, repository });
   }
 
@@ -161,8 +181,11 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
         : { LICENSE: this.licenseText, ...files };
     const tree: GitTreeEntry[] = Object.entries(allFiles).map(
       ([path, content]) => {
-        const sha = this.#nextSha();
         const bytes = new TextEncoder().encode(content);
+        const sha = createHash("sha1")
+          .update(`blob ${String(bytes.byteLength)}\0`)
+          .update(bytes)
+          .digest("hex");
         this.#blobs.set(sha, bytes);
         return {
           path,
@@ -204,6 +227,191 @@ describe("immutable source synchronization", () => {
   beforeAll(async () => {
     database = await createTestDatabase();
     await database.migrate();
+  }, 120_000);
+
+  it("keeps published provenance immutable through rename and reverifies the exact stored commit", async () => {
+    const database = await createTestDatabase();
+    await database.migrate();
+    const provider = new MutableNestedFixtureProvider(6006);
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const jobs = new PostgresGitHubSourceStore(database.pool);
+    const leases = new PostgresSyncLeaseStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(
+      { owner: "fixture-org", repository: provider.repositoryName },
+      "rename-admin",
+    );
+    const synchronization = new SourceSynchronizationService(provider, store);
+    const first = await synchronization.sync(registration.sourceId);
+    const alpha = first.candidateTraces.find(
+      ({ skillName }) => skillName === "alpha",
+    );
+    const alphaTrace = first.traces.find(
+      ({ skillName }) => skillName === "alpha",
+    );
+    const omega = first.candidateTraces.find(
+      ({ skillName }) => skillName === "omega",
+    );
+    if (alpha === undefined || alphaTrace === undefined || omega === undefined)
+      throw new Error("alpha fixture missing");
+    const before = await database.pool.query<{
+      catalog_skill_id: string;
+      canonical_bytes: string;
+      origin_owner: string;
+      origin_repository: string;
+    }>(
+      `SELECT i.catalog_skill_id,r.canonical_bytes,r.origin_owner,r.origin_repository
+       FROM external_skill_revisions r
+       JOIN external_skill_identities i ON i.id=r.skill_identity_id
+       WHERE r.revision=$1`,
+      [alphaTrace.revision],
+    );
+
+    provider.renamed = true;
+    provider.index = 1;
+    const anchoredHead = await store.advisoryChainHead();
+    await database.pool.query(
+      `UPDATE github_sources SET unavailable_confirmation_count=3,
+         unavailable_first_observed_at=clock_timestamp()-interval '25 hours'
+       WHERE id=$1`,
+      [registration.sourceId],
+    );
+    await database.pool.query(
+      `UPDATE github_source_aliases SET last_observed_at=clock_timestamp()-interval '26 hours'
+       WHERE source_id=$1`,
+      [registration.sourceId],
+    );
+    provider.beforeNextSnapshot = async () => {
+      await store.recordSourceUnavailable(registration.sourceId, {
+        authenticated: true,
+        uncached: true,
+        repositoryId: provider.repositoryId,
+      });
+    };
+    await expect(synchronization.sync(registration.sourceId)).rejects.toThrow(
+      "ADVISORY_CHAIN_STALE",
+    );
+    expect(await store.advisoryChainHead()).not.toBe(anchoredHead);
+    expect(
+      (
+        await database.pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM external_source_snapshots WHERE source_id=$1",
+          [registration.sourceId],
+        )
+      ).rows[0]?.count,
+    ).toBe("1");
+    await synchronization.sync(registration.sourceId);
+    const current = await database.pool.query<{
+      owner: string;
+      repository: string;
+    }>("SELECT owner,repository FROM github_sources WHERE id=$1", [
+      registration.sourceId,
+    ]);
+    expect(current.rows[0]).toEqual({
+      owner: "fixture-renamed",
+      repository: provider.repositoryName,
+    });
+    const after = await database.pool.query<{
+      canonical_bytes: string;
+      origin_owner: string;
+      origin_repository: string;
+    }>(
+      `SELECT canonical_bytes,origin_owner,origin_repository
+       FROM external_skill_revisions WHERE revision=$1`,
+      [alphaTrace.revision],
+    );
+    expect(after.rows[0]).toEqual({
+      canonical_bytes: before.rows[0]?.canonical_bytes,
+      origin_owner: "fixture-org",
+      origin_repository: provider.repositoryName,
+    });
+    const loaded = await new PostgresImportedSkillCatalogProvider(
+      database.pool,
+    ).findRevision(
+      before.rows[0]?.catalog_skill_id ?? "missing",
+      alphaTrace.revision,
+    );
+    expect(loaded?.catalogOrigin).toMatchObject({
+      owner: "fixture-org",
+      repository: provider.repositoryName,
+      commitSha: "1".repeat(40),
+    });
+
+    await store.transitionCandidate(
+      alpha.candidateId,
+      "quarantined",
+      "administrator",
+      "rename-admin",
+      "ADMIN_QUARANTINE",
+    );
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const queued = await jobs.enqueueCandidateVerification(alpha.candidateId);
+      expect(queued).toMatchObject({
+        requestedCandidateId: alpha.candidateId,
+        requestedCommitSha: "1".repeat(40),
+        requestedRepository: {
+          repositoryId: provider.repositoryId,
+          owner: "fixture-org",
+          repository: provider.repositoryName,
+        },
+      });
+      if (attempt === 0) {
+        await expect(
+          jobs.enqueueCandidateVerification(omega.candidateId),
+        ).rejects.toThrow("CONFLICT");
+      }
+      const run = (await jobs.claimQueuedSyncRuns(1))[0];
+      if (run === undefined) throw new Error("verification run missing");
+      const lease = await leases.acquire(
+        `sync/${registration.sourceId}`,
+        randomUUID(),
+        10_000,
+      );
+      if (lease === undefined) throw new Error("verification lease missing");
+      await jobs.markSyncRunning(run.runId, lease);
+      const result = await synchronization.syncScheduled(
+        run.sourceId,
+        lease,
+        {},
+        run.requestedCommitSha,
+        run.requestedRepository,
+        run.requestedCandidateId,
+      );
+      await jobs.completeSyncRun(run.runId, lease, {
+        commitSha: result.commitSha,
+        treeSha: result.treeSha,
+        candidates: result.candidateTraces.length,
+        published: 0,
+        reused: result.traces.length,
+        quarantined: 0,
+        resources: result.resourceCount,
+        requests: 0,
+        retries: 0,
+        responseBytes: 0,
+      });
+      await leases.release(lease);
+    }
+    expect(provider.exactCommitReads).toEqual(["1".repeat(40), "1".repeat(40)]);
+    expect(
+      (
+        await database.pool.query<{ classification: string }>(
+          `SELECT classification FROM external_current_classifications
+           WHERE candidate_id=$1`,
+          [alpha.candidateId],
+        )
+      ).rows[0]?.classification,
+    ).toBe("verified");
+    expect(
+      (
+        await database.pool.query<{ owner: string }>(
+          "SELECT owner FROM github_sources WHERE id=$1",
+          [registration.sourceId],
+        )
+      ).rows[0]?.owner,
+    ).toBe("fixture-renamed");
+    await database.close();
   }, 120_000);
 
   afterAll(async () => database.close());
@@ -433,7 +641,11 @@ describe("immutable source synchronization", () => {
     ]);
 
     await expect(
-      store.recordSourceUnavailable(registration.sourceId),
+      store.recordSourceUnavailable(registration.sourceId, {
+        authenticated: true,
+        uncached: true,
+        repositoryId: provider.repositoryId,
+      }),
     ).resolves.toBe(false);
     expect(
       (
@@ -448,8 +660,17 @@ describe("immutable source synchronization", () => {
        WHERE id=$1`,
       [registration.sourceId],
     );
+    await database.pool.query(
+      `UPDATE github_source_aliases SET last_observed_at=clock_timestamp()-interval '26 hours'
+       WHERE source_id=$1`,
+      [registration.sourceId],
+    );
     await expect(
-      store.recordSourceUnavailable(registration.sourceId),
+      store.recordSourceUnavailable(registration.sourceId, {
+        authenticated: true,
+        uncached: true,
+        repositoryId: provider.repositoryId,
+      }),
     ).resolves.toBe(true);
     const retained = await database.pool.query<{
       revisions: string;

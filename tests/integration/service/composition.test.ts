@@ -175,6 +175,23 @@ describe("composed service startup", () => {
       schedulerIntervalMilliseconds: 60_000,
       discoveryCadenceMilliseconds: 3_600_000,
     });
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILLWIRE_GITHUB_REQUEST_TIMEOUT_MS: "60000",
+        SKILLWIRE_GITHUB_OPERATION_TIMEOUT_MS: "60000",
+      }),
+    ).toThrow("GitHub ingestion budgets are inconsistent");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILLWIRE_GITHUB_DISCOVERY_QUERIES: JSON.stringify([
+          "filename:SKILL.md",
+          "filename:plugin.json",
+        ]),
+        SKILLWIRE_GITHUB_MAX_QUERIES: "1",
+      }),
+    ).toThrow("GitHub ingestion budgets are inconsistent");
   });
 
   it("starts and stops the optional scheduler without contacting GitHub during startup or readiness", async () => {
@@ -196,6 +213,22 @@ describe("composed service startup", () => {
         maximumResults: 1000,
         maximumPagesPerQuery: 5,
         resultsPerPage: 100,
+        discoveryQueries: [
+          "filename:plugin.json path:.claude-plugin",
+          "filename:SKILL.md",
+        ],
+        maximumQueries: 8,
+        maximumTreeEntries: 20_000,
+        maximumCandidates: 256,
+        maximumResourcesPerSkill: 64,
+        maximumDependenciesPerSkill: 32,
+        maximumTextBytes: 256 * 1024,
+        maximumBundleBytes: 2 * 1024 * 1024,
+        maximumRepositoryBytes: 32 * 1024 * 1024,
+        requestTimeoutMilliseconds: 30_000,
+        operationTimeoutMilliseconds: 300_000,
+        maximumAttempts: 3,
+        globalJobs: 2,
       },
     });
     try {

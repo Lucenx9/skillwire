@@ -42,6 +42,7 @@ import {
 } from "../../ingestion/parsing/frontmatter.js";
 import { extractTextualResourceReferences } from "../../ingestion/parsing/markdown-resources.js";
 import { discoverNestedSkillDocuments } from "../../ingestion/parsing/nested-skill-layout.js";
+import { decodeInertText } from "../../ingestion/parsing/text-content.js";
 
 interface StagedCandidate {
   readonly root: string;
@@ -50,6 +51,24 @@ interface StagedCandidate {
   resources: ExternalResourceInput[];
   dependencies: ExternalDependencyInput[];
   findings: ExternalValidationFinding[];
+  legal?: {
+    readonly spdxLicenseId: string;
+    readonly licenseText: string;
+    readonly attribution: string;
+    readonly licenseEvidencePath: string;
+    readonly licenseBlobSha: string;
+    readonly skillDeclaredSpdxId?: string | undefined;
+    readonly noticeText?: string | undefined;
+    readonly noticeEvidencePath?: string | undefined;
+    readonly noticeBlobSha?: string | undefined;
+  };
+}
+
+interface SkillDeclaration {
+  readonly root: string;
+  readonly skillPath: string;
+  readonly entry?: GitTreeEntry | undefined;
+  readonly findings: readonly ExternalValidationFinding[];
 }
 
 const LICENSE_NAMES = new Set([
@@ -58,8 +77,9 @@ const LICENSE_NAMES = new Set([
   "license.txt",
   "copying",
 ]);
+const NOTICE_NAMES = new Set(["notice", "notice.md", "notice.txt"]);
 
-function requiredBlob(
+export function requiredBlob(
   tree: readonly GitTreeEntry[],
   path: string,
   maximumBytes: number,
@@ -78,22 +98,26 @@ function requiredBlob(
 }
 
 function decodeText(bytes: Uint8Array): string {
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  if (text.includes("\u0000")) throw new Error("RESOURCE_NON_TEXT");
-  return text.replaceAll("\r\n", "\n").normalize("NFC");
+  return decodeInertText(bytes);
 }
 
-function publicSkillId(
+export function publicSkillId(
   repositoryId: number,
   name: string,
   skillPath: string,
 ): string {
   const safeName =
-    name.replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/(^-|-$)/g, "") || "skill";
-  return `gh-${String(repositoryId)}-${safeName}-${sha256Hex(skillPath).slice(0, 8)}`.slice(
-    0,
-    80,
-  );
+    name
+      .normalize("NFKC")
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/(^-|-$)/g, "") || "skill";
+  const prefix = `gh-${String(repositoryId)}-`;
+  const suffix = `-${sha256Hex(skillPath.normalize("NFC")).slice(0, 16)}`;
+  const readableLength = 80 - prefix.length - suffix.length;
+  if (readableLength < 1) throw new Error("PUBLICATION_CONFLICT");
+  const readable = safeName.slice(0, readableLength).replace(/-+$/u, "") || "s";
+  return `${prefix}${readable}${suffix}`;
 }
 
 export class SourceSynchronizationService {
@@ -118,8 +142,22 @@ export class SourceSynchronizationService {
     sourceId: string,
     lease: SyncLease,
     context?: OperationContext,
-  ): Promise<void> {
-    await this.#sync(sourceId, lease, context);
+    requestedCommitSha?: string,
+    requestedRepository?: {
+      readonly repositoryId: number;
+      readonly owner: string;
+      readonly repository: string;
+    },
+    requestedCandidateId?: string,
+  ): Promise<PublishedExternalSnapshot> {
+    return this.#sync(
+      sourceId,
+      lease,
+      context,
+      requestedCommitSha,
+      requestedRepository,
+      requestedCandidateId,
+    );
   }
 
   syncWithLease(
@@ -134,6 +172,13 @@ export class SourceSynchronizationService {
     sourceId: string,
     lease: SyncLease | undefined,
     context: OperationContext = {},
+    requestedCommitSha?: string,
+    requestedRepository?: {
+      readonly repositoryId: number;
+      readonly owner: string;
+      readonly repository: string;
+    },
+    requestedCandidateId?: string,
   ): Promise<PublishedExternalSnapshot> {
     if (lease !== undefined && lease.key !== `sync/${sourceId}`) {
       throw new Error("LEASE_SCOPE_INVALID");
@@ -150,14 +195,49 @@ export class SourceSynchronizationService {
       maximumRetries: this.budgets.maximumRetries,
       maximumResponseBytes: this.budgets.maximumResponseBytes,
     };
+    const signals: AbortSignal[] = [];
+    if (context.signal !== undefined) signals.push(context.signal);
+    if (context.deadline !== undefined) {
+      if (context.deadline <= Date.now()) {
+        throw new DOMException("deadline exceeded", "TimeoutError");
+      }
+      signals.push(
+        AbortSignal.timeout(Math.max(1, context.deadline - Date.now())),
+      );
+    }
+    const signal =
+      signals.length === 0
+        ? undefined
+        : signals.length === 1
+          ? signals[0]
+          : AbortSignal.any(signals);
     const operation: OperationContext = {
-      ...(context.signal === undefined ? {} : { signal: context.signal }),
+      ...(signal === undefined ? {} : { signal }),
       ...(context.deadline === undefined ? {} : { deadline: context.deadline }),
       budget,
     };
     operation.signal?.throwIfAborted();
     let canonicalRepository;
     let observedMetadataCache: ObservedSourceMetadataCache | null | undefined;
+    if (requestedCommitSha !== undefined) {
+      if (
+        requestedRepository?.repositoryId !== source.repository.repositoryId
+      ) {
+        throw new Error("SOURCE_IDENTITY_MISMATCH");
+      }
+      canonicalRepository = {
+        ...requestedRepository,
+        defaultBranch: source.repository.defaultBranch,
+      };
+      return this.#syncSource(
+        { ...source, repository: canonicalRepository },
+        lease,
+        operation,
+        undefined,
+        requestedCommitSha,
+        requestedCandidateId,
+      );
+    }
     try {
       if (this.provider.resolvePublicRepositoryConditionally === undefined) {
         canonicalRepository = await this.provider.resolvePublicRepository(
@@ -204,7 +284,31 @@ export class SourceSynchronizationService {
         (error.message === "GITHUB_HTTP_404" ||
           error.message === "SOURCE_NOT_PUBLIC")
       ) {
-        await this.store.recordSourceUnavailable(sourceId, lease, operation);
+        if (this.provider.authenticated === true) {
+          try {
+            await this.provider.resolvePublicRepository(
+              source.repository,
+              operation,
+            );
+          } catch (confirmationError) {
+            if (
+              confirmationError instanceof Error &&
+              (confirmationError.message === "GITHUB_HTTP_404" ||
+                confirmationError.message === "SOURCE_NOT_PUBLIC")
+            ) {
+              await this.store.recordSourceUnavailable(
+                sourceId,
+                {
+                  authenticated: true,
+                  uncached: true,
+                  repositoryId: source.repository.repositoryId,
+                },
+                lease,
+                operation,
+              );
+            }
+          }
+        }
       }
       throw error;
     }
@@ -216,6 +320,8 @@ export class SourceSynchronizationService {
       lease,
       operation,
       observedMetadataCache,
+      undefined,
+      undefined,
     );
   }
 
@@ -224,11 +330,23 @@ export class SourceSynchronizationService {
     lease: SyncLease | undefined,
     context: OperationContext,
     observedMetadataCache: ObservedSourceMetadataCache | null | undefined,
+    requestedCommitSha: string | undefined,
+    requestedCandidateId: string | undefined,
   ): Promise<PublishedExternalSnapshot> {
-    const snapshot = await this.provider.readDefaultSnapshot(
-      source.repository,
-      context,
-    );
+    const expectedAdvisoryChainHead =
+      await this.store.advisoryChainHead(context);
+    const snapshot =
+      requestedCommitSha === undefined
+        ? await this.provider.readDefaultSnapshot(source.repository, context)
+        : this.provider.readSnapshotAtCommit === undefined
+          ? (() => {
+              throw new Error("EXACT_COMMIT_READ_UNSUPPORTED");
+            })()
+          : await this.provider.readSnapshotAtCommit(
+              source.repository,
+              requestedCommitSha,
+              context,
+            );
     context.signal?.throwIfAborted();
     const manifestTreeEntry = snapshot.tree.find(
       ({ path }) => path === ".claude-plugin/plugin.json",
@@ -237,41 +355,186 @@ export class SourceSynchronizationService {
     let manifestVersion: string;
     let declaredLicense: string | undefined;
     let declaredAttribution: string | undefined;
-    let skillEntries: readonly GitTreeEntry[];
+    let skillDeclarations: readonly SkillDeclaration[];
     if (manifestTreeEntry !== undefined) {
       adapterKind = "claude-plugin";
-      const manifestEntry = requiredBlob(
-        snapshot.tree,
-        manifestTreeEntry.path,
-        this.budgets.maximumTextBytes,
-      );
-      const manifest = parseClaudePluginManifest(
-        await this.provider.readBlob(
-          source.repository,
-          manifestEntry.sha,
-          manifestEntry.size ?? 0,
-          context,
-        ),
-      );
-      manifestVersion = manifest.version;
-      declaredLicense = manifest.license;
-      declaredAttribution = manifest.author;
-      skillEntries = manifest.skillRoots.map((root) =>
-        requiredBlob(
+      try {
+        const manifestEntry = requiredBlob(
           snapshot.tree,
-          posix.join(root, "SKILL.md"),
+          manifestTreeEntry.path,
           this.budgets.maximumTextBytes,
-        ),
-      );
+        );
+        const manifest = parseClaudePluginManifest(
+          await this.provider.readBlob(
+            source.repository,
+            manifestEntry.sha,
+            manifestEntry.size ?? 0,
+            context,
+          ),
+          context.signal,
+        );
+        manifestVersion = manifest.version;
+        declaredLicense = manifest.license;
+        declaredAttribution = manifest.author;
+        skillDeclarations = manifest.skillRoots.map((root) => {
+          const skillPath = posix.join(root, "SKILL.md");
+          try {
+            return {
+              root,
+              skillPath,
+              entry: requiredBlob(
+                snapshot.tree,
+                skillPath,
+                this.budgets.maximumTextBytes,
+              ),
+              findings: [],
+            };
+          } catch (error) {
+            return {
+              root,
+              skillPath,
+              findings: [findingFromError(error, skillPath, "candidate")],
+            };
+          }
+        });
+      } catch (error) {
+        rethrowCancellation(error, context);
+        const finding = findingFromError(error, "manifest", "snapshot");
+        const locator = sha256Hex(
+          `${snapshot.commitSha}:${finding.code}:manifest`,
+        ).slice(0, 16);
+        return this.#publisher.publish(
+          {
+            sourceId: source.sourceId,
+            commitSha: snapshot.commitSha,
+            treeSha: snapshot.treeSha,
+            manifestVersion: "invalid-v1",
+            adapterKind,
+            revisions: [],
+            candidates: [
+              {
+                skillPath: `_invalid/${locator}/SKILL.md`,
+                name: `invalid-${locator}`,
+                description:
+                  "Repository manifest failed deterministic validation.",
+                adapterKind,
+                classification: "quarantined",
+                findings: [finding],
+              },
+            ],
+            ...(requestedCommitSha === undefined
+              ? { observedRepository: source.repository }
+              : {}),
+            ...(observedMetadataCache === undefined
+              ? {}
+              : { observedMetadataCache }),
+            ...(lease === undefined ? {} : { lease }),
+            expectedAdvisoryChainHead,
+            ...(requestedCandidateId === undefined
+              ? {}
+              : { reverifyCandidateId: requestedCandidateId }),
+          },
+          context,
+        );
+      }
     } else {
       adapterKind = "nested-skill";
       manifestVersion = "nested-v1";
-      skillEntries = discoverNestedSkillDocuments(snapshot.tree, {
-        maximumCandidates: this.budgets.maximumCandidates,
-      });
+      try {
+        skillDeclarations = discoverNestedSkillDocuments(
+          snapshot.tree,
+          {
+            maximumCandidates: this.budgets.maximumCandidates,
+          },
+          context.signal,
+        ).map((entry) => ({
+          root: entry.path === "SKILL.md" ? "." : posix.dirname(entry.path),
+          skillPath: entry.path,
+          entry,
+          findings: [],
+        }));
+      } catch (error) {
+        rethrowCancellation(error, context);
+        const finding = findingFromError(error, "layout", "snapshot");
+        const locator = sha256Hex(
+          `${snapshot.commitSha}:${finding.code}:layout`,
+        ).slice(0, 16);
+        return this.#publisher.publish(
+          {
+            sourceId: source.sourceId,
+            commitSha: snapshot.commitSha,
+            treeSha: snapshot.treeSha,
+            manifestVersion,
+            adapterKind,
+            revisions: [],
+            candidates: [
+              {
+                skillPath: `_invalid/${locator}/SKILL.md`,
+                name: `invalid-${locator}`,
+                description:
+                  "Repository layout failed deterministic validation.",
+                adapterKind,
+                classification: "quarantined",
+                findings: [finding],
+              },
+            ],
+            ...(requestedCommitSha === undefined
+              ? { observedRepository: source.repository }
+              : {}),
+            ...(observedMetadataCache === undefined
+              ? {}
+              : { observedMetadataCache }),
+            ...(lease === undefined ? {} : { lease }),
+            expectedAdvisoryChainHead,
+            ...(requestedCandidateId === undefined
+              ? {}
+              : { reverifyCandidateId: requestedCandidateId }),
+          },
+          context,
+        );
+      }
     }
-    if (skillEntries.length > this.budgets.maximumCandidates) {
-      throw new Error("TREE_OVERSIZED");
+    if (skillDeclarations.length > this.budgets.maximumCandidates) {
+      const finding = findingFromError(
+        new Error("TREE_OVERSIZED"),
+        "candidate-budget",
+        "snapshot",
+      );
+      const locator = sha256Hex(
+        `${snapshot.commitSha}:${finding.code}:candidate-budget`,
+      ).slice(0, 16);
+      return this.#publisher.publish(
+        {
+          sourceId: source.sourceId,
+          commitSha: snapshot.commitSha,
+          treeSha: snapshot.treeSha,
+          manifestVersion,
+          adapterKind,
+          revisions: [],
+          candidates: [
+            {
+              skillPath: `_invalid/${locator}/SKILL.md`,
+              name: `invalid-${locator}`,
+              description: "Repository candidate budget was exceeded.",
+              adapterKind,
+              classification: "quarantined",
+              findings: [finding],
+            },
+          ],
+          ...(requestedCommitSha === undefined
+            ? { observedRepository: source.repository }
+            : {}),
+          ...(observedMetadataCache === undefined
+            ? {}
+            : { observedMetadataCache }),
+          ...(lease === undefined ? {} : { lease }),
+          expectedAdvisoryChainHead,
+          ...(requestedCandidateId === undefined
+            ? {}
+            : { reverifyCandidateId: requestedCandidateId }),
+        },
+        context,
+      );
     }
 
     let decodedRepositoryBytes = 0;
@@ -297,18 +560,32 @@ export class SourceSynchronizationService {
       );
     };
 
-    const licenseEntries = snapshot.tree.filter(
-      (entry) =>
-        !entry.path.includes("/") &&
-        LICENSE_NAMES.has(entry.path.toLowerCase()),
-    );
+    const licenseEntries = snapshot.tree
+      .filter(
+        (entry) =>
+          !entry.path.includes("/") &&
+          LICENSE_NAMES.has(entry.path.toLowerCase()),
+      )
+      .toSorted((left, right) => left.path.localeCompare(right.path, "en-US"));
+    const noticeEntries = snapshot.tree
+      .filter(
+        (entry) =>
+          !entry.path.includes("/") &&
+          NOTICE_NAMES.has(entry.path.toLowerCase()),
+      )
+      .toSorted((left, right) => left.path.localeCompare(right.path, "en-US"));
     let licenseFailure: ExternalValidationFinding | undefined;
     let licenseText = "";
     let spdxLicenseId = "";
     let attribution = declaredAttribution ?? "";
+    let licenseEvidencePath = "";
+    let licenseBlobSha = "";
+    let noticeText: string | undefined;
+    let noticeEvidencePath: string | undefined;
+    let noticeBlobSha: string | undefined;
     try {
       if (licenseEntries.length === 0) throw new Error("LICENSE_MISSING");
-      const licenseTexts = [];
+      const licenseTexts: string[] = [];
       for (const entry of licenseEntries) {
         licenseTexts.push(
           await readText(
@@ -322,6 +599,38 @@ export class SourceSynchronizationService {
       }
       if (new Set(licenseTexts).size > 1) throw new Error("LICENSE_CONFLICT");
       licenseText = licenseTexts[0] ?? "";
+      const licenseEntry = licenseEntries[0];
+      if (licenseEntry === undefined) throw new Error("LICENSE_MISSING");
+      licenseEvidencePath = licenseEntry.path;
+      licenseBlobSha = licenseEntry.sha;
+      if (noticeEntries.length > 0) {
+        const noticeTexts: string[] = [];
+        for (const entry of noticeEntries) {
+          noticeTexts.push(
+            await readText(
+              requiredBlob(
+                snapshot.tree,
+                entry.path,
+                this.budgets.maximumTextBytes,
+              ),
+            ),
+          );
+        }
+        if (new Set(noticeTexts).size > 1) throw new Error("LICENSE_CONFLICT");
+        const noticeEntry = noticeEntries[0];
+        noticeText = noticeTexts[0];
+        noticeEvidencePath = noticeEntry?.path;
+        noticeBlobSha = noticeEntry?.sha;
+      }
+      const detectedAttribution = detectAttribution(licenseText);
+      if (
+        attribution.length > 0 &&
+        detectedAttribution !== undefined &&
+        attribution.normalize("NFKC").toLocaleLowerCase("en-US") !==
+          detectedAttribution.normalize("NFKC").toLocaleLowerCase("en-US")
+      ) {
+        throw new Error("LICENSE_CONFLICT");
+      }
       const validated = validatePinnedLicense({
         declaredSpdxId: declaredLicense,
         detectedSpdxId: detectSpdxLicense(licenseText),
@@ -330,31 +639,153 @@ export class SourceSynchronizationService {
           attribution.length > 0
             ? attribution
             : (detectAttribution(licenseText) ?? ""),
+        ...(noticeText === undefined ? {} : { noticeText }),
       });
       spdxLicenseId = validated.spdxId;
       attribution = validated.attribution;
     } catch (error) {
+      rethrowCancellation(error, context);
       licenseFailure = findingFromError(error, "source-license", "candidate");
     }
 
     const staged: StagedCandidate[] = [];
-    for (const entry of skillEntries) {
+    for (const declaration of skillDeclarations) {
       context.signal?.throwIfAborted();
-      const root = entry.path.replace(/\/SKILL\.md$/, "");
+      const entry = declaration.entry;
       const candidate: StagedCandidate = {
-        root,
-        skillPath: entry.path,
+        root: declaration.root,
+        skillPath: declaration.skillPath,
         resources: [],
         dependencies: [],
-        findings: licenseFailure === undefined ? [] : [licenseFailure],
+        findings: [
+          ...declaration.findings,
+          ...(licenseFailure === undefined ? [] : [licenseFailure]),
+        ],
+        ...(licenseFailure !== undefined
+          ? {}
+          : {
+              legal: {
+                spdxLicenseId,
+                licenseText,
+                attribution,
+                licenseEvidencePath,
+                licenseBlobSha,
+                ...(noticeText === undefined ? {} : { noticeText }),
+                ...(noticeEvidencePath === undefined
+                  ? {}
+                  : { noticeEvidencePath }),
+                ...(noticeBlobSha === undefined ? {} : { noticeBlobSha }),
+              },
+            }),
       };
+      if (entry === undefined) {
+        staged.push(candidate);
+        continue;
+      }
       try {
         candidate.document = parseSkillDocument(
           new TextEncoder().encode(await readText(entry)),
+          context.signal,
         );
+        const directory = posix.dirname(candidate.skillPath);
+        const skillNoticeEntries = snapshot.tree
+          .filter(
+            (treeEntry) =>
+              posix.dirname(treeEntry.path) === directory &&
+              NOTICE_NAMES.has(posix.basename(treeEntry.path).toLowerCase()),
+          )
+          .toSorted((left, right) =>
+            left.path.localeCompare(right.path, "en-US"),
+          );
+        if (skillNoticeEntries.length > 0 && candidate.legal !== undefined) {
+          const skillNoticeTexts: string[] = [];
+          for (const skillNoticeEntry of skillNoticeEntries) {
+            skillNoticeTexts.push(
+              await readText(
+                requiredBlob(
+                  snapshot.tree,
+                  skillNoticeEntry.path,
+                  this.budgets.maximumTextBytes,
+                ),
+              ),
+            );
+          }
+          if (new Set(skillNoticeTexts).size > 1) {
+            throw new Error("LICENSE_CONFLICT");
+          }
+          const skillNoticeEntry = skillNoticeEntries[0];
+          if (skillNoticeEntry === undefined)
+            throw new Error("LICENSE_CONFLICT");
+          candidate.legal = {
+            ...candidate.legal,
+            noticeText: skillNoticeTexts[0] ?? "",
+            noticeEvidencePath: skillNoticeEntry.path,
+            noticeBlobSha: skillNoticeEntry.sha,
+          };
+        }
+        const declaredSkillLicense = candidate.document.declaredSpdxId;
+        if (declaredSkillLicense !== undefined) {
+          const skillLicenseEntries = snapshot.tree
+            .filter(
+              (treeEntry) =>
+                posix.dirname(treeEntry.path) === directory &&
+                LICENSE_NAMES.has(posix.basename(treeEntry.path).toLowerCase()),
+            )
+            .toSorted((left, right) =>
+              left.path.localeCompare(right.path, "en-US"),
+            );
+          if (declaredSkillLicense !== spdxLicenseId) {
+            if (skillLicenseEntries.length === 0)
+              throw new Error("LICENSE_CONFLICT");
+            const skillLicenseEntry = skillLicenseEntries[0];
+            if (skillLicenseEntry === undefined)
+              throw new Error("LICENSE_CONFLICT");
+            const skillLicenseText = await readText(
+              requiredBlob(
+                snapshot.tree,
+                skillLicenseEntry.path,
+                this.budgets.maximumTextBytes,
+              ),
+            );
+            const skillLicense = validatePinnedLicense({
+              declaredSpdxId: declaredSkillLicense,
+              detectedSpdxId: detectSpdxLicense(skillLicenseText),
+              licenseText: skillLicenseText,
+              attribution: detectAttribution(skillLicenseText) ?? "",
+              ...(candidate.legal?.noticeText === undefined
+                ? {}
+                : { noticeText: candidate.legal.noticeText }),
+            });
+            candidate.legal = {
+              spdxLicenseId: skillLicense.spdxId,
+              licenseText: skillLicense.licenseText,
+              attribution: skillLicense.attribution,
+              licenseEvidencePath: skillLicenseEntry.path,
+              licenseBlobSha: skillLicenseEntry.sha,
+              skillDeclaredSpdxId: declaredSkillLicense,
+              ...(candidate.legal?.noticeText === undefined
+                ? {}
+                : { noticeText: candidate.legal.noticeText }),
+              ...(candidate.legal?.noticeEvidencePath === undefined
+                ? {}
+                : {
+                    noticeEvidencePath: candidate.legal.noticeEvidencePath,
+                  }),
+              ...(candidate.legal?.noticeBlobSha === undefined
+                ? {}
+                : { noticeBlobSha: candidate.legal.noticeBlobSha }),
+            };
+          } else if (candidate.legal !== undefined) {
+            candidate.legal = {
+              ...candidate.legal,
+              skillDeclaredSpdxId: declaredSkillLicense,
+            };
+          }
+        }
       } catch (error) {
+        rethrowCancellation(error, context);
         candidate.findings.push(
-          findingFromError(error, entry.path, "candidate"),
+          findingFromError(error, declaration.skillPath, "candidate"),
         );
       }
       staged.push(candidate);
@@ -391,10 +822,21 @@ export class SourceSynchronizationService {
       );
       candidate.dependencies = [...resolution.dependencies];
       candidate.findings.push(...resolution.findings);
+      if (
+        candidate.dependencies.length > this.budgets.maximumDependenciesPerSkill
+      ) {
+        candidate.findings.push({
+          code: "DEPENDENCY_AMBIGUOUS",
+          severity: "error",
+          subjectKind: "candidate",
+          subjectId: candidate.skillPath,
+        });
+      }
       try {
         const references = extractTextualResourceReferences(
           document.instructions,
           candidate.skillPath,
+          context.signal,
         );
         if (references.length > this.budgets.maximumResourcesPerSkill) {
           throw new Error("RESOURCE_OVERSIZED");
@@ -411,7 +853,20 @@ export class SourceSynchronizationService {
             content: await readText(resourceEntry),
           });
         }
+        const bundleBytes =
+          Buffer.byteLength(document.instructions, "utf8") +
+          candidate.resources.reduce(
+            (total, resource) =>
+              total + Buffer.byteLength(resource.content, "utf8"),
+            0,
+          ) +
+          Buffer.byteLength(candidate.legal?.licenseText ?? "", "utf8") +
+          Buffer.byteLength(candidate.legal?.noticeText ?? "", "utf8");
+        if (bundleBytes > this.budgets.maximumBundleBytes) {
+          throw new Error("RESOURCE_OVERSIZED");
+        }
       } catch (error) {
+        rethrowCancellation(error, context);
         candidate.findings.push(
           findingFromError(error, candidate.skillPath, "resource"),
         );
@@ -475,7 +930,8 @@ export class SourceSynchronizationService {
       candidate: StagedCandidate,
     ): ReturnType<typeof createExternalSkillRevision> => {
       const document = candidate.document;
-      if (document === undefined) throw new Error("SKILL_SCHEMA_INVALID");
+      if (document === undefined || candidate.legal === undefined)
+        throw new Error("SKILL_SCHEMA_INVALID");
       const existing = revisionsByName.get(document.name);
       if (existing !== undefined) return existing;
       const dependencies = candidate.dependencies.map((dependency) => {
@@ -510,9 +966,25 @@ export class SourceSynchronizationService {
           repository: source.repository.repository,
           commitSha: snapshot.commitSha,
           skillPath: candidate.skillPath,
-          sourceOwner: attribution,
-          spdxLicenseId,
-          licenseText,
+          sourceOwner: candidate.legal.attribution,
+          spdxLicenseId: candidate.legal.spdxLicenseId,
+          licenseText: candidate.legal.licenseText,
+          licenseEvidencePath: candidate.legal.licenseEvidencePath,
+          licenseBlobSha: candidate.legal.licenseBlobSha,
+          ...(candidate.legal.skillDeclaredSpdxId === undefined
+            ? {}
+            : {
+                skillDeclaredSpdxId: candidate.legal.skillDeclaredSpdxId,
+              }),
+          ...(candidate.legal.noticeText === undefined
+            ? {}
+            : { noticeText: candidate.legal.noticeText }),
+          ...(candidate.legal.noticeEvidencePath === undefined
+            ? {}
+            : { noticeEvidencePath: candidate.legal.noticeEvidencePath }),
+          ...(candidate.legal.noticeBlobSha === undefined
+            ? {}
+            : { noticeBlobSha: candidate.legal.noticeBlobSha }),
         },
         skill,
       });
@@ -546,16 +1018,28 @@ export class SourceSynchronizationService {
               : candidate.findings,
         };
       }
-      const revision = buildRevision(candidate);
-      return {
-        skillPath: candidate.skillPath,
-        name,
-        description,
-        adapterKind,
-        classification: "verified",
-        findings: [],
-        revision,
-      };
+      try {
+        const revision = buildRevision(candidate);
+        return {
+          skillPath: candidate.skillPath,
+          name,
+          description,
+          adapterKind,
+          classification: "verified",
+          findings: [],
+          revision,
+        };
+      } catch (error) {
+        rethrowCancellation(error, context);
+        return {
+          skillPath: candidate.skillPath,
+          name,
+          description,
+          adapterKind,
+          classification: "quarantined",
+          findings: [findingFromError(error, candidate.skillPath, "candidate")],
+        };
+      }
     });
     const revisions = candidates.flatMap(({ revision }) =>
       revision === undefined ? [] : [revision],
@@ -569,14 +1053,34 @@ export class SourceSynchronizationService {
         adapterKind,
         revisions,
         candidates,
-        observedRepository: source.repository,
+        ...(requestedCommitSha === undefined
+          ? { observedRepository: source.repository }
+          : {}),
         ...(observedMetadataCache === undefined
           ? {}
           : { observedMetadataCache }),
         ...(lease === undefined ? {} : { lease }),
+        expectedAdvisoryChainHead,
+        ...(requestedCandidateId === undefined
+          ? {}
+          : { reverifyCandidateId: requestedCandidateId }),
       },
       context,
     );
+  }
+}
+
+function rethrowCancellation(error: unknown, context: OperationContext): void {
+  if (context.signal?.aborted === true) {
+    throw context.signal.reason instanceof Error
+      ? context.signal.reason
+      : new DOMException("operation cancelled", "AbortError");
+  }
+  if (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    throw error;
   }
 }
 
@@ -600,6 +1104,7 @@ function findingFromError(
     error instanceof Error ? error.message : "SKILL_SCHEMA_INVALID";
   const mapping = new Map<string, ExternalValidationFinding["code"]>([
     ["MANIFEST_INVALID", "MANIFEST_INVALID"],
+    ["MANIFEST_OVERSIZED", "MANIFEST_INVALID"],
     ["MANIFEST_DUPLICATE_SKILL", "MANIFEST_DUPLICATE_SKILL"],
     ["SKILL_SCHEMA_INVALID", "SKILL_SCHEMA_INVALID"],
     ["SKILL_OVERSIZED", "RESOURCE_OVERSIZED"],
@@ -615,6 +1120,13 @@ function findingFromError(
     ["LICENSE_CONFLICT", "LICENSE_CONFLICT"],
     ["ATTRIBUTION_MISSING", "ATTRIBUTION_MISSING"],
     ["HASH_MISMATCH", "HASH_MISMATCH"],
+    ["DEPENDENCY_AMBIGUOUS", "DEPENDENCY_AMBIGUOUS"],
+    ["TREE_TRUNCATED", "TREE_TRUNCATED"],
+    ["TREE_OVERSIZED", "TREE_OVERSIZED"],
+    ["TREE_AMBIGUOUS", "TREE_AMBIGUOUS"],
+    ["RESPONSE_BUDGET_EXCEEDED", "RESOURCE_OVERSIZED"],
+    ["BUNDLE_OVERSIZED", "RESOURCE_OVERSIZED"],
+    ["TEXT_OVERSIZED", "RESOURCE_OVERSIZED"],
   ]);
   return {
     code: mapping.get(message) ?? "SKILL_SCHEMA_INVALID",

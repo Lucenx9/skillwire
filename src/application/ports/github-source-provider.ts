@@ -26,6 +26,7 @@ export interface ConditionalRepositoryResult {
 }
 
 export interface GitHubSourceProvider {
+  readonly authenticated?: boolean | undefined;
   resolvePublicRepository(
     coordinate: GitHubRepositoryCoordinate,
     context?: OperationContext,
@@ -37,6 +38,11 @@ export interface GitHubSourceProvider {
   ): Promise<ConditionalRepositoryResult>;
   readDefaultSnapshot(
     repository: GitHubRepositoryIdentity,
+    context?: OperationContext,
+  ): Promise<GitHubRepositorySnapshot>;
+  readSnapshotAtCommit?(
+    repository: GitHubRepositoryIdentity,
+    commitSha: string,
     context?: OperationContext,
   ): Promise<GitHubRepositorySnapshot>;
   readBlob(

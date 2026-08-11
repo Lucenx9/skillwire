@@ -78,7 +78,7 @@ describe("fixed-origin GitHub REST client", () => {
           return Promise.resolve(
             new Response(null, {
               status: 301,
-              headers: { location: "/repositories/1148788086" },
+              headers: { location: "/repos/mattpocock/skills" },
             }),
           );
         }
@@ -103,7 +103,7 @@ describe("fixed-origin GitHub REST client", () => {
     ).resolves.toEqual(repository);
     expect(calls).toEqual([
       "https://api.github.com/repos/old-owner/skills",
-      "https://api.github.com/repositories/1148788086",
+      "https://api.github.com/repos/mattpocock/skills",
     ]);
   });
 

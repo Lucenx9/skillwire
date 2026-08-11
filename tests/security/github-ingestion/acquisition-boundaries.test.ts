@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import { GitHubSearchDiscoveryProvider } from "../../../src/ingestion/github/discovery-provider.js";
+import { requiredBlob } from "../../../src/application/services/source-synchronization-service.js";
 import { GitHubRestClient } from "../../../src/ingestion/github/rest-client.js";
 import { extractTextualResourceReferences } from "../../../src/ingestion/parsing/markdown-resources.js";
 
@@ -102,5 +103,68 @@ describe("GitHub acquisition security boundaries", () => {
         /git\s+(clone|checkout)|writeFile|createWriteStream|package manager/i,
       );
     }
+  });
+
+  it.each([
+    ["symlink", "120000", "blob"],
+    ["executable", "100755", "blob"],
+    ["submodule", "160000", "commit"],
+    ["tree", "040000", "tree"],
+  ] as const)(
+    "rejects declared %s objects without reading them",
+    (_label, mode, type) => {
+      expect(() =>
+        requiredBlob(
+          [
+            {
+              path: "skills/example/SKILL.md",
+              mode,
+              type,
+              sha: "1".repeat(40),
+              ...(type === "blob" ? { size: 10 } : {}),
+            },
+          ],
+          "skills/example/SKILL.md",
+          1024,
+        ),
+      ).toThrow("OBJECT_UNSUPPORTED");
+    },
+  );
+
+  it("rejects misleading GitHub media types before parsing a body", async () => {
+    const client = new GitHubRestClient({
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response("not-json", {
+            headers: { "content-type": "application/octet-stream" },
+          }),
+        ),
+    });
+    await expect(
+      client.resolvePublicRepository({
+        owner: "safe-owner",
+        repository: "safe-repo",
+      }),
+    ).rejects.toThrow("GITHUB_SCHEMA_INVALID");
+  });
+
+  it("keeps required CI offline and the PostgreSQL live import explicitly manual", async () => {
+    const requiredCi = await readFile(".github/workflows/ci.yml", "utf8");
+    expect(requiredCi).toContain('SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"');
+    expect(requiredCi).not.toMatch(/catalog:verify[^\n]*--github/);
+    expect(requiredCi).not.toMatch(/advisory:verify[^\n]*--github/);
+    const live = await readFile(
+      ".github/workflows/github-live-smoke.yml",
+      "utf8",
+    );
+    expect(live).toContain("workflow_dispatch:");
+    expect(live).toContain("run_live_github:");
+    expect(live).toContain("postgres:");
+    expect(live).toContain("pnpm smoke:github-live");
+    const smoke = await readFile("scripts/smoke-github-live.ts", "utf8");
+    expect(smoke).toContain("ACCEPTANCE_COMMIT");
+    expect(smoke).toContain("imported.traces.length !== 25");
+    expect(smoke).toContain("imported.resourceCount !== 21");
+    expect(smoke).not.toMatch(/writeFile|appendFile|rename\(/);
   });
 });

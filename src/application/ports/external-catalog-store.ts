@@ -36,12 +36,16 @@ export interface PublishExternalSnapshotInput {
   readonly observedRepository?: GitHubRepositoryIdentity | undefined;
   readonly observedMetadataCache?:
     ObservedSourceMetadataCache | null | undefined;
+  readonly expectedAdvisoryChainHead?: string | undefined;
+  readonly reverifyCandidateId?: string | undefined;
 }
 
 export interface PublishedExternalSnapshot {
   readonly snapshotId: string;
   readonly sourceId: string;
   readonly commitSha: string;
+  readonly treeSha: string;
+  readonly resourceCount: number;
   readonly traces: readonly ImportTraceResult[];
   readonly candidateTraces: readonly CandidateTraceResult[];
   readonly created: boolean;
@@ -53,6 +57,11 @@ export interface AdministrativeCandidate {
   readonly classification: CandidateClassification;
   readonly reasonCodes: readonly string[];
   readonly revision?: string | undefined;
+}
+
+export interface AdministrativeCandidatePage {
+  readonly items: readonly AdministrativeCandidate[];
+  readonly nextCursor: string | null;
 }
 
 export interface AdministrativeSource {
@@ -80,6 +89,7 @@ export interface ExternalCatalogStore {
   listAdministrativeSources(
     classification?: CandidateClassification,
     context?: OperationContext,
+    sourceId?: string,
   ): Promise<readonly AdministrativeSource[]>;
   publishSnapshot(
     input: PublishExternalSnapshotInput,
@@ -94,6 +104,15 @@ export interface ExternalCatalogStore {
     classification?: CandidateClassification,
     context?: OperationContext,
   ): Promise<readonly AdministrativeCandidate[]>;
+  listAdministrativeCandidatesPage(
+    options: {
+      readonly classification?: CandidateClassification | undefined;
+      readonly sourceId?: string | undefined;
+      readonly cursor?: string | undefined;
+      readonly limit: number;
+    },
+    context?: OperationContext,
+  ): Promise<AdministrativeCandidatePage>;
   transitionCandidate(
     candidateId: string,
     next: CandidateClassification,
@@ -104,7 +123,13 @@ export interface ExternalCatalogStore {
   ): Promise<ClassificationChange>;
   recordSourceUnavailable(
     sourceId: string,
+    observation?: {
+      readonly authenticated: boolean;
+      readonly uncached: boolean;
+      readonly repositoryId: number;
+    },
     lease?: SyncLease,
     context?: OperationContext,
   ): Promise<boolean>;
+  advisoryChainHead(context?: OperationContext): Promise<string>;
 }

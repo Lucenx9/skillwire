@@ -17,6 +17,7 @@ concurrency:
 env:
   PNPM_VERSION: 11.21.0
   SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+  SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
 
 jobs:
   static:
@@ -119,17 +120,9 @@ jobs:
           corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
       - run: pnpm install --frozen-lockfile
       - name: Read-only catalog verification
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_API_URL: ${{ github.api_url }}
-        run: pnpm catalog:verify --release-id launch-catalog-v1 --github
+        run: pnpm catalog:verify --release-id launch-catalog-v1
       - name: Release-anchored advisory verification
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_API_URL: ${{ github.api_url }}
-        run: pnpm advisory:verify --release-id launch-catalog-v1 --github
+        run: pnpm advisory:verify --release-id launch-catalog-v1
       - run: git diff --check && git diff --exit-code
 
   container:

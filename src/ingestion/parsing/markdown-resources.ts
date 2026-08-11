@@ -46,7 +46,9 @@ function recordReference(url: string, urls: string[]): void {
 export function extractTextualResourceReferences(
   markdown: string,
   skillDocumentPath: string,
+  signal?: AbortSignal,
 ): readonly ResourceReference[] {
+  signal?.throwIfAborted();
   const tree = fromMarkdown(markdown) as MarkdownNode;
   const urls: string[] = [];
   const definitions = new Map<string, string>();
@@ -54,6 +56,7 @@ export function extractTextualResourceReferences(
   let nodes = 0;
   const visit = (node: MarkdownNode, depth: number): void => {
     nodes += 1;
+    if (nodes % 64 === 0) signal?.throwIfAborted();
     if (nodes > 20_000 || depth > 64) throw new Error("MARKDOWN_OVERSIZED");
     if (node.type === "link" && node.url !== undefined) {
       recordReference(node.url, urls);
@@ -77,6 +80,7 @@ export function extractTextualResourceReferences(
     for (const child of node.children ?? []) visit(child, depth + 1);
   };
   visit(tree, 0);
+  signal?.throwIfAborted();
   for (const identifier of references) {
     const url = definitions.get(identifier);
     if (url !== undefined) recordReference(url, urls);

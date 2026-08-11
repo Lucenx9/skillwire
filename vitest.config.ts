@@ -6,6 +6,7 @@ const project = (name: string, include: string[]) => ({
     include,
     environment: "node" as const,
     restoreMocks: true,
+    setupFiles: ["./tests/helpers/block-live-github.ts"],
   },
 });
 

@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type {
   AdministrativeCandidate,
+  AdministrativeCandidatePage,
   ClassificationChange,
   ExternalCatalogStore,
   PublishExternalSnapshotInput,
@@ -16,7 +17,10 @@ import {
   canonicalJson,
   sha256Hex,
 } from "../../domain/catalog/canonical-revision.js";
-import { applyCandidateTransition } from "../../domain/external-catalog/candidate-policy.js";
+import {
+  applyCandidateTransition,
+  stableFindings,
+} from "../../domain/external-catalog/candidate-policy.js";
 import { hashExternalAdvisoryEvent } from "../../domain/external-catalog/external-advisory-chain.js";
 import type {
   CandidateClassification,
@@ -38,6 +42,7 @@ interface ExistingSnapshotRow {
   readonly manifest_version: string;
   readonly revision_count: number;
   readonly adapter_kind: "claude-plugin" | "nested-skill";
+  readonly resource_count: number;
 }
 
 interface TraceRow {
@@ -62,7 +67,7 @@ interface CandidateTraceRow {
 async function insertContent(
   client: PoolClient,
   sha256: string,
-  kind: "instructions" | "resource" | "license",
+  kind: "instructions" | "resource" | "license" | "notice",
   mediaType: "text/markdown" | "text/plain",
   content: string,
 ): Promise<void> {
@@ -86,12 +91,7 @@ async function insertContent(
     [sha256],
   );
   const row = existing.rows[0];
-  if (
-    row?.content !== content ||
-    row.kind !== kind ||
-    row.media_type !== mediaType ||
-    row.byte_length !== byteLength
-  ) {
+  if (row?.content !== content || row.byte_length !== byteLength) {
     throw new Error("HASH_MISMATCH");
   }
 }
@@ -197,6 +197,17 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     }
     return requestTransaction(this.pool, context, async (client) => {
       if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
+      const advisoryHead = await client.query<{ last_event_sha256: string }>(
+        "SELECT last_event_sha256 FROM external_advisory_chain_head WHERE singleton FOR UPDATE",
+      );
+      const preSyncAdvisoryHead = advisoryHead.rows[0]?.last_event_sha256;
+      if (
+        preSyncAdvisoryHead === undefined ||
+        (input.expectedAdvisoryChainHead !== undefined &&
+          input.expectedAdvisoryChainHead !== preSyncAdvisoryHead)
+      ) {
+        throw new Error("ADVISORY_CHAIN_STALE");
+      }
       if (input.observedRepository !== undefined) {
         await this.#refreshSourceIdentity(
           client,
@@ -207,7 +218,8 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       }
       const duplicate = await client.query<ExistingSnapshotRow>(
         `
-          SELECT id, tree_sha, manifest_version, revision_count, adapter_kind
+          SELECT id, tree_sha, manifest_version, revision_count, adapter_kind,
+                 resource_count
           FROM external_source_snapshots
           WHERE source_id = $1 AND commit_sha = $2
         `,
@@ -215,8 +227,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       );
       const existing = duplicate.rows[0];
       if (existing !== undefined) {
-        const traces = await existingTraces(client, existing.id);
-        const candidateTraces = await existingCandidateTraces(
+        const priorCandidateTraces = await existingCandidateTraces(
           client,
           existing.id,
         );
@@ -225,14 +236,31 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           existing.manifest_version !== input.manifestVersion ||
           existing.adapter_kind !== (input.adapterKind ?? "claude-plugin") ||
           existing.revision_count !== input.revisions.length ||
-          candidateTraces.length !== candidates.length
+          priorCandidateTraces.length !== candidates.length
         ) {
           throw new Error("PUBLICATION_CONFLICT");
         }
+        if (input.reverifyCandidateId !== undefined) {
+          await this.#reverifyCandidate(
+            client,
+            existing.id,
+            input.reverifyCandidateId,
+            candidates,
+          );
+        }
+        const traces = await existingTraces(client, existing.id);
+        const candidateTraces = await existingCandidateTraces(
+          client,
+          existing.id,
+        );
+        if (input.lease !== undefined)
+          await assertLeaseHeld(client, input.lease);
         return {
           snapshotId: existing.id,
           sourceId: input.sourceId,
           commitSha: input.commitSha,
+          treeSha: existing.tree_sha,
+          resourceCount: existing.resource_count,
           traces,
           candidateTraces,
           created: false,
@@ -246,9 +274,10 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
             id, source_id, commit_sha, tree_sha, manifest_version, revision_count,
             adapter_kind, candidate_count, quarantine_count, resource_count,
             dependency_count, decoded_bytes, validation_input_sha256,
-            advisory_chain_head_sha256
+            advisory_chain_head_sha256,origin_github_repository_id,
+            origin_owner,origin_repository
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-                    (SELECT last_event_sha256 FROM external_advisory_chain_head WHERE singleton))
+                    $14,$15,$16,$17)
         `,
         [
           snapshotId,
@@ -298,6 +327,13 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
                 ),
               }),
             ),
+          preSyncAdvisoryHead,
+          input.observedRepository?.repositoryId ??
+            input.revisions[0]?.provenance.repositoryId,
+          input.observedRepository?.owner ??
+            input.revisions[0]?.provenance.owner,
+          input.observedRepository?.repository ??
+            input.revisions[0]?.provenance.repository,
         ],
       );
 
@@ -339,7 +375,9 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
             skillName: candidate.name,
             classification: "quarantined",
             result: "quarantined",
-            reasonCodes: candidate.findings.map(({ code }) => code).toSorted(),
+            reasonCodes: [
+              ...new Set(candidate.findings.map(({ code }) => code)),
+            ].toSorted(),
           });
         }
       }
@@ -361,10 +399,16 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           [input.sourceId],
         );
       }
+      if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
       return {
         snapshotId,
         sourceId: input.sourceId,
         commitSha: input.commitSha,
+        treeSha: input.treeSha,
+        resourceCount: input.revisions.reduce(
+          (count, revision) => count + revision.resources.length,
+          0,
+        ),
         traces: traces.toSorted((a, b) =>
           a.skillPath.localeCompare(b.skillPath, "en-US"),
         ),
@@ -390,6 +434,15 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       "text/plain",
       revision.provenance.licenseText,
     );
+    if (revision.provenance.noticeText !== undefined) {
+      await insertContent(
+        client,
+        sha256Hex(revision.provenance.noticeText),
+        "notice",
+        "text/plain",
+        revision.provenance.noticeText,
+      );
+    }
     await insertContent(
       client,
       revision.instructionsSha256,
@@ -465,8 +518,12 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
             id, skill_identity_id, snapshot_id, revision, bundle_sha256,
             content_identity_sha256, name, description, skill_path, commit_sha,
             source_owner, spdx_license_id, license_sha256, instructions_sha256,
-            invocation_mode, canonical_bytes, trust_at_publication
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+            invocation_mode, canonical_bytes, trust_at_publication,
+            origin_owner, origin_repository, license_evidence_path,
+            license_blob_sha, skill_declared_spdx_id, notice_sha256,
+            notice_evidence_path, notice_blob_sha
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                    $18,$19,$20,$21,$22,$23,$24,$25)
         `,
         [
           revisionId,
@@ -486,6 +543,16 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           revision.invocationMode,
           revision.canonicalBytes,
           revision.trustAtPublication,
+          revision.provenance.owner,
+          revision.provenance.repository,
+          revision.provenance.licenseEvidencePath ?? null,
+          revision.provenance.licenseBlobSha ?? null,
+          revision.provenance.skillDeclaredSpdxId ?? null,
+          revision.provenance.noticeText === undefined
+            ? null
+            : sha256Hex(revision.provenance.noticeText),
+          revision.provenance.noticeEvidencePath ?? null,
+          revision.provenance.noticeBlobSha ?? null,
         ],
       );
       for (const [ordinal, resource] of revision.resources.entries()) {
@@ -532,6 +599,111 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       revision: revisionName,
       bundleSha256,
     };
+  }
+
+  async #reverifyCandidate(
+    client: PoolClient,
+    snapshotId: string,
+    candidateId: string,
+    candidates: readonly ExternalCandidateInput[],
+  ): Promise<void> {
+    const state = await client.query<{
+      skill_document_path: string;
+      classification: CandidateClassification;
+      revision_id: string | null;
+    }>(
+      `SELECT c.skill_document_path,cc.classification,o.revision_id
+       FROM external_import_candidates c
+       JOIN external_current_classifications cc ON cc.candidate_id=c.id
+       LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id=c.id
+       WHERE c.id=$1 AND c.snapshot_id=$2
+       FOR UPDATE OF cc`,
+      [candidateId, snapshotId],
+    );
+    const row = state.rows[0];
+    if (row === undefined) throw new Error("NOT_FOUND");
+    const acquired = candidates.find(
+      ({ skillPath }) => skillPath === row.skill_document_path,
+    );
+    if (acquired === undefined) throw new Error("NOT_FOUND");
+
+    const inputSha256 = sha256Hex(
+      canonicalJson({
+        skillPath: acquired.skillPath,
+        name: acquired.name,
+        description: acquired.description,
+        classification: acquired.classification,
+        findings: acquired.findings,
+        revision: acquired.revision?.contentIdentitySha256 ?? null,
+      }),
+    );
+    const orderedFindings = [...acquired.findings].toSorted((left, right) => {
+      const code = left.code.localeCompare(right.code, "en-US");
+      return code === 0
+        ? left.subjectId.localeCompare(right.subjectId, "en-US")
+        : code;
+    });
+    const reportSha256 = sha256Hex(
+      canonicalJson({
+        inputSha256,
+        result: acquired.classification === "verified" ? "passed" : "failed",
+        findings: orderedFindings,
+      }),
+    );
+    const reportId = randomUUID();
+    const insertedReport = await client.query<{ id: string }>(
+      `INSERT INTO external_verification_reports (
+         id,candidate_id,policy_version,validator_version,input_sha256,
+         report_sha256,result
+       ) VALUES ($1,$2,'external-policy-v1','external-validator-v1',$3,$4,$5)
+       ON CONFLICT (candidate_id,policy_version,validator_version,input_sha256)
+       DO NOTHING
+       RETURNING id`,
+      [
+        reportId,
+        candidateId,
+        inputSha256,
+        reportSha256,
+        acquired.classification === "verified" ? "passed" : "failed",
+      ],
+    );
+    let storedReportId = insertedReport.rows[0]?.id;
+    if (storedReportId === undefined) {
+      const report = await client.query<{ id: string }>(
+        `SELECT id FROM external_verification_reports
+         WHERE candidate_id=$1 AND policy_version='external-policy-v1'
+           AND validator_version='external-validator-v1' AND input_sha256=$2`,
+        [candidateId, inputSha256],
+      );
+      storedReportId = report.rows[0]?.id;
+    }
+    if (storedReportId === undefined) throw new Error("VERIFICATION_FAILED");
+    if (acquired.classification !== "verified") return;
+    if (row.revision_id === null) throw new Error("PUBLICATION_CONFLICT");
+    if (row.classification === "verified" || row.classification === "curated")
+      return;
+    applyCandidateTransition(row.classification, "verified", "verifier");
+    const eventId = randomUUID();
+    await client.query(
+      `INSERT INTO external_classification_events (
+         id,candidate_id,previous_classification,next_classification,
+         actor_kind,actor_id,reason_code,report_id
+       ) VALUES ($1,$2,$3,'verified','verifier','automatic-verifier',
+                 'AUTOMATIC_VERIFICATION_PASSED',$4)`,
+      [eventId, candidateId, row.classification, storedReportId],
+    );
+    await client.query(
+      `UPDATE external_current_classifications SET
+         classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
+       WHERE candidate_id=$1`,
+      [candidateId, eventId],
+    );
+    await client.query(
+      `UPDATE external_current_revision_classifications SET
+         classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
+       WHERE revision_id=$1`,
+      [row.revision_id, eventId],
+    );
   }
 
   async #publishDependencies(
@@ -977,6 +1149,72 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     });
   }
 
+  listAdministrativeCandidatesPage(
+    options: {
+      readonly classification?: CandidateClassification | undefined;
+      readonly sourceId?: string | undefined;
+      readonly cursor?: string | undefined;
+      readonly limit: number;
+    },
+    context: OperationContext = {},
+  ): Promise<AdministrativeCandidatePage> {
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 100
+    ) {
+      throw new Error("INVALID_INPUT");
+    }
+    return requestTransaction(this.pool, context, async (client) => {
+      const result = await client.query<{
+        candidate_id: string;
+        source_id: string;
+        classification: CandidateClassification;
+        reason_codes: string[] | null;
+        revision: string | null;
+      }>(
+        `SELECT c.id AS candidate_id,s.source_id,
+                COALESCE(rc.classification,cc.classification) AS classification,
+                array_remove(array_agg(DISTINCT COALESCE(f.reason_code,
+                  CASE WHEN event.reason_code='ADMIN_QUARANTINE' THEN event.reason_code END)),NULL) AS reason_codes,
+                r.revision
+         FROM external_import_candidates c
+         JOIN external_source_snapshots s ON s.id=c.snapshot_id
+         JOIN external_current_classifications cc ON cc.candidate_id=c.id
+         JOIN external_classification_events event ON event.id=cc.latest_event_id
+         LEFT JOIN external_verification_reports vr ON vr.candidate_id=c.id
+         LEFT JOIN external_validation_findings f ON f.report_id=vr.id
+         LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id=c.id
+         LEFT JOIN external_skill_revisions r ON r.id=o.revision_id
+         LEFT JOIN external_current_revision_classifications rc ON rc.revision_id=r.id
+         WHERE ($1::text IS NULL OR COALESCE(rc.classification,cc.classification)=$1)
+           AND ($2::uuid IS NULL OR s.source_id=$2)
+           AND ($3::uuid IS NULL OR c.id>$3)
+         GROUP BY c.id,s.source_id,cc.classification,rc.classification,r.revision
+         ORDER BY c.id
+         LIMIT $4`,
+        [
+          options.classification ?? null,
+          options.sourceId ?? null,
+          options.cursor ?? null,
+          options.limit + 1,
+        ],
+      );
+      const hasNext = result.rows.length > options.limit;
+      const rows = result.rows.slice(0, options.limit);
+      return {
+        items: rows.map((row) => ({
+          candidateId: row.candidate_id,
+          sourceId: row.source_id,
+          classification: row.classification,
+          reasonCodes: (row.reason_codes ?? []).toSorted(),
+          ...(row.revision === null ? {} : { revision: row.revision }),
+        })),
+        nextCursor: hasNext ? (rows.at(-1)?.candidate_id ?? null) : null,
+      };
+    });
+  }
+
   transitionCandidate(
     candidateId: string,
     next: CandidateClassification,
@@ -1049,23 +1287,36 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
 
   recordSourceUnavailable(
     sourceId: string,
+    observation: {
+      readonly authenticated: boolean;
+      readonly uncached: boolean;
+      readonly repositoryId: number;
+    } = { authenticated: false, uncached: false, repositoryId: 0 },
     lease?: SyncLease,
     context: OperationContext = {},
   ): Promise<boolean> {
     return requestTransaction(this.pool, context, async (client) => {
       if (lease !== undefined) await assertLeaseHeld(client, lease);
+      if (!observation.authenticated || !observation.uncached) {
+        throw new Error("UNVERIFIED_SOURCE_UNAVAILABLE");
+      }
       const source = await client.query<{
+        github_repository_id: string;
         unavailable_confirmation_count: number;
         unavailable_first_observed_at: Date | null;
         current_published_snapshot_id: string | null;
       }>(
-        `SELECT unavailable_confirmation_count, unavailable_first_observed_at,
+        `SELECT github_repository_id::text,unavailable_confirmation_count,
+                unavailable_first_observed_at,
                 current_published_snapshot_id
          FROM github_sources WHERE id=$1 FOR UPDATE`,
         [sourceId],
       );
       const row = source.rows[0];
       if (row === undefined) throw new Error("SOURCE_NOT_FOUND");
+      if (Number(row.github_repository_id) !== observation.repositoryId) {
+        throw new Error("SOURCE_IDENTITY_MISMATCH");
+      }
       const nextCount = Math.min(4, row.unavailable_confirmation_count + 1);
       const confirmed =
         nextCount >= 4 &&
@@ -1079,6 +1330,25 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
          WHERE id=$1`,
         [sourceId, nextCount],
       );
+      const aliasAfterFirst =
+        row.unavailable_first_observed_at === null
+          ? false
+          : (
+              await client.query(
+                `SELECT 1 FROM github_source_aliases
+                 WHERE source_id=$1 AND last_observed_at>$2 LIMIT 1`,
+                [sourceId, row.unavailable_first_observed_at],
+              )
+            ).rowCount === 1;
+      if (aliasAfterFirst) {
+        await client.query(
+          `UPDATE github_sources SET unavailable_confirmation_count=0,
+             unavailable_first_observed_at=NULL,unavailable_last_observed_at=NULL
+           WHERE id=$1`,
+          [sourceId],
+        );
+        return false;
+      }
       if (!confirmed || row.current_published_snapshot_id === null)
         return false;
       const revisions = await client.query<{
@@ -1105,7 +1375,19 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           "UPSTREAM_PUBLIC_SOURCE_UNAVAILABLE",
         );
       }
+      if (lease !== undefined) await assertLeaseHeld(client, lease);
       return true;
+    });
+  }
+
+  advisoryChainHead(context: OperationContext = {}): Promise<string> {
+    return requestTransaction(this.pool, context, async (client) => {
+      const result = await client.query<{ last_event_sha256: string }>(
+        "SELECT last_event_sha256 FROM external_advisory_chain_head WHERE singleton",
+      );
+      const head = result.rows[0]?.last_event_sha256;
+      if (head === undefined) throw new Error("ADVISORY_CHAIN_INVALID");
+      return head;
     });
   }
 }
@@ -1124,16 +1406,24 @@ function normalizedCandidates(
       findings: [],
       revision,
     }));
-  const sorted = [...candidates].toSorted((a, b) =>
-    a.skillPath.localeCompare(b.skillPath, "en-US"),
+  const sorted = candidates
+    .map((candidate) => ({
+      ...candidate,
+      findings: stableFindings(candidate.findings),
+    }))
+    .toSorted((a, b) => a.skillPath.localeCompare(b.skillPath, "en-US"));
+  const pathKeys = sorted.map(({ skillPath }) =>
+    skillPath.normalize("NFKC").toLocaleLowerCase("en-US"),
   );
-  if (
-    new Set(sorted.map(({ skillPath }) => skillPath.toLowerCase())).size !==
-      sorted.length ||
-    new Set(sorted.map(({ name }) => name.toLowerCase())).size !== sorted.length
-  ) {
+  if (new Set(pathKeys).size !== sorted.length) {
     throw new Error("SKILL_DUPLICATE_IDENTITY");
   }
+  const nameKeys = sorted.map(({ name }) =>
+    name.normalize("NFKC").toLocaleLowerCase("en-US"),
+  );
+  const duplicateNames = new Set(
+    nameKeys.filter((name, index) => nameKeys.indexOf(name) !== index),
+  );
   for (const candidate of sorted) {
     if (
       (candidate.classification === "verified") !==
@@ -1146,6 +1436,16 @@ function normalizedCandidates(
       candidate.findings.length === 0
     ) {
       throw new Error("INVALID_CANDIDATE_RESULT");
+    }
+    const nameKey = candidate.name.normalize("NFKC").toLocaleLowerCase("en-US");
+    if (
+      duplicateNames.has(nameKey) &&
+      (candidate.classification !== "quarantined" ||
+        !candidate.findings.some(
+          ({ code }) => code === "SKILL_DUPLICATE_IDENTITY",
+        ))
+    ) {
+      throw new Error("SKILL_DUPLICATE_IDENTITY");
     }
   }
   return sorted;

@@ -74,4 +74,19 @@ describe("registered-source administrator CLI", () => {
       "INVALID_CONFIGURATION",
     );
   });
+
+  it.each([undefined, "revoked", "expired"])(
+    "rejects non-active administrator authority (%s)",
+    async (authority) => {
+      await expect(
+        runSourceAdmin(["source:list"], {
+          DATABASE_URL: "postgresql://unused.invalid/skillwire",
+          SKILLWIRE_ADMIN_ACTOR_ID: "contract-admin",
+          ...(authority === undefined
+            ? {}
+            : { SKILLWIRE_ADMIN_AUTHORITY: authority }),
+        }),
+      ).rejects.toThrow("ADMIN_UNAUTHORIZED");
+    },
+  );
 });

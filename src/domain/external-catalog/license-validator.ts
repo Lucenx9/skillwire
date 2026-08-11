@@ -56,6 +56,12 @@ export function validatePinnedLicense(
   const noticeText = evidence.noticeText
     ?.replaceAll("\r\n", "\n")
     .normalize("NFC");
+  if (
+    noticeText !== undefined &&
+    (noticeText.length === 0 || noticeText.includes("\u0000"))
+  ) {
+    throw new Error("LICENSE_MISSING");
+  }
   return {
     spdxId,
     licenseText,
@@ -86,6 +92,18 @@ export function detectSpdxLicense(licenseText: string): string | undefined {
     normalized.includes("2.0")
   ) {
     return "MPL-2.0";
+  }
+  if (
+    normalized.includes("redistribution and use in source and binary forms") &&
+    normalized.includes("neither the name")
+  ) {
+    return "BSD-3-Clause";
+  }
+  if (
+    normalized.includes("redistribution and use in source and binary forms") &&
+    normalized.includes("this list of conditions")
+  ) {
+    return "BSD-2-Clause";
   }
   if (
     normalized.includes("gnu general public license") &&

@@ -43,6 +43,10 @@ export function createExternalSkillRevision(
 
   const instructions = normalizedText(input.skill.instructions);
   const license = normalizedText(input.provenance.licenseText);
+  const notice =
+    input.provenance.noticeText === undefined
+      ? undefined
+      : normalizedText(input.provenance.noticeText);
   const resources = input.skill.resources
     .map((resource) => {
       assertSafeResourcePath(resource.path);
@@ -84,6 +88,22 @@ export function createExternalSkillRevision(
       sourceOwner: input.provenance.sourceOwner,
       spdxLicenseId: input.provenance.spdxLicenseId,
       licenseSha256: sha256Hex(license.text),
+      ...(input.provenance.licenseEvidencePath === undefined
+        ? {}
+        : { licenseEvidencePath: input.provenance.licenseEvidencePath }),
+      ...(input.provenance.licenseBlobSha === undefined
+        ? {}
+        : { licenseBlobSha: assertGitSha(input.provenance.licenseBlobSha) }),
+      ...(input.provenance.skillDeclaredSpdxId === undefined
+        ? {}
+        : { skillDeclaredSpdxId: input.provenance.skillDeclaredSpdxId }),
+      ...(notice === undefined ? {} : { noticeSha256: sha256Hex(notice.text) }),
+      ...(input.provenance.noticeEvidencePath === undefined
+        ? {}
+        : { noticeEvidencePath: input.provenance.noticeEvidencePath }),
+      ...(input.provenance.noticeBlobSha === undefined
+        ? {}
+        : { noticeBlobSha: assertGitSha(input.provenance.noticeBlobSha) }),
     },
     invocationMode: input.skill.invocationMode,
     instructions: instructions.text,
@@ -100,6 +120,7 @@ export function createExternalSkillRevision(
       commitSha: input.provenance.commitSha,
     },
     licenseText: license.text,
+    ...(notice === undefined ? {} : { noticeText: notice.text }),
   };
   const canonicalBytes = canonicalJson(bundlePayload);
   if (Buffer.byteLength(canonicalBytes, "utf8") > MAX_BUNDLE_BYTES) {
@@ -113,7 +134,11 @@ export function createExternalSkillRevision(
     revision: `gh-${bundleSha256}`,
     name: input.skill.name,
     description: input.skill.description,
-    provenance: { ...input.provenance, licenseText: license.text },
+    provenance: {
+      ...input.provenance,
+      licenseText: license.text,
+      ...(notice === undefined ? {} : { noticeText: notice.text }),
+    },
     invocationMode: input.skill.invocationMode,
     instructions: instructions.text,
     instructionsSha256: sha256Hex(instructions.text),

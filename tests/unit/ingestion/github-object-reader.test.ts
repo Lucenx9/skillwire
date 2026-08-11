@@ -4,6 +4,13 @@ import { GitHubCommitTreeBlobReader } from "../../../src/ingestion/github/commit
 import { GitHubRestClient } from "../../../src/ingestion/github/rest-client.js";
 import { createGitHubIngestionFixture } from "../../helpers/github-ingestion-fixture.js";
 
+const hostileTreeIdentity = {
+  repositoryId: 1,
+  owner: "mattpocock",
+  repository: "skills",
+  defaultBranch: "main",
+} as const;
+
 describe("exact GitHub commit/tree/blob reader", () => {
   it("pins the mutable default ref once and reads only tree-listed blobs", async () => {
     const fixture = await createGitHubIngestionFixture();
@@ -80,5 +87,109 @@ describe("exact GitHub commit/tree/blob reader", () => {
       });
       await expect(client.readTree(identity, treeSha, 1)).rejects.toThrow();
     }
+  });
+
+  it.each([
+    ["absolute", [{ path: "/a/SKILL.md" }]],
+    ["traversal", [{ path: "a/../SKILL.md" }]],
+    ["encoded", [{ path: "a/%2e%2e/SKILL.md" }]],
+    ["backslash", [{ path: "a\\SKILL.md" }]],
+    ["control", [{ path: "a/\u0000/SKILL.md" }]],
+    ["non-normalized", [{ path: "cafe\u0301/SKILL.md" }]],
+    ["case collision", [{ path: "A/SKILL.md" }, { path: "a/skill.md" }]],
+    ["duplicate", [{ path: "a/SKILL.md" }, { path: "a/SKILL.md" }]],
+    ["overlong segment", [{ path: `${"a".repeat(256)}/SKILL.md` }]],
+    ["overlong path", [{ path: `${"a/".repeat(255)}SKILL.md` }]],
+  ])("rejects hostile %s tree paths", async (_label, partialEntries) => {
+    const treeSha = "1".repeat(40);
+    const tree = partialEntries.map((partial, index) => ({
+      path: partial.path,
+      mode: "100644",
+      type: "blob",
+      sha: String(index + 2).repeat(40),
+      size: 1,
+    }));
+    const client = new GitHubRestClient({
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ sha: treeSha, truncated: false, tree }),
+          ),
+        ),
+    });
+    await expect(
+      client.readTree(hostileTreeIdentity, treeSha, 1000),
+    ).rejects.toThrow("TREE_AMBIGUOUS");
+  });
+
+  it("rejects conflicting modes, unsupported object types, and non-tree parents", async () => {
+    const treeSha = "1".repeat(40);
+    const bodies = [
+      {
+        sha: treeSha,
+        truncated: false,
+        tree: [
+          {
+            path: "a",
+            mode: "040000",
+            type: "blob",
+            sha: "2".repeat(40),
+            size: 1,
+          },
+        ],
+      },
+      {
+        sha: treeSha,
+        truncated: false,
+        tree: [
+          {
+            path: "a",
+            mode: "100644",
+            type: "blob",
+            sha: "2".repeat(40),
+            size: 1,
+          },
+          {
+            path: "a/SKILL.md",
+            mode: "100644",
+            type: "blob",
+            sha: "3".repeat(40),
+            size: 1,
+          },
+        ],
+      },
+    ];
+    for (const body of bodies) {
+      const client = new GitHubRestClient({
+        fetchImplementation: () =>
+          Promise.resolve(new Response(JSON.stringify(body))),
+      });
+      await expect(
+        client.readTree(hostileTreeIdentity, treeSha, 10),
+      ).rejects.toThrow();
+    }
+    const unknown = new GitHubRestClient({
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sha: treeSha,
+              truncated: false,
+              tree: [
+                {
+                  path: "a",
+                  mode: "100644",
+                  type: "tag",
+                  sha: "2".repeat(40),
+                  size: 1,
+                },
+              ],
+            }),
+          ),
+        ),
+    });
+    await expect(
+      unknown.readTree(hostileTreeIdentity, treeSha, 10),
+    ).rejects.toThrow("GITHUB_SCHEMA_INVALID");
   });
 });

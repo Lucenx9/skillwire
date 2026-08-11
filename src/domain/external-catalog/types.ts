@@ -65,6 +65,7 @@ export interface IngestionBudgets {
   readonly maximumTreeEntries: number;
   readonly maximumCandidates: number;
   readonly maximumResourcesPerSkill: number;
+  readonly maximumDependenciesPerSkill: number;
   readonly maximumTextBytes: number;
   readonly maximumBundleBytes: number;
   readonly maximumRepositoryBytes: number;
@@ -87,6 +88,7 @@ export const DEFAULT_INGESTION_BUDGETS: IngestionBudgets = Object.freeze({
   maximumTreeEntries: 20_000,
   maximumCandidates: 256,
   maximumResourcesPerSkill: 64,
+  maximumDependenciesPerSkill: 32,
   maximumTextBytes: 256 * 1024,
   maximumBundleBytes: 2 * 1024 * 1024,
   maximumRepositoryBytes: 32 * 1024 * 1024,
@@ -169,6 +171,12 @@ export interface ExternalPublishedProvenance {
   readonly sourceOwner: string;
   readonly spdxLicenseId: string;
   readonly licenseText: string;
+  readonly licenseEvidencePath?: string | undefined;
+  readonly licenseBlobSha?: string | undefined;
+  readonly skillDeclaredSpdxId?: string | undefined;
+  readonly noticeText?: string | undefined;
+  readonly noticeEvidencePath?: string | undefined;
+  readonly noticeBlobSha?: string | undefined;
 }
 
 export interface ExternalResourceManifestEntry {

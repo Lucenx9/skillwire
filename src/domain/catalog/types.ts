@@ -101,6 +101,14 @@ export interface GitHubCatalogOrigin {
   readonly license: {
     readonly spdxId: string;
     readonly attribution: string;
+    readonly evidenceSha256?: string | undefined;
+    readonly evidencePath?: string | undefined;
+    readonly notice?:
+      | {
+          readonly sha256: string;
+          readonly path: string;
+        }
+      | undefined;
   };
 }
 

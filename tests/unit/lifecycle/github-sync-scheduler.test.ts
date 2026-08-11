@@ -38,17 +38,44 @@ describe("GitHub synchronization scheduler", () => {
         },
       },
       {
-        listDueSourceIds: () =>
-          Promise.resolve(["550e8400-e29b-41d4-a716-446655440000"]),
-        scheduleNextSource(sourceId) {
-          events.push(`scheduled:${sourceId}`);
+        recoverAbandonedJobs: () => Promise.resolve(0),
+        enqueueSync: () => Promise.reject(new Error("unused")),
+        enqueueCandidateVerification: () => Promise.reject(new Error("unused")),
+        enqueueDueSourceSyncs: () => Promise.resolve(1),
+        claimQueuedSyncRuns: () =>
+          Promise.resolve([
+            {
+              runId: "660e8400-e29b-41d4-a716-446655440000",
+              sourceId: "550e8400-e29b-41d4-a716-446655440000",
+              state: "queued" as const,
+              created: false,
+              attemptCount: 0,
+            },
+          ]),
+        markSyncRunning(runId) {
+          events.push(`running:${runId}`);
           return Promise.resolve();
         },
+        completeSyncRun(runId) {
+          events.push(`completed:${runId}`);
+          return Promise.resolve();
+        },
+        failSyncRun: () => Promise.reject(new Error("unused")),
+        quarantineSyncRun: () => Promise.reject(new Error("unused")),
       },
       {
         syncScheduled(_sourceId, lease) {
           events.push(`sync:${lease.key}`);
-          return Promise.resolve();
+          return Promise.resolve({
+            snapshotId: "770e8400-e29b-41d4-a716-446655440000",
+            sourceId: "550e8400-e29b-41d4-a716-446655440000",
+            commitSha: "a".repeat(40),
+            treeSha: "b".repeat(40),
+            resourceCount: 0,
+            traces: [],
+            candidateTraces: [],
+            created: true,
+          });
         },
       },
       {
@@ -56,6 +83,9 @@ describe("GitHub synchronization scheduler", () => {
         sourceCadenceMs: 3_600_000,
         discoveryCadenceMs: 3_600_000,
         maximumSourcesPerTick: 2,
+        operationTimeoutMs: 300_000,
+        maximumAttempts: 3,
+        maximumConcurrentJobs: 2,
       },
     );
     await scheduler.runOnce();
@@ -65,9 +95,10 @@ describe("GitHub synchronization scheduler", () => {
       "discover:discovery",
       "release:discovery",
       "acquire:sync/550e8400-e29b-41d4-a716-446655440000",
+      "running:660e8400-e29b-41d4-a716-446655440000",
       "sync:sync/550e8400-e29b-41d4-a716-446655440000",
+      "completed:660e8400-e29b-41d4-a716-446655440000",
       "release:sync/550e8400-e29b-41d4-a716-446655440000",
-      "scheduled:550e8400-e29b-41d4-a716-446655440000",
     ]);
     await scheduler.stop();
   });

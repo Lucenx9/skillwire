@@ -2,6 +2,8 @@ import { posix } from "node:path";
 
 import { z } from "zod";
 
+import { decodeInertText } from "./text-content.js";
+
 const manifestSchema = z
   .object({
     name: z.string().min(1).max(120),
@@ -31,11 +33,22 @@ export interface ClaudePluginManifest {
 
 export function parseClaudePluginManifest(
   bytes: Uint8Array,
+  signal?: AbortSignal,
 ): ClaudePluginManifest {
+  signal?.throwIfAborted();
   if (bytes.byteLength > 256 * 1024) throw new Error("MANIFEST_OVERSIZED");
-  const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const value = manifestSchema.parse(JSON.parse(source) as unknown);
-  const roots = value.skills.map((entry) => {
+  const source = decodeInertText(bytes, "MANIFEST_INVALID");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(source) as unknown;
+  } catch {
+    throw new Error("MANIFEST_INVALID");
+  }
+  const parsed = manifestSchema.safeParse(decoded);
+  if (!parsed.success) throw new Error("MANIFEST_INVALID");
+  const value = parsed.data;
+  const roots = value.skills.map((entry, index) => {
+    if (index % 32 === 0) signal?.throwIfAborted();
     if (
       !entry.startsWith("./") ||
       entry.includes("\\") ||
@@ -61,8 +74,24 @@ export function parseClaudePluginManifest(
     }
     return normalized;
   });
-  if (new Set(roots.map((root) => root.toLowerCase())).size !== roots.length) {
+  signal?.throwIfAborted();
+  const foldedRoots = roots.map((root) =>
+    root.normalize("NFKC").toLocaleLowerCase("en-US"),
+  );
+  if (new Set(foldedRoots).size !== roots.length) {
     throw new Error("MANIFEST_DUPLICATE_SKILL");
+  }
+  for (const [index, root] of foldedRoots.entries()) {
+    if (
+      foldedRoots.some(
+        (candidate, candidateIndex) =>
+          candidateIndex !== index &&
+          (candidate.startsWith(`${root}/`) ||
+            root.startsWith(`${candidate}/`)),
+      )
+    ) {
+      throw new Error("MANIFEST_DUPLICATE_SKILL");
+    }
   }
   return {
     name: value.name,

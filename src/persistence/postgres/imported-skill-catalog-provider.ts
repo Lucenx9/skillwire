@@ -45,6 +45,14 @@ interface RevisionRow {
   readonly advisory_status: ExternalAdvisoryStatus | null;
   readonly instructions: string;
   readonly license_text: string;
+  readonly license_sha256: string;
+  readonly notice_sha256: string | null;
+  readonly license_evidence_path: string | null;
+  readonly license_blob_sha: string | null;
+  readonly skill_declared_spdx_id: string | null;
+  readonly notice_text: string | null;
+  readonly notice_evidence_path: string | null;
+  readonly notice_blob_sha: string | null;
 }
 
 interface ResourceRow {
@@ -112,6 +120,18 @@ function origin(row: RevisionRow): GitHubCatalogOrigin {
     license: {
       spdxId: row.spdx_license_id,
       attribution: row.source_owner,
+      evidenceSha256: row.license_sha256,
+      ...(row.license_evidence_path === null
+        ? {}
+        : { evidencePath: row.license_evidence_path }),
+      ...(row.notice_sha256 === null || row.notice_evidence_path === null
+        ? {}
+        : {
+            notice: {
+              sha256: row.notice_sha256,
+              path: row.notice_evidence_path,
+            },
+          }),
     },
   };
 }
@@ -120,7 +140,11 @@ const baseRevisionQuery = `
   SELECT r.id,i.catalog_skill_id,r.revision,r.name,r.description,r.skill_path,
          r.commit_sha,r.source_owner,r.spdx_license_id,r.instructions_sha256,
          r.bundle_sha256,r.content_identity_sha256,r.invocation_mode,r.canonical_bytes,
-         gs.owner,gs.repository,gs.github_repository_id::text,
+         r.license_sha256,r.notice_sha256,
+         r.origin_owner AS owner,r.origin_repository AS repository,
+         gs.github_repository_id::text,
+         r.license_evidence_path,r.license_blob_sha,r.skill_declared_spdx_id,
+         notice.content AS notice_text,r.notice_evidence_path,r.notice_blob_sha,
          rc.classification,
          advisory.advisory_status,
          instructions.content AS instructions,license.content AS license_text
@@ -130,6 +154,7 @@ const baseRevisionQuery = `
   JOIN external_current_revision_classifications rc ON rc.revision_id=r.id
   JOIN external_content_objects instructions ON instructions.sha256=r.instructions_sha256
   JOIN external_content_objects license ON license.sha256=r.license_sha256
+  LEFT JOIN external_content_objects notice ON notice.sha256=r.notice_sha256
   LEFT JOIN LATERAL (
     SELECT e.advisory_status
     FROM external_revision_advisory_events e
@@ -279,6 +304,22 @@ export class PostgresImportedSkillCatalogProvider implements AsyncSkillCatalogPr
           sourceOwner: row.source_owner,
           spdxLicenseId: row.spdx_license_id,
           licenseText: row.license_text,
+          ...(row.license_evidence_path === null
+            ? {}
+            : { licenseEvidencePath: row.license_evidence_path }),
+          ...(row.license_blob_sha === null
+            ? {}
+            : { licenseBlobSha: row.license_blob_sha }),
+          ...(row.skill_declared_spdx_id === null
+            ? {}
+            : { skillDeclaredSpdxId: row.skill_declared_spdx_id }),
+          ...(row.notice_text === null ? {} : { noticeText: row.notice_text }),
+          ...(row.notice_evidence_path === null
+            ? {}
+            : { noticeEvidencePath: row.notice_evidence_path }),
+          ...(row.notice_blob_sha === null
+            ? {}
+            : { noticeBlobSha: row.notice_blob_sha }),
         },
         invocationMode: row.invocation_mode,
         instructions: row.instructions,

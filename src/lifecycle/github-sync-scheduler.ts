@@ -5,18 +5,13 @@ import type {
   SyncLease,
   SyncLeaseStore,
 } from "../application/ports/sync-lease-store.js";
+import type {
+  ClaimedSyncRun,
+  SyncRunStore,
+} from "../application/ports/sync-run-store.js";
+import type { PublishedExternalSnapshot } from "../application/ports/external-catalog-store.js";
 
-export interface ScheduledSourceStore {
-  listDueSourceIds(
-    limit: number,
-    context?: OperationContext,
-  ): Promise<readonly string[]>;
-  scheduleNextSource(
-    sourceId: string,
-    delayMs: number,
-    context?: OperationContext,
-  ): Promise<void>;
-}
+export type ScheduledSourceStore = SyncRunStore;
 
 export interface ScheduledDiscoveryStore {
   claimQueuedDiscovery(context?: OperationContext): Promise<string | undefined>;
@@ -39,7 +34,10 @@ export interface ScheduledSourceSynchronizer {
     sourceId: string,
     lease: SyncLease,
     context?: OperationContext,
-  ): Promise<void>;
+    requestedCommitSha?: string,
+    requestedRepository?: ClaimedSyncRun["requestedRepository"],
+    requestedCandidateId?: string,
+  ): Promise<PublishedExternalSnapshot>;
 }
 
 export interface GitHubSyncSchedulerOptions {
@@ -47,6 +45,9 @@ export interface GitHubSyncSchedulerOptions {
   readonly sourceCadenceMs: number;
   readonly discoveryCadenceMs: number;
   readonly maximumSourcesPerTick: number;
+  readonly operationTimeoutMs: number;
+  readonly maximumAttempts: number;
+  readonly maximumConcurrentJobs: number;
 }
 
 export class GitHubSyncScheduler {
@@ -67,7 +68,13 @@ export class GitHubSyncScheduler {
       options.sourceCadenceMs < 60_000 ||
       options.discoveryCadenceMs < 60_000 ||
       options.maximumSourcesPerTick < 1 ||
-      options.maximumSourcesPerTick > 100
+      options.maximumSourcesPerTick > 100 ||
+      options.operationTimeoutMs < 1_000 ||
+      options.operationTimeoutMs > 900_000 ||
+      options.maximumAttempts < 1 ||
+      options.maximumAttempts > 10 ||
+      options.maximumConcurrentJobs < 1 ||
+      options.maximumConcurrentJobs > 32
     ) {
       throw new Error("INVALID_SCHEDULER_CONFIGURATION");
     }
@@ -88,13 +95,22 @@ export class GitHubSyncScheduler {
   }
 
   async runOnce(context: OperationContext = {}): Promise<void> {
-    const signal = combineSignals(context.signal, this.#shutdown.signal);
+    const baseSignal = combineSignals(context.signal, this.#shutdown.signal);
+    const deadline = Math.min(
+      context.deadline ?? Number.POSITIVE_INFINITY,
+      Date.now() + this.options.operationTimeoutMs,
+    );
+    const signal = combineSignals(
+      baseSignal,
+      AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    );
     const operation: OperationContext = {
       signal,
-      ...(context.deadline === undefined ? {} : { deadline: context.deadline }),
+      deadline,
       ...(context.budget === undefined ? {} : { budget: context.budget }),
     };
     signal.throwIfAborted();
+    await this.sources.recoverAbandonedJobs(operation);
     await this.discovery.enqueueScheduled(
       this.options.discoveryCadenceMs,
       operation,
@@ -106,25 +122,110 @@ export class GitHubSyncScheduler {
         this.discovery.execute(discoveryRunId, lease, jobContext),
       );
     }
-    const dueSources = await this.sources.listDueSourceIds(
+    await this.sources.enqueueDueSourceSyncs(
       this.options.maximumSourcesPerTick,
       operation,
     );
-    for (const sourceId of dueSources) {
+    const runs = await this.sources.claimQueuedSyncRuns(
+      Math.min(
+        this.options.maximumSourcesPerTick,
+        this.options.maximumConcurrentJobs,
+      ),
+      operation,
+    );
+    for (const run of runs) {
       signal.throwIfAborted();
-      const completed = await this.#withLease(
-        `sync/${sourceId}`,
+      await this.#withLease(
+        `sync/${run.sourceId}`,
         operation,
-        (lease, jobContext) =>
-          this.synchronization.syncScheduled(sourceId, lease, jobContext),
+        async (lease, jobContext) => {
+          await this.sources.markSyncRunning(run.runId, lease, jobContext);
+          try {
+            const result = await this.synchronization.syncScheduled(
+              run.sourceId,
+              lease,
+              jobContext,
+              run.requestedCommitSha,
+              run.requestedRepository,
+              run.requestedCandidateId,
+            );
+            const budget = jobContext.budget;
+            await this.sources.completeSyncRun(
+              run.runId,
+              lease,
+              {
+                commitSha: result.commitSha,
+                treeSha: result.treeSha,
+                candidates: result.candidateTraces.length,
+                published: result.traces.filter(
+                  ({ result: state }) => state === "published",
+                ).length,
+                reused: result.traces.filter(
+                  ({ result: state }) => state === "reused",
+                ).length,
+                quarantined: result.candidateTraces.filter(
+                  ({ classification }) => classification === "quarantined",
+                ).length,
+                resources: result.resourceCount,
+                requests: budget?.requests ?? 0,
+                retries: budget?.retries ?? 0,
+                responseBytes: budget?.responseBytes ?? 0,
+              },
+              jobContext,
+            );
+          } catch (error) {
+            const code = syncFailureCode(error);
+            const cancelled =
+              jobContext.signal?.aborted === true || code === "CANCELLED";
+            const retryable =
+              !cancelled &&
+              run.attemptCount + 1 < this.options.maximumAttempts &&
+              [
+                "GITHUB_TRANSIENT",
+                "GITHUB_RATE_LIMITED",
+                "RESPONSE_BUDGET_EXCEEDED",
+                "REQUEST_BUDGET_EXCEEDED",
+                "DEADLINE_EXCEEDED",
+              ].includes(code);
+            const retryAfterMilliseconds =
+              error instanceof Error &&
+              "retryAfterMilliseconds" in error &&
+              typeof error.retryAfterMilliseconds === "number"
+                ? error.retryAfterMilliseconds
+                : undefined;
+            const retryDelayValid =
+              retryAfterMilliseconds === undefined ||
+              (Number.isFinite(retryAfterMilliseconds) &&
+                retryAfterMilliseconds >= 0 &&
+                retryAfterMilliseconds <= 604_800_000);
+            if (isDeterministicQuarantine(code)) {
+              await this.sources.quarantineSyncRun(
+                run.runId,
+                lease,
+                code,
+                jobContext,
+              );
+              return;
+            }
+            await this.sources
+              .failSyncRun(
+                run.runId,
+                lease,
+                code,
+                {
+                  cancelled,
+                  retryable: retryable && retryDelayValid,
+                  ...(retryAfterMilliseconds === undefined
+                    ? {}
+                    : { retryAfterMilliseconds }),
+                },
+                jobContext,
+              )
+              .catch(() => undefined);
+            if (!retryable && !cancelled) throw error;
+          }
+        },
       );
-      if (completed) {
-        await this.sources.scheduleNextSource(
-          sourceId,
-          this.options.sourceCadenceMs,
-          operation,
-        );
-      }
     }
   }
 
@@ -185,6 +286,41 @@ export class GitHubSyncScheduler {
     this.#timer = undefined;
     await Promise.allSettled([...this.#active]);
   }
+}
+
+function syncFailureCode(error: unknown): string {
+  if (!(error instanceof Error)) return "INTERNAL";
+  if (error.name === "AbortError") return "CANCELLED";
+  if (error.name === "TimeoutError") return "DEADLINE_EXCEEDED";
+  return /^[A-Z][A-Z0-9_]{0,79}$/u.test(error.message)
+    ? error.message
+    : "INTERNAL";
+}
+
+function isDeterministicQuarantine(code: string): boolean {
+  return new Set([
+    "MANIFEST_INVALID",
+    "MANIFEST_OVERSIZED",
+    "MANIFEST_DUPLICATE_SKILL",
+    "SKILL_SCHEMA_INVALID",
+    "TREE_TRUNCATED",
+    "TREE_OVERSIZED",
+    "TREE_AMBIGUOUS",
+    "OBJECT_UNSUPPORTED",
+    "PATH_UNSAFE",
+    "RESOURCE_MISSING",
+    "RESOURCE_NON_TEXT",
+    "RESOURCE_OVERSIZED",
+    "LICENSE_MISSING",
+    "LICENSE_UNSUPPORTED",
+    "LICENSE_CONFLICT",
+    "ATTRIBUTION_MISSING",
+    "DEPENDENCY_MISSING",
+    "DEPENDENCY_AMBIGUOUS",
+    "DEPENDENCY_CYCLE",
+    "HASH_MISMATCH",
+    "GITHUB_SCHEMA_INVALID",
+  ]).has(code);
 }
 
 function combineSignals(

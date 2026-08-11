@@ -51,6 +51,15 @@ const githubCatalogOriginSchema = z
           .regex(/^[A-Za-z0-9.+-]+$/)
           .max(64),
         attribution: z.string().min(1).max(200),
+        evidenceSha256: sha256Schema.optional(),
+        evidencePath: z.string().min(1).max(512).optional(),
+        notice: z
+          .object({
+            sha256: sha256Schema,
+            path: z.string().min(1).max(512),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   })

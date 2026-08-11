@@ -19,27 +19,33 @@ export function createGitHubIngestionScheduler(
   if (!config.enabled || config.token === undefined) {
     throw new Error("INVALID_GITHUB_INGESTION_CONFIGURATION");
   }
+  if (
+    config.requestTimeoutMilliseconds >= config.operationTimeoutMilliseconds ||
+    config.discoveryQueries.length > config.maximumQueries
+  ) {
+    throw new Error("INVALID_GITHUB_INGESTION_CONFIGURATION");
+  }
   const client = new GitHubRestClient({
     token: config.token,
     maximumResponseBytes: config.maximumResponseBytes,
-    maximumAttempts: DEFAULT_INGESTION_BUDGETS.maximumRetries + 1,
+    maximumAttempts: config.maximumAttempts,
+    requestTimeoutMs: config.requestTimeoutMilliseconds,
   });
-  const reader = new GitHubCommitTreeBlobReader(client);
+  const reader = new GitHubCommitTreeBlobReader(
+    client,
+    config.maximumTreeEntries,
+  );
   const sourceStore = new PostgresGitHubSourceStore(pool);
   const catalogStore = new PostgresExternalCatalogStore(pool);
   const discoveryConfiguration = {
     querySetId: "skillwire-supported-layouts-v1",
-    queries: [
-      {
-        query: "filename:plugin.json path:.claude-plugin",
-        evidenceKind: "claude-plugin-manifest" as const,
-      },
-      {
-        query: "filename:SKILL.md",
-        evidenceKind: "nested-skill-document" as const,
-      },
-    ],
-    maximumQueries: 2,
+    queries: config.discoveryQueries.map((query) => ({
+      query,
+      evidenceKind: query.includes("plugin.json")
+        ? ("claude-plugin-manifest" as const)
+        : ("nested-skill-document" as const),
+    })),
+    maximumQueries: config.maximumQueries,
     maximumPagesPerQuery: config.maximumPagesPerQuery,
     resultsPerPage: config.resultsPerPage,
     maximumResults: config.maximumResults,
@@ -74,12 +80,23 @@ export function createGitHubIngestionScheduler(
       ...DEFAULT_INGESTION_BUDGETS,
       maximumRequests: config.maximumRequests,
       maximumResponseBytes: config.maximumResponseBytes,
+      maximumTreeEntries: config.maximumTreeEntries,
+      maximumCandidates: config.maximumCandidates,
+      maximumResourcesPerSkill: config.maximumResourcesPerSkill,
+      maximumDependenciesPerSkill: config.maximumDependenciesPerSkill,
+      maximumTextBytes: config.maximumTextBytes,
+      maximumBundleBytes: config.maximumBundleBytes,
+      maximumRepositoryBytes: config.maximumRepositoryBytes,
+      maximumRetries: config.maximumAttempts - 1,
     }),
     {
       leaseDurationMs: config.leaseDurationMilliseconds,
       sourceCadenceMs: config.sourceCadenceMilliseconds,
       discoveryCadenceMs: config.discoveryCadenceMilliseconds,
       maximumSourcesPerTick: config.maximumSourcesPerTick,
+      operationTimeoutMs: config.operationTimeoutMilliseconds,
+      maximumAttempts: config.maximumAttempts,
+      maximumConcurrentJobs: config.globalJobs,
     },
   );
 }

@@ -8,21 +8,34 @@ export interface NestedSkillLayoutOptions {
 export function discoverNestedSkillDocuments(
   tree: readonly GitTreeEntry[],
   options: NestedSkillLayoutOptions,
+  signal?: AbortSignal,
 ): readonly GitTreeEntry[] {
+  signal?.throwIfAborted();
   const excluded = new Set(
-    (options.excludedRoots ?? [".git", "node_modules", "vendor"]).map((value) =>
-      value.toLowerCase(),
-    ),
+    [
+      ".git",
+      "node_modules",
+      "vendor",
+      "fixture",
+      "fixtures",
+      "deprecated",
+      ...(options.excludedRoots ?? []),
+    ].map((value) => value.toLowerCase()),
   );
   const candidates = tree
-    .filter(
-      (entry) =>
+    .filter((entry, index) => {
+      if (index % 256 === 0) signal?.throwIfAborted();
+      return (
         entry.type === "blob" &&
         entry.mode === "100644" &&
         entry.size !== undefined &&
         (entry.path === "SKILL.md" || entry.path.endsWith("/SKILL.md")) &&
-        !excluded.has(entry.path.split("/")[0]?.toLowerCase() ?? ""),
-    )
+        entry.path.split("/").every((segment) => {
+          const normalized = segment.toLowerCase();
+          return !segment.startsWith(".") && !excluded.has(normalized);
+        })
+      );
+    })
     .toSorted((left, right) => left.path.localeCompare(right.path, "en-US"));
   if (candidates.length === 0) throw new Error("MANIFEST_INVALID");
   if (candidates.length > options.maximumCandidates)

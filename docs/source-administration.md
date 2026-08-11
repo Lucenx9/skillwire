@@ -6,7 +6,8 @@ Only public `github.com` repositories are supported, and all reads are
 internally constructed requests to `https://api.github.com` with redirects
 rejected.
 
-Set `DATABASE_URL`, `SKILLWIRE_ADMIN_ACTOR_ID`, and a least-privilege
+Set `DATABASE_URL`, `SKILLWIRE_ADMIN_ACTOR_ID`,
+`SKILLWIRE_ADMIN_AUTHORITY=active`, and a least-privilege
 `SKILLWIRE_GITHUB_TOKEN`, then register a repository once:
 
 ```bash
@@ -14,6 +15,12 @@ pnpm source:admin source:add --owner mattpocock --repository skills
 pnpm source:admin source:list
 pnpm source:admin source:sync --source-id '<source-uuid>'
 ```
+
+Registration and synchronization commands enqueue durable PostgreSQL jobs and
+return a run ID; they do not perform GitHub ingestion in the CLI process.
+Repeated requests reuse active work. Revoking the administrator authority makes
+every command fail closed. `source:list` supports stable `--source-id`,
+`--state`, `--limit`, and `--cursor` filters.
 
 Discovery and policy actions are also repository/candidate scoped; there is no
 individual-skill add command:
@@ -35,9 +42,11 @@ endorsement. `curated` requires an explicit administrator transition.
 
 `SKILLWIRE_GITHUB_INGESTION_ENABLED=false` is the default. When enabled, a token
 is required through `SKILLWIRE_GITHUB_TOKEN` or `SKILLWIRE_GITHUB_TOKEN_FILE`.
-The scheduler uses PostgreSQL leases and the bounded cadence/request/result/page
-controls documented in `.env.example`. It never runs in an MCP request and is
-not part of readiness, so GitHub outages do not block cached exact loads.
+The scheduler uses durable `github_sync_runs`, PostgreSQL leases, fenced claims,
+bounded retries, and the query/request/page/tree/candidate/resource/dependency/
+byte/wall-time controls documented in `.env.example`. It recovers abandoned jobs
+after restart. It never runs in an MCP request and is not part of readiness, so
+GitHub outages do not block cached exact loads.
 
 Every sync resolves the default branch once and then reads only exact commit,
 tree, and blob objects. New content produces a new immutable revision; unchanged
@@ -48,8 +57,10 @@ The required suite replays recorded fixtures with zero network. The optional
 manual check is:
 
 ```bash
+DATABASE_URL='<disposable-postgres-url>' \
 GITHUB_TOKEN='<least-privilege-token>' pnpm smoke:github-live
 ```
 
-It reads only `mattpocock/skills` at `84fdeffd12f2ee307994d1eb6feb48173b6e0502`
-and never rewrites fixtures.
+It imports only `mattpocock/skills` at
+`84fdeffd12f2ee307994d1eb6feb48173b6e0502` into disposable PostgreSQL, verifies
+all 25 skills and 21 resources with MIT provenance, and never rewrites fixtures.

@@ -24,33 +24,33 @@ const repositorySchema = z
     name: z.string().min(1).max(100),
     private: z.boolean(),
     default_branch: z.string().min(1).max(255),
-    owner: z.object({ login: z.string().min(1).max(100) }).loose(),
+    owner: z.object({ login: z.string().min(1).max(100) }).strip(),
   })
-  .loose();
+  .strip();
 const refSchema = z
   .object({
-    object: z.object({ type: z.literal("commit"), sha: shaSchema }).loose(),
+    object: z.object({ type: z.literal("commit"), sha: shaSchema }).strip(),
   })
-  .loose();
+  .strip();
 const commitSchema = z
-  .object({ sha: shaSchema, tree: z.object({ sha: shaSchema }).loose() })
-  .loose();
+  .object({ sha: shaSchema, tree: z.object({ sha: shaSchema }).strip() })
+  .strip();
 const treeEntrySchema = z
   .object({
-    path: z.string().min(1).max(1024),
+    path: z.string().min(1).max(4096),
     mode: z.enum(["100644", "100755", "040000", "120000", "160000"]),
     type: z.enum(["blob", "tree", "commit"]),
     sha: shaSchema,
     size: z.number().int().nonnegative().optional(),
   })
-  .loose();
+  .strip();
 const treeSchema = z
   .object({
     sha: shaSchema,
     truncated: z.boolean(),
     tree: z.array(treeEntrySchema),
   })
-  .loose();
+  .strip();
 const blobSchema = z
   .object({
     sha: shaSchema,
@@ -58,7 +58,7 @@ const blobSchema = z
     encoding: z.literal("base64"),
     content: z.string(),
   })
-  .loose();
+  .strip();
 const searchItemSchema = z
   .object({
     path: z.string().min(1).max(1024),
@@ -67,18 +67,18 @@ const searchItemSchema = z
         id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
         name: z.string().min(1).max(100),
         private: z.boolean(),
-        owner: z.object({ login: z.string().min(1).max(100) }).loose(),
+        owner: z.object({ login: z.string().min(1).max(100) }).strip(),
       })
-      .loose(),
+      .strip(),
   })
-  .loose();
+  .strip();
 const searchSchema = z
   .object({
     total_count: z.number().int().nonnegative(),
     incomplete_results: z.boolean(),
     items: z.array(searchItemSchema).max(100),
   })
-  .loose();
+  .strip();
 
 export interface GitHubRestClientOptions {
   readonly token?: string | undefined;
@@ -89,6 +89,7 @@ export interface GitHubRestClientOptions {
   readonly sleepImplementation?:
     ((milliseconds: number, signal?: AbortSignal) => Promise<void>) | undefined;
   readonly now?: (() => number) | undefined;
+  readonly requestTimeoutMs?: number | undefined;
 }
 
 export interface GitHubSearchPage {
@@ -103,6 +104,13 @@ export interface GitHubSearchPage {
   readonly etag?: string | undefined;
   readonly link?: string | undefined;
   readonly notModified: boolean;
+}
+
+export class GitHubRetryDeferredError extends Error {
+  constructor(readonly retryAfterMilliseconds: number) {
+    super("GITHUB_RATE_LIMITED");
+    this.name = "GitHubRetryDeferredError";
+  }
 }
 
 function operationSignal(context?: OperationContext): AbortSignal | undefined {
@@ -136,15 +144,24 @@ function safePath(path: string): void {
   }
 }
 
+function hasAsciiControl(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 async function boundedBody(
   response: Response,
   limit: number,
   signal?: AbortSignal,
   onBytes?: (length: number) => void,
+  oversizedCode = "RESPONSE_OVERSIZED",
 ): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared !== null && Number(declared) > limit)
-    throw new Error("RESPONSE_OVERSIZED");
+    throw new Error(oversizedCode);
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -184,7 +201,7 @@ async function boundedBody(
     length += next.value.byteLength;
     if (length > limit) {
       await reader.cancel();
-      throw new Error("RESPONSE_OVERSIZED");
+      throw new Error(oversizedCode);
     }
     chunks.push(next.value);
   }
@@ -199,9 +216,19 @@ async function boundedBody(
 }
 
 function parseJson(bytes: Uint8Array): unknown {
-  return JSON.parse(
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-  ) as unknown;
+  try {
+    return JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    ) as unknown;
+  } catch {
+    throw new Error("GITHUB_SCHEMA_INVALID");
+  }
+}
+
+function parseResponse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new Error("GITHUB_SCHEMA_INVALID");
+  return parsed.data;
 }
 
 export class GitHubRestClient {
@@ -215,6 +242,7 @@ export class GitHubRestClient {
     signal?: AbortSignal,
   ) => Promise<void>;
   readonly #now: () => number;
+  readonly #requestTimeoutMs: number;
 
   constructor(options: GitHubRestClientOptions = {}) {
     this.#fetch = options.fetchImplementation ?? fetch;
@@ -224,9 +252,13 @@ export class GitHubRestClient {
     this.#maximumAttempts = options.maximumAttempts ?? 3;
     this.#maximumRetryDelayMs = options.maximumRetryDelayMs ?? 60_000;
     this.#now = options.now ?? Date.now;
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
     this.#sleep = options.sleepImplementation ?? abortableSleep;
     if (this.#maximumAttempts < 1 || this.#maximumAttempts > 4) {
       throw new Error("INVALID_GITHUB_RETRY_CONFIGURATION");
+    }
+    if (this.#requestTimeoutMs < 1 || this.#requestTimeoutMs > 120_000) {
+      throw new Error("INVALID_GITHUB_REQUEST_TIMEOUT");
     }
   }
 
@@ -261,9 +293,14 @@ export class GitHubRestClient {
         headers.set("Authorization", `Bearer ${this.#token}`);
       if (conditionalEtag !== undefined)
         headers.set("If-None-Match", conditionalEtag);
-      const signal = operationSignal(context);
+      const operation = operationSignal(context);
+      const requestTimeout = AbortSignal.timeout(this.#requestTimeoutMs);
+      const signal =
+        operation === undefined
+          ? requestTimeout
+          : AbortSignal.any([operation, requestTimeout]);
       const init: RequestInit = { method: "GET", headers, redirect: "manual" };
-      if (signal !== undefined) init.signal = signal;
+      init.signal = signal;
       let response: Response;
       try {
         response = await this.#fetch(`${GITHUB_API_ORIGIN}${path}`, init);
@@ -295,17 +332,15 @@ export class GitHubRestClient {
         throw new Error("RETRY_BUDGET_EXCEEDED");
       budget.retries += 1;
     }
-    const delay = retryDelay(
-      response,
-      attempt,
-      this.#now(),
-      this.#maximumRetryDelayMs,
-    );
+    const delay = retryDelay(response, attempt, this.#now());
+    if (delay > this.#maximumRetryDelayMs) {
+      throw new GitHubRetryDeferredError(delay);
+    }
     if (
       context?.deadline !== undefined &&
       this.#now() + delay >= context.deadline
     ) {
-      throw new DOMException("deadline exceeded", "TimeoutError");
+      throw new GitHubRetryDeferredError(delay);
     }
     await this.#sleep(delay, operationSignal(context));
   }
@@ -319,17 +354,40 @@ export class GitHubRestClient {
     }
   }
 
+  #responseLimit(context?: OperationContext): number {
+    const budget = context?.budget;
+    if (budget === undefined) return this.#maximumResponseBytes;
+    const remaining = budget.maximumResponseBytes - budget.responseBytes;
+    if (remaining <= 0) throw new Error("RESPONSE_BUDGET_EXCEEDED");
+    return Math.min(this.#maximumResponseBytes, remaining);
+  }
+
+  #assertJsonResponse(response: Response): void {
+    const mediaType = response.headers.get("content-type");
+    if (
+      mediaType !== null &&
+      !/^application\/json(?:\s*;|$)/iu.test(mediaType) &&
+      !/^text\/plain(?:\s*;|$)/iu.test(mediaType)
+    ) {
+      throw new Error("GITHUB_SCHEMA_INVALID");
+    }
+  }
+
   async #json(path: string, context?: OperationContext): Promise<unknown> {
     const response = await this.#request(path, context);
     if (!response.ok) throw githubHttpError(response);
+    this.#assertJsonResponse(response);
     return parseJson(
       await boundedBody(
         response,
-        this.#maximumResponseBytes,
+        this.#responseLimit(context),
         operationSignal(context),
         (length) => {
           this.#recordResponseBytes(length, context);
         },
+        context?.budget === undefined
+          ? "RESPONSE_OVERSIZED"
+          : "RESPONSE_BUDGET_EXCEEDED",
       ),
     );
   }
@@ -366,15 +424,20 @@ export class GitHubRestClient {
       return { items: [], incomplete: false, totalCount: 0, notModified: true };
     }
     if (!response.ok) throw githubHttpError(response);
-    const parsed = searchSchema.parse(
+    this.#assertJsonResponse(response);
+    const parsed = parseResponse(
+      searchSchema,
       parseJson(
         await boundedBody(
           response,
-          this.#maximumResponseBytes,
+          this.#responseLimit(context),
           operationSignal(context),
           (length) => {
             this.#recordResponseBytes(length, context);
           },
+          context?.budget === undefined
+            ? "RESPONSE_OVERSIZED"
+            : "RESPONSE_BUDGET_EXCEEDED",
         ),
       ),
     );
@@ -421,7 +484,6 @@ export class GitHubRestClient {
   ): Promise<ConditionalRepositoryResult> {
     assertGitHubCoordinate(coordinate);
     let path = `/repos/${encodeURIComponent(coordinate.owner)}/${encodeURIComponent(coordinate.repository)}`;
-    let redirectedRepositoryId: number | undefined;
     let response = await this.#request(path, context, etag);
     if (response.status === 304) {
       return {
@@ -436,60 +498,48 @@ export class GitHubRestClient {
       const coordinateMatch = /^\/repos\/([^/]+)\/([^/]+)$/.exec(
         target.pathname,
       );
-      const numericMatch = /^\/repositories\/([1-9][0-9]*)$/.exec(
-        target.pathname,
-      );
       if (
         target.origin !== GITHUB_API_ORIGIN ||
         target.username !== "" ||
         target.password !== "" ||
         target.search !== "" ||
         target.hash !== "" ||
-        (coordinateMatch === null && numericMatch === null)
+        coordinateMatch === null
       ) {
         throw new Error("REDIRECT_REJECTED");
       }
-      if (coordinateMatch !== null) {
-        const owner = coordinateMatch[1];
-        const repository = coordinateMatch[2];
-        if (owner === undefined || repository === undefined)
-          throw new Error("REDIRECT_REJECTED");
-        const redirected = assertGitHubCoordinate({
-          owner: decodeURIComponent(owner),
-          repository: decodeURIComponent(repository),
-        });
-        path = `/repos/${encodeURIComponent(redirected.owner)}/${encodeURIComponent(redirected.repository)}`;
-      } else {
-        path = target.pathname;
-        redirectedRepositoryId = Number(numericMatch?.[1]);
-        if (!Number.isSafeInteger(redirectedRepositoryId)) {
-          throw new Error("REDIRECT_REJECTED");
-        }
-      }
+      const owner = coordinateMatch[1];
+      const repository = coordinateMatch[2];
+      if (owner === undefined || repository === undefined)
+        throw new Error("REDIRECT_REJECTED");
+      const redirected = assertGitHubCoordinate({
+        owner: decodeURIComponent(owner),
+        repository: decodeURIComponent(repository),
+      });
+      path = `/repos/${encodeURIComponent(redirected.owner)}/${encodeURIComponent(redirected.repository)}`;
       response = await this.#request(path, context);
       if (response.status >= 300 && response.status < 400)
         throw new Error("REDIRECT_REJECTED");
     }
     if (!response.ok) throw githubHttpError(response);
-    const parsed = repositorySchema.parse(
+    this.#assertJsonResponse(response);
+    const parsed = parseResponse(
+      repositorySchema,
       parseJson(
         await boundedBody(
           response,
-          this.#maximumResponseBytes,
+          this.#responseLimit(context),
           operationSignal(context),
           (length) => {
             this.#recordResponseBytes(length, context);
           },
+          context?.budget === undefined
+            ? "RESPONSE_OVERSIZED"
+            : "RESPONSE_BUDGET_EXCEEDED",
         ),
       ),
     );
     if (parsed.private) throw new Error("SOURCE_NOT_PUBLIC");
-    if (
-      redirectedRepositoryId !== undefined &&
-      parsed.id !== redirectedRepositoryId
-    ) {
-      throw new Error("REDIRECT_REJECTED");
-    }
     return {
       repository: {
         repositoryId: parsed.id,
@@ -508,7 +558,8 @@ export class GitHubRestClient {
     repository: GitHubRepositoryIdentity,
     context?: OperationContext,
   ): Promise<string> {
-    const value = refSchema.parse(
+    const value = parseResponse(
+      refSchema,
       await this.#json(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repository)}/git/ref/heads/${encodeURIComponent(repository.defaultBranch)}`,
         context,
@@ -523,7 +574,8 @@ export class GitHubRestClient {
     context?: OperationContext,
   ): Promise<string> {
     assertGitSha(commitSha);
-    const value = commitSchema.parse(
+    const value = parseResponse(
+      commitSchema,
       await this.#json(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repository)}/git/commits/${commitSha}`,
         context,
@@ -540,7 +592,8 @@ export class GitHubRestClient {
     context?: OperationContext,
   ): Promise<readonly GitTreeEntry[]> {
     assertGitSha(treeSha);
-    const value = treeSchema.parse(
+    const value = parseResponse(
+      treeSchema,
       await this.#json(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repository)}/git/trees/${treeSha}?recursive=1`,
         context,
@@ -549,24 +602,57 @@ export class GitHubRestClient {
     if (value.sha !== treeSha) throw new Error("HASH_MISMATCH");
     if (value.truncated) throw new Error("TREE_TRUNCATED");
     if (value.tree.length > maximumEntries) throw new Error("TREE_OVERSIZED");
-    const paths = new Set<string>();
-    return value.tree.map((entry) => {
+    const paths = new Map<string, (typeof value.tree)[number]>();
+    const validated = value.tree.map((entry) => {
+      const segments = entry.path.split("/");
+      const folded = entry.path.normalize("NFKC").toLocaleLowerCase("en-US");
       if (
         entry.path.startsWith("/") ||
         entry.path.includes("\\") ||
-        entry.path
-          .split("/")
-          .some(
-            (segment) => segment === "" || segment === "." || segment === "..",
-          ) ||
+        entry.path.includes("%") ||
+        entry.path.includes("?") ||
+        entry.path.includes("#") ||
+        Buffer.byteLength(entry.path, "utf8") > 512 ||
         entry.path.normalize("NFC") !== entry.path ||
-        paths.has(entry.path.toLowerCase())
+        hasAsciiControl(entry.path) ||
+        segments.length > 64 ||
+        segments.some(
+          (segment) =>
+            segment === "" ||
+            segment === "." ||
+            segment === ".." ||
+            Buffer.byteLength(segment, "utf8") > 255,
+        ) ||
+        paths.has(folded)
       ) {
         throw new Error("TREE_AMBIGUOUS");
       }
-      paths.add(entry.path.toLowerCase());
+      if (
+        (entry.type === "tree" && entry.mode !== "040000") ||
+        (entry.type === "commit" && entry.mode !== "160000") ||
+        (entry.type === "blob" &&
+          !["100644", "100755", "120000"].includes(entry.mode))
+      ) {
+        throw new Error("OBJECT_UNSUPPORTED");
+      }
+      paths.set(folded, entry);
       return { ...entry, mode: entry.mode };
     });
+    for (const entry of validated) {
+      const segments = entry.path.split("/");
+      for (let index = 1; index < segments.length; index += 1) {
+        const parent = segments
+          .slice(0, index)
+          .join("/")
+          .normalize("NFKC")
+          .toLocaleLowerCase("en-US");
+        const parentEntry = paths.get(parent);
+        if (parentEntry !== undefined && parentEntry.type !== "tree") {
+          throw new Error("TREE_AMBIGUOUS");
+        }
+      }
+    }
+    return validated;
   }
 
   async readBlob(
@@ -576,7 +662,8 @@ export class GitHubRestClient {
     context?: OperationContext,
   ): Promise<Uint8Array> {
     assertGitSha(sha);
-    const value = blobSchema.parse(
+    const value = parseResponse(
+      blobSchema,
       await this.#json(
         `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repository)}/git/blobs/${sha}`,
         context,
@@ -635,7 +722,6 @@ function retryDelay(
   response: Response | undefined,
   attempt: number,
   now: number,
-  maximum: number,
 ): number {
   const retryAfter = response?.headers.get("retry-after");
   if (
@@ -643,15 +729,15 @@ function retryDelay(
     retryAfter !== undefined &&
     /^\d+$/.test(retryAfter)
   ) {
-    return Math.min(maximum, Number(retryAfter) * 1000);
+    return Number(retryAfter) * 1000;
   }
   if (response?.headers.get("x-ratelimit-remaining") === "0") {
     const reset = response.headers.get("x-ratelimit-reset");
     if (reset !== null && /^\d+$/.test(reset)) {
-      return Math.min(maximum, Math.max(0, Number(reset) * 1000 - now));
+      return Math.max(0, Number(reset) * 1000 - now);
     }
   }
-  return Math.min(maximum, 50 * 2 ** (attempt - 1));
+  return 50 * 2 ** (attempt - 1);
 }
 
 async function abortableSleep(

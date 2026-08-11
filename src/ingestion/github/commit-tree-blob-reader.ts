@@ -17,6 +17,10 @@ export class GitHubCommitTreeBlobReader implements GitHubSourceProvider {
     private readonly maximumTreeEntries = DEFAULT_INGESTION_BUDGETS.maximumTreeEntries,
   ) {}
 
+  get authenticated(): boolean {
+    return this.client.authorizationScope === "authenticated";
+  }
+
   resolvePublicRepository(
     coordinate: GitHubRepositoryCoordinate,
     context?: OperationContext,
@@ -41,6 +45,25 @@ export class GitHubCommitTreeBlobReader implements GitHubSourceProvider {
     context?: OperationContext,
   ): Promise<GitHubRepositorySnapshot> {
     const commitSha = await this.client.resolveDefaultRef(repository, context);
+    const treeSha = await this.client.readCommit(
+      repository,
+      commitSha,
+      context,
+    );
+    const tree = await this.client.readTree(
+      repository,
+      treeSha,
+      this.maximumTreeEntries,
+      context,
+    );
+    return { repository, commitSha, treeSha, tree };
+  }
+
+  async readSnapshotAtCommit(
+    repository: GitHubRepositoryIdentity,
+    commitSha: string,
+    context?: OperationContext,
+  ): Promise<GitHubRepositorySnapshot> {
     const treeSha = await this.client.readCommit(
       repository,
       commitSha,

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -6,12 +5,10 @@ import { createPostgresPool } from "../persistence/postgres/client.js";
 import { runMigrations } from "../persistence/postgres/migration-runner.js";
 import { PostgresExternalCatalogStore } from "../persistence/postgres/external-catalog-store.js";
 import { SourceRegistrationService } from "../application/services/source-registration-service.js";
-import { SourceSynchronizationService } from "../application/services/source-synchronization-service.js";
 import { SourceDiscoveryService } from "../application/services/source-discovery-service.js";
 import { assertGitHubCoordinate } from "../domain/external-catalog/types.js";
 import type { CandidateClassification } from "../domain/external-catalog/types.js";
 import { PostgresGitHubSourceStore } from "../persistence/postgres/github-source-store.js";
-import { PostgresSyncLeaseStore } from "../persistence/postgres/sync-lease-store.js";
 import { GitHubCommitTreeBlobReader } from "./github/commit-tree-blob-reader.js";
 import { GitHubSearchDiscoveryProvider } from "./github/discovery-provider.js";
 import { GitHubRestClient } from "./github/rest-client.js";
@@ -39,6 +36,9 @@ const PUBLIC_ERROR_CODES = new Set([
   "NOT_FOUND",
   "NOT_VERIFIED",
   "LEASE_HELD",
+  "ADMIN_UNAUTHORIZED",
+  "CONFLICT",
+  "CANCELLED",
 ]);
 
 function publicErrorCode(error: unknown): string {
@@ -60,6 +60,8 @@ export type SourceAdminCommand =
       readonly name: "source:list";
       readonly state?: CandidateClassification | undefined;
       readonly limit?: number | undefined;
+      readonly sourceId?: string | undefined;
+      readonly cursor?: string | undefined;
     }
   | {
       readonly name: "source:add";
@@ -78,6 +80,7 @@ export type SourceAdminCommand =
 
 export interface SourceAdminOptions {
   readonly fetchImplementation?: typeof fetch | undefined;
+  readonly signal?: AbortSignal | undefined;
 }
 
 function namedArguments(args: readonly string[]): ReadonlyMap<string, string> {
@@ -103,12 +106,24 @@ function namedArguments(args: readonly string[]): ReadonlyMap<string, string> {
 export function parseSourceAdminCommand(
   args: readonly string[],
 ): SourceAdminCommand {
-  const name = args[0];
+  const rawName = args[0];
+  const name =
+    rawName === "list"
+      ? "source:list"
+      : rawName === "sync"
+        ? "source:sync"
+        : rawName;
   if (name === "source:list") {
     if (args.length === 1) return { name };
     const values = namedArguments(args.slice(1));
     if (
-      ![...values.keys()].every((key) => key === "--state" || key === "--limit")
+      ![...values.keys()].every(
+        (key) =>
+          key === "--state" ||
+          key === "--limit" ||
+          key === "--source-id" ||
+          key === "--cursor",
+      )
     ) {
       throw new Error("INVALID_INPUT");
     }
@@ -127,12 +142,22 @@ export function parseSourceAdminCommand(
     ) {
       throw new Error("INVALID_INPUT");
     }
+    const sourceId = values.get("--source-id");
+    const cursor = values.get("--cursor");
+    if (
+      (sourceId !== undefined && !validUuid(sourceId)) ||
+      (cursor !== undefined && !validUuid(cursor))
+    ) {
+      throw new Error("INVALID_INPUT");
+    }
     return {
       name,
       ...(state === undefined
         ? {}
         : { state: state as CandidateClassification }),
       ...(limit === undefined ? {} : { limit }),
+      ...(sourceId === undefined ? {} : { sourceId }),
+      ...(cursor === undefined ? {} : { cursor }),
     };
   }
   if (name === "discover") {
@@ -199,6 +224,59 @@ function validUuid(value: string | undefined): value is string {
   );
 }
 
+function hasAsciiControl(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
+function adminBoundedInteger(
+  environment: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  maximum: number,
+): number {
+  const source = environment[name];
+  if (source === undefined) return fallback;
+  const value = Number(source);
+  if (!Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  return value;
+}
+
+function adminDiscoveryQueries(
+  environment: NodeJS.ProcessEnv,
+): readonly string[] {
+  const source = environment["SKILLWIRE_GITHUB_DISCOVERY_QUERIES"];
+  if (source === undefined) {
+    return ["filename:plugin.json path:.claude-plugin", "filename:SKILL.md"];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source) as unknown;
+  } catch {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length < 1 ||
+    parsed.length > 16 ||
+    parsed.some(
+      (query) =>
+        typeof query !== "string" ||
+        query.length < 1 ||
+        query.length > 256 ||
+        hasAsciiControl(query),
+    )
+  ) {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  return [...new Set(parsed as string[])];
+}
+
 export async function runSourceAdmin(
   args: readonly string[],
   environment: NodeJS.ProcessEnv = process.env,
@@ -216,6 +294,74 @@ export async function runSourceAdmin(
   if (!/^[A-Za-z0-9_.:@-]{1,160}$/.test(actor)) {
     throw new Error("INVALID_CONFIGURATION");
   }
+  if (environment["SKILLWIRE_ADMIN_AUTHORITY"] !== "active") {
+    throw new Error("ADMIN_UNAUTHORIZED");
+  }
+  const timeout = Number(
+    environment["SKILLWIRE_GITHUB_OPERATION_TIMEOUT_MS"] ?? "300000",
+  );
+  if (!Number.isInteger(timeout) || timeout < 1_000 || timeout > 900_000) {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  const requestTimeout = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_REQUEST_TIMEOUT_MS",
+    30_000,
+    120_000,
+  );
+  const maximumAttempts = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_ATTEMPTS",
+    3,
+    4,
+  );
+  const maximumResponseBytes = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_RESPONSE_BYTES",
+    8 * 1024 * 1024,
+    32 * 1024 * 1024,
+  );
+  const maximumRequests = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_REQUESTS_PER_RUN",
+    1000,
+    2000,
+  );
+  const maximumResults = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_RESULTS_PER_RUN",
+    1000,
+    4000,
+  );
+  const maximumPagesPerQuery = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_PAGES_PER_QUERY",
+    5,
+    10,
+  );
+  const resultsPerPage = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_RESULTS_PER_PAGE",
+    100,
+    100,
+  );
+  const maximumQueries = adminBoundedInteger(
+    environment,
+    "SKILLWIRE_GITHUB_MAX_QUERIES",
+    8,
+    16,
+  );
+  const discoveryQueries = adminDiscoveryQueries(environment);
+  if (requestTimeout >= timeout || discoveryQueries.length > maximumQueries) {
+    throw new Error("INVALID_CONFIGURATION");
+  }
+  const deadline = Date.now() + timeout;
+  const timeoutSignal = AbortSignal.timeout(timeout);
+  const signal =
+    options.signal === undefined
+      ? timeoutSignal
+      : AbortSignal.any([options.signal, timeoutSignal]);
+  const operation = { signal, deadline } as const;
   const token = environment["SKILLWIRE_GITHUB_TOKEN"];
   const pool = createPostgresPool(databaseUrl);
   try {
@@ -225,32 +371,29 @@ export async function runSourceAdmin(
     const restClient = new GitHubRestClient({
       token,
       fetchImplementation: options.fetchImplementation,
+      requestTimeoutMs: requestTimeout,
+      maximumAttempts,
+      maximumResponseBytes,
     });
     const provider = new GitHubCommitTreeBlobReader(restClient);
     const registration = new SourceRegistrationService(provider, store);
-    const synchronization = new SourceSynchronizationService(provider, store);
-    const leases = new PostgresSyncLeaseStore(pool);
     const discovery = new SourceDiscoveryService(
       new GitHubSearchDiscoveryProvider(
         restClient,
         {
           querySetId: "recognized-layouts-v1",
-          queries: [
-            {
-              query: "path:.claude-plugin filename:plugin.json",
-              evidenceKind: "claude-plugin-manifest",
-            },
-            {
-              query: "filename:SKILL.md",
-              evidenceKind: "nested-skill-document",
-            },
-          ],
-          maximumQueries: 2,
-          maximumPagesPerQuery: 5,
-          resultsPerPage: 100,
-          maximumResults: 1000,
-          maximumRequests: 1000,
-          maximumResponseBytes: 8 * 1024 * 1024,
+          queries: discoveryQueries.map((query) => ({
+            query,
+            evidenceKind: query.includes("plugin.json")
+              ? ("claude-plugin-manifest" as const)
+              : ("nested-skill-document" as const),
+          })),
+          maximumQueries,
+          maximumPagesPerQuery,
+          resultsPerPage,
+          maximumResults,
+          maximumRequests,
+          maximumResponseBytes,
         },
         sourceStore,
       ),
@@ -258,28 +401,43 @@ export async function runSourceAdmin(
       sourceStore,
       "recognized-layouts-v1",
       {
-        maximumQueries: 2,
-        maximumPages: 10,
-        maximumResults: 1000,
-        maximumRequests: 1000,
-        maximumResponseBytes: 8 * 1024 * 1024,
+        maximumQueries,
+        maximumPages: maximumQueries * maximumPagesPerQuery,
+        maximumResults,
+        maximumRequests,
+        maximumResponseBytes,
       },
     );
     if (command.name === "source:list") {
+      const page = await store.listAdministrativeCandidatesPage(
+        {
+          ...(command.state === undefined
+            ? {}
+            : { classification: command.state }),
+          ...(command.sourceId === undefined
+            ? {}
+            : { sourceId: command.sourceId }),
+          ...(command.cursor === undefined ? {} : { cursor: command.cursor }),
+          limit: command.limit ?? 100,
+        },
+        operation,
+      );
       return {
         ok: true,
         command: command.name,
-        sources: await store.listAdministrativeSources(command.state),
-        candidates: (
-          await store.listAdministrativeCandidates(command.state)
-        ).slice(0, command.limit ?? 100),
+        sources: await store.listAdministrativeSources(
+          command.state,
+          operation,
+          command.sourceId,
+        ),
+        ...page,
       };
     }
     if (command.name === "discover") {
       return {
         ok: true,
         command: command.name,
-        ...(await discovery.enqueue()),
+        ...(await discovery.enqueue(operation)),
       };
     }
     if (command.name === "quarantine") {
@@ -292,6 +450,7 @@ export async function runSourceAdmin(
           "administrator",
           actor,
           command.reasonCode,
+          operation,
         )),
       };
     }
@@ -305,73 +464,43 @@ export async function runSourceAdmin(
           "administrator",
           actor,
           "ADMIN_CURATED",
+          operation,
         )),
       };
     }
     if (command.name === "verify") {
-      const candidate = (await store.listAdministrativeCandidates()).find(
-        ({ candidateId }) => candidateId === command.candidateId,
-      );
-      if (candidate === undefined) throw new Error("NOT_FOUND");
-      const lease = await leases.acquire(
-        `sync/${candidate.sourceId}`,
-        randomUUID(),
-        60_000,
-      );
-      if (lease === undefined) throw new Error("LEASE_HELD");
-      try {
-        const published = await synchronization.syncWithLease(
-          candidate.sourceId,
-          lease,
-        );
-        return {
-          ok: true,
-          command: command.name,
-          candidateId: command.candidateId,
-          sourceId: candidate.sourceId,
-          published,
-        };
-      } finally {
-        await leases.release(lease);
-      }
+      return {
+        ok: true,
+        command: command.name,
+        candidateId: command.candidateId,
+        ...(await sourceStore.enqueueCandidateVerification(
+          command.candidateId,
+          operation,
+        )),
+      };
     }
     if (command.name === "source:sync") {
-      const lease = await leases.acquire(
-        `sync/${command.sourceId}`,
-        randomUUID(),
-        60_000,
-      );
-      if (lease === undefined) throw new Error("LEASE_HELD");
-      try {
-        return {
-          ok: true,
-          command: command.name,
-          ...(await synchronization.syncWithLease(command.sourceId, lease)),
-        };
-      } finally {
-        await leases.release(lease);
-      }
+      return {
+        ok: true,
+        command: command.name,
+        ...(await sourceStore.enqueueSync(
+          command.sourceId,
+          "administrator",
+          operation,
+        )),
+      };
     }
     const registered = await registration.add(
       { owner: command.owner, repository: command.repository },
       actor,
+      operation,
     );
-    const lease = await leases.acquire(
-      `sync/${registered.sourceId}`,
-      randomUUID(),
-      60_000,
+    const run = await sourceStore.enqueueSync(
+      registered.sourceId,
+      "registration",
+      operation,
     );
-    if (lease === undefined) throw new Error("LEASE_HELD");
-    let published;
-    try {
-      published = await synchronization.syncWithLease(
-        registered.sourceId,
-        lease,
-      );
-    } finally {
-      await leases.release(lease);
-    }
-    return { ok: true, command: command.name, ...registered, published };
+    return { ok: true, command: command.name, ...registered, ...run };
   } finally {
     await pool.end();
   }

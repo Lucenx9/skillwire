@@ -208,6 +208,31 @@ describe("registered mattpocock/skills ingestion", () => {
         .flatMap(({ resources: expected }) => expected)
         .toSorted(),
     );
+    const firstPage = await store.listAdministrativeCandidatesPage({
+      limit: 10,
+    });
+    expect(firstPage.items).toHaveLength(10);
+    expect(firstPage.nextCursor).toMatch(/^[0-9a-f-]{36}$/);
+    const secondPage = await store.listAdministrativeCandidatesPage({
+      limit: 10,
+      cursor: firstPage.nextCursor ?? undefined,
+      sourceId: registered.sourceId,
+      classification: "verified",
+    });
+    expect(secondPage.items).toHaveLength(10);
+    expect(
+      new Set(
+        [...firstPage.items, ...secondPage.items].map(
+          ({ candidateId }) => candidateId,
+        ),
+      ).size,
+    ).toBe(20);
+    expect(
+      [...firstPage.items, ...secondPage.items].every(
+        ({ sourceId, classification }) =>
+          sourceId === registered.sourceId && classification === "verified",
+      ),
+    ).toBe(true);
 
     const overwrite = createExternalSkillRevision({
       skillId: `gh-${String(fixture.inventory.repositoryId)}-overwrite-deadbeef`,
@@ -262,6 +287,7 @@ describe("registered mattpocock/skills ingestion", () => {
     const environment = {
       DATABASE_URL: database.connectionString,
       SKILLWIRE_ADMIN_ACTOR_ID: "acceptance-admin",
+      SKILLWIRE_ADMIN_AUTHORITY: "active",
     };
     await expect(
       runSourceAdmin(["source:list"], environment, {
@@ -281,9 +307,9 @@ describe("registered mattpocock/skills ingestion", () => {
       ok: true,
       command: "source:sync",
       sourceId: registered.sourceId,
-      created: false,
+      state: "queued",
+      created: true,
     });
-    expect(JSON.stringify(cliSync)).toContain('"skillName":"grill-with-docs"');
     const cliAdd = await runSourceAdmin(
       [
         "source:add",
@@ -300,10 +326,7 @@ describe("registered mattpocock/skills ingestion", () => {
       command: "source:add",
       sourceId: registered.sourceId,
       created: false,
-      published: {
-        created: false,
-      },
+      state: "queued",
     });
-    expect(JSON.stringify(cliAdd)).toContain('"skillName":"grill-with-docs"');
   }, 120_000);
 });

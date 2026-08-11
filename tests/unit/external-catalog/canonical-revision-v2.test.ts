@@ -56,4 +56,47 @@ describe("external canonical revision v2", () => {
     expect(later.contentIdentitySha256).toBe(original.contentIdentitySha256);
     expect(later.bundleSha256).not.toBe(original.bundleSha256);
   });
+
+  it("immutably binds license and NOTICE paths, Git blob identities, and content hashes", () => {
+    const revision = createExternalSkillRevision({
+      ...input,
+      provenance: {
+        ...input.provenance,
+        licenseEvidencePath: "LICENSE",
+        licenseBlobSha: "1".repeat(40),
+        skillDeclaredSpdxId: "MIT",
+        noticeText: "Copyright 2026 Matt Pocock\n",
+        noticeEvidencePath: "NOTICE",
+        noticeBlobSha: "2".repeat(40),
+      },
+    });
+    const canonical = JSON.parse(revision.canonicalBytes) as {
+      source: Record<string, string>;
+      noticeText: string;
+    };
+    expect(canonical.source).toMatchObject({
+      licenseEvidencePath: "LICENSE",
+      licenseBlobSha: "1".repeat(40),
+      skillDeclaredSpdxId: "MIT",
+      noticeEvidencePath: "NOTICE",
+      noticeBlobSha: "2".repeat(40),
+      noticeSha256: canonical.source["noticeSha256"],
+    });
+    expect(canonical.source["noticeSha256"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(canonical.noticeText).toBe("Copyright 2026 Matt Pocock\n");
+    expect(
+      createExternalSkillRevision({
+        ...input,
+        provenance: {
+          ...input.provenance,
+          licenseEvidencePath: "LICENSE",
+          licenseBlobSha: "1".repeat(40),
+          skillDeclaredSpdxId: "MIT",
+          noticeText: "Changed notice\n",
+          noticeEvidencePath: "NOTICE",
+          noticeBlobSha: "3".repeat(40),
+        },
+      }).bundleSha256,
+    ).not.toBe(revision.bundleSha256);
+  });
 });

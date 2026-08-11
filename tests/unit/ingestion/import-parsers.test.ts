@@ -110,4 +110,84 @@ describe("registered-source import parsers", () => {
       "SKILL_OVERSIZED",
     );
   });
+
+  it.each([
+    ["malformed JSON", bytes("{")],
+    [
+      "unknown manifest field",
+      bytes(
+        JSON.stringify({
+          name: "x",
+          version: "1.0.0",
+          description: "x",
+          author: { name: "x" },
+          license: "MIT",
+          skills: ["./a"],
+          hooks: ["install.sh"],
+        }),
+      ),
+    ],
+    [
+      "normalization collision",
+      bytes(
+        JSON.stringify({
+          name: "x",
+          version: "1.0.0",
+          description: "x",
+          author: { name: "x" },
+          license: "MIT",
+          skills: ["./A", "./a"],
+        }),
+      ),
+    ],
+    ["invalid UTF-8", Uint8Array.from([0xff])],
+    ["NUL", bytes('{"name":"x\u0000"}')],
+  ])("rejects hostile manifest input: %s", (_label, source) => {
+    expect(() => parseClaudePluginManifest(source)).toThrow();
+  });
+
+  it.each([
+    ["anchor", "name: &name example\ndescription: Example."],
+    [
+      "alias",
+      "name: example\ndescription: &value Example.\nargument-hint: *value",
+    ],
+    ["tag", "name: example\ndescription: !unsafe Example."],
+    ["duplicate", "name: example\nname: duplicate\ndescription: Example."],
+    ["merge", "name: example\ndescription: Example.\n<<: {}"],
+    [
+      "excessive nesting",
+      `name: example\ndescription: Example.\ndependencies:\n${"  - ".repeat(40)}nested`,
+    ],
+    [
+      "oversized scalar",
+      `name: example\ndescription: ${"a".repeat(17 * 1024)}`,
+    ],
+    [
+      "unknown field",
+      "name: example\ndescription: Example.\nhooks: install.sh",
+    ],
+  ])("rejects hostile YAML structure: %s", (_label, yaml) => {
+    expect(() =>
+      parseSkillDocument(bytes(`---\n${yaml}\n---\nBody\n`)),
+    ).toThrow("SKILL_SCHEMA_INVALID");
+  });
+
+  it.each([
+    ["invalid UTF-8", Uint8Array.from([0xff])],
+    [
+      "NUL",
+      bytes("---\nname: example\ndescription: Example.\n---\nBody\u0000"),
+    ],
+    [
+      "binary control",
+      bytes("---\nname: example\ndescription: Example.\n---\nBody\u0001"),
+    ],
+    [
+      "non-normalized Unicode",
+      bytes("---\nname: example\ndescription: Example.\n---\ncafe\u0301"),
+    ],
+  ])("rejects non-text skill content: %s", (_label, source) => {
+    expect(() => parseSkillDocument(source)).toThrow();
+  });
 });

@@ -273,7 +273,23 @@ describe("PostgreSQL imported catalog provider", () => {
        WHERE id=$1`,
       [sourceId],
     );
-    await expect(store.recordSourceUnavailable(sourceId)).resolves.toBe(true);
+    await database.pool.query(
+      `UPDATE github_source_aliases SET last_observed_at=clock_timestamp()-interval '3 days'
+       WHERE source_id=$1`,
+      [sourceId],
+    );
+    const repository = await database.pool.query<{
+      github_repository_id: string;
+    }>("SELECT github_repository_id::text FROM github_sources WHERE id=$1", [
+      sourceId,
+    ]);
+    await expect(
+      store.recordSourceUnavailable(sourceId, {
+        authenticated: true,
+        uncached: true,
+        repositoryId: Number(repository.rows[0]?.github_repository_id),
+      }),
+    ).resolves.toBe(true);
     expect(await imported.listMetadata(principal)).toEqual([]);
     expect(
       await imported.advisoryStatus(selected.id, selected.revision, principal),

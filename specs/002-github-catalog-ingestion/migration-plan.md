@@ -4,7 +4,7 @@
 
 Feature 001 migrations `001` through `003` remain byte-for-byte unchanged. The existing migration
 runner already applies checksum-protected files transactionally under a PostgreSQL advisory lock.
-Feature 002 adds three forward-only migrations and no destructive backfill.
+Feature 002 adds four forward-only migrations and no destructive backfill.
 
 The existing `repository_skill_usage` table intentionally has no catalog foreign key, so imported
 skill IDs and revisions work with repository memory without altering existing rows or account
@@ -62,6 +62,14 @@ It installs immutable-row triggers, current-projection transition functions, and
 external advisory append function. The advisory head is initialized to the documented external
 genesis hash without modifying Feature 001's release-anchored chain.
 
+## Migration 007: Convergence hardening
+
+`migrations/007_feature_002_convergence.sql` adds immutable publication-time
+owner/repository and legal-evidence fields, snapshot origin identity, durable
+sync-run attempt/retry/summary fields, and immutable per-run quarantine results.
+It preserves canonical provenance from stored revision bytes during its bounded
+backfill and separates mutable aliases from published origin coordinates.
+
 ## Deployment Order
 
 1. Back up PostgreSQL according to the existing database backup boundary.
@@ -101,7 +109,7 @@ genesis hash without modifying Feature 001's release-anchored chain.
 
 Required integration coverage:
 
-1. Empty-database application of `001` through `006`.
+1. Empty-database application of `001` through `007`.
 2. Upgrade from a real `001` through `003` fixture with accounts, keys, memory, and erasure audit
    rows preserved exactly.
 3. Concurrent migration runners and checksum-drift rejection.

@@ -29,6 +29,7 @@ describe("GitHub ingestion migrations", () => {
       "004",
       "005",
       "006",
+      "007",
     ]);
     expect(
       versions.rows.every(({ checksum }) => /^[0-9a-f]{64}$/.test(checksum)),
@@ -61,8 +62,9 @@ describe("GitHub ingestion migrations", () => {
     await database.pool.query(
       `
         INSERT INTO external_source_snapshots (
-          id, source_id, commit_sha, tree_sha, manifest_version, revision_count
-        ) VALUES ($1, $2, $3, $4, '1.2.3', 25)
+          id, source_id, commit_sha, tree_sha, manifest_version, revision_count,
+          origin_github_repository_id, origin_owner, origin_repository
+        ) VALUES ($1, $2, $3, $4, '1.2.3', 25, 1148788086, 'mattpocock', 'skills')
       `,
       [snapshotId, sourceId, "8".repeat(40), "1".repeat(40)],
     );
@@ -76,8 +78,9 @@ describe("GitHub ingestion migrations", () => {
       database.pool.query(
         `
           INSERT INTO external_source_snapshots (
-            id, source_id, commit_sha, tree_sha, manifest_version, revision_count
-          ) VALUES ($1, $2, 'UPPERCASE', $3, '1.2.3', 1)
+            id, source_id, commit_sha, tree_sha, manifest_version, revision_count,
+            origin_github_repository_id, origin_owner, origin_repository
+          ) VALUES ($1, $2, 'UPPERCASE', $3, '1.2.3', 1, 1148788086, 'mattpocock', 'skills')
         `,
         [randomUUID(), sourceId, "1".repeat(40)],
       ),
