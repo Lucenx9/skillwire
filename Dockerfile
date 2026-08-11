@@ -10,7 +10,7 @@ WORKDIR /app
 
 FROM toolchain AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+RUN --mount=type=cache,id=pnpm-store-dev,target=/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile
 
 FROM dependencies AS build
@@ -25,8 +25,8 @@ CMD ["pnpm", "test"]
 
 FROM toolchain AS production-dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --prod --frozen-lockfile && pnpm store prune
+RUN --mount=type=cache,id=pnpm-store-prod,target=/pnpm/store,sharing=locked \
+    pnpm install --prod --frozen-lockfile
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
