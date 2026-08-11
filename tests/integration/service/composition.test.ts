@@ -151,6 +151,60 @@ describe("composed service startup", () => {
     }
   });
 
+  it("keeps live ingestion disabled by default and requires an explicit credential when enabled", () => {
+    const base = {
+      DATABASE_URL: database.connectionString,
+      SKILLWIRE_API_KEY_PEPPER: pepper,
+      SKILLWIRE_CATALOG_ROOT: process.cwd(),
+    };
+    expect(loadConfig(base).githubIngestion).toMatchObject({ enabled: false });
+    expect(() =>
+      loadConfig({
+        ...base,
+        SKILLWIRE_GITHUB_INGESTION_ENABLED: "true",
+      }),
+    ).toThrow(/SKILLWIRE_GITHUB_TOKEN/);
+    expect(
+      loadConfig({
+        ...base,
+        SKILLWIRE_GITHUB_INGESTION_ENABLED: "true",
+        SKILLWIRE_GITHUB_TOKEN: "github-test-token-with-bounded-length",
+      }).githubIngestion,
+    ).toMatchObject({
+      enabled: true,
+      schedulerIntervalMilliseconds: 60_000,
+      discoveryCadenceMilliseconds: 3_600_000,
+    });
+  });
+
+  it("starts and stops the optional scheduler without contacting GitHub during startup or readiness", async () => {
+    const scheduled = await createApplication({
+      host: "127.0.0.1",
+      port: 0,
+      databaseUrl: database.connectionString,
+      apiKeyPepper: pepper,
+      githubIngestion: {
+        enabled: true,
+        token: "github-test-token-with-bounded-length",
+        schedulerIntervalMilliseconds: 120_000,
+        discoveryCadenceMilliseconds: 3_600_000,
+        sourceCadenceMilliseconds: 3_600_000,
+        leaseDurationMilliseconds: 60_000,
+        maximumSourcesPerTick: 10,
+        maximumRequests: 512,
+        maximumResponseBytes: 8 * 1024 * 1024,
+        maximumResults: 1000,
+        maximumPagesPerQuery: 5,
+        resultsPerPage: 100,
+      },
+    });
+    try {
+      expect(await scheduled.checkReadiness()).toBe(true);
+    } finally {
+      await scheduled.close();
+    }
+  });
+
   it("stops accepting requests and closes application resources cleanly", async () => {
     const service = await startHttpService(
       {

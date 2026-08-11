@@ -1,4 +1,4 @@
-export type TrustAtPublication = "trusted";
+export type TrustAtPublication = "trusted" | "structurally-verified";
 
 export type CurrentAdvisoryStatus = "available" | "unavailable" | "revoked";
 
@@ -21,6 +21,9 @@ export interface CatalogSkillInventoryEntry {
 
 export interface CatalogSkillMetadata extends CatalogSkillInventoryEntry {
   readonly currentAdvisoryStatus: CurrentAdvisoryStatus;
+  readonly catalogOrigin?: GitHubCatalogOrigin | undefined;
+  readonly currentClassification?: "verified" | "curated" | undefined;
+  readonly invocationMode?: "automatic" | "user-only" | undefined;
 }
 
 export interface RankedSkill {
@@ -39,6 +42,9 @@ export interface SearchPreview {
   readonly trustAtPublication: TrustAtPublication;
   readonly currentAdvisoryStatus: CurrentAdvisoryStatus;
   readonly revision: string;
+  readonly catalogOrigin?: GitHubCatalogOrigin | undefined;
+  readonly currentClassification?: "verified" | "curated" | undefined;
+  readonly invocationMode?: "automatic" | "user-only" | undefined;
 }
 
 export interface SearchSkillsResult {
@@ -54,7 +60,7 @@ export interface PublishedProvenance {
   readonly source: SourceReference;
   readonly sourceRevision: string;
   readonly owner: string;
-  readonly license: "Apache-2.0";
+  readonly license: string;
   readonly trustAtPublication: TrustAtPublication;
 }
 
@@ -80,6 +86,29 @@ export interface SkillRevision {
   readonly resourceManifest: readonly ResourceManifestEntry[];
   readonly resources: readonly VerifiedResource[];
   readonly bundleSha256: string;
+  readonly catalogOrigin?: GitHubCatalogOrigin | undefined;
+  readonly currentClassification?: "verified" | "curated" | undefined;
+  readonly invocationMode?: "automatic" | "user-only" | undefined;
+  readonly dependencies?: readonly SkillDependencyReference[] | undefined;
+}
+
+export interface GitHubCatalogOrigin {
+  readonly kind: "github";
+  readonly owner: string;
+  readonly repository: string;
+  readonly commitSha: string;
+  readonly skillPath: string;
+  readonly license: {
+    readonly spdxId: string;
+    readonly attribution: string;
+  };
+}
+
+export interface SkillDependencyReference {
+  readonly skillId: string;
+  readonly revision: string;
+  readonly required: boolean;
+  readonly evidenceKind: "manifest" | "frontmatter" | "explicit-invocation";
 }
 
 export interface CatalogReleaseRevision {

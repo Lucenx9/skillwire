@@ -101,11 +101,11 @@ export function registerReadSkillResourceTool(
       inputSchema: readSkillResourceInputSchema,
       outputSchema: readSkillResourceOutputSchema,
     },
-    (input) => {
+    async (input) => {
       try {
         assertRequestActive(principal);
         const output = readSkillResourceOutputSchema.parse(
-          readSkillResource.execute(input),
+          await readSkillResource.execute(input, principal),
         );
         assertRequestActive(principal);
         return {

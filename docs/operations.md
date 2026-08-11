@@ -13,6 +13,11 @@
    connectivity, migrations, and startup expired-audit cleanup.
 7. Bootstrap/rotate keys out of band and run the authenticated smoke journey.
 
+Optional GitHub discovery is disabled unless
+`SKILLWIRE_GITHUB_INGESTION_ENABLED=true` and a token is supplied. Configure its
+cadence and budgets from `.env.example`; see
+[source administration](source-administration.md).
+
 The supported topology is one or more stateless SkillWire instances sharing one
 authoritative PostgreSQL database. Do not add Redis, queues, repository-memory
 replicas, or a second memory authority.
@@ -24,6 +29,9 @@ replicas, or a second memory authority.
   otherwise it returns 503 without protected details.
 - An hourly cleanup failure makes readiness false. The next successful cleanup
   makes it ready again.
+- Readiness probes PostgreSQL and the required import schema/advisory head, but
+  never GitHub. A GitHub outage pauses new synchronization without affecting
+  verified cached revision loads.
 
 Compose waits for PostgreSQL health, then the migration job, then application
 health. PostgreSQL is not published to the host.
@@ -32,8 +40,9 @@ health. PostgreSQL is not published to the host.
 
 SIGTERM and SIGINT stop new HTTP acceptance, close idle connections, drain
 active requests up to `SKILLWIRE_SHUTDOWN_GRACE_MS`, stop the cleanup scheduler,
-close the PostgreSQL pool, and emit one bounded lifecycle result. Compose grants
-15 seconds before force termination.
+cancel and drain the GitHub scheduler when enabled, close the PostgreSQL pool,
+and emit one bounded lifecycle result. Compose grants 15 seconds before force
+termination.
 
 Verify a release image with:
 
@@ -94,6 +103,14 @@ corrections. Do not edit the migration table.
 Keep traffic stopped. Run `catalog:verify` and `advisory:verify` from a clean
 checkout. Never use publication as a repair path and never rewrite a published
 revision.
+
+### GitHub synchronization is delayed or quarantined
+
+Inspect only bounded source/candidate state and stable reason codes through
+`source:admin source:list`. Rate limits and outages are retryable and do not
+alter the published head. Validation failures quarantine candidates atomically;
+fix the upstream source or make an explicit administrator decision. Never bypass
+fixed-origin, immutable-commit, license, path, resource, or dependency checks.
 
 ### Audit cleanup fails
 

@@ -16,7 +16,7 @@ validation does not need a GitHub token or live network.
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-docker compose -f compose.test.yaml up -d postgres
+docker compose -f compose.yaml -f compose.test.yaml up -d postgres
 ```
 
 Export the test `DATABASE_URL` documented by `compose.test.yaml`, then apply all migrations:
@@ -35,8 +35,8 @@ pnpm format:check
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm catalog:verify -- --release-id launch-catalog-v1
-pnpm advisory:verify -- --release-id launch-catalog-v1
+pnpm catalog:verify --release-id launch-catalog-v1
+pnpm advisory:verify --release-id launch-catalog-v1
 ```
 
 Expected: Feature 001 verification remains unchanged and no command imports or writes through the
@@ -144,13 +144,13 @@ GITHUB_TOKEN='<token>' pnpm smoke:github-live
 
 Expected: the command addresses only `https://api.github.com`, reads only the fixed public acceptance
 repository at the exact pinned commit, validates the recorded inventory, and exits without writing to
-GitHub or changing required fixtures. Missing token skips/fails this manual command clearly and does
+GitHub or changing required fixtures. A missing token skips this manual command clearly and does
 not affect required CI.
 
 ## Cleanup
 
 ```bash
-docker compose -f compose.test.yaml down
+docker compose -f compose.yaml -f compose.test.yaml down
 ```
 
 The database container is disposable. No repository content is installed into the client checkout,

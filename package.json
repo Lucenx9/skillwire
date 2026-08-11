@@ -17,6 +17,7 @@
     "db:migrate": "tsx src/persistence/postgres/migration-runner.ts",
     "source:admin": "tsx src/ingestion/admin-cli.ts",
     "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "smoke:github-live": "tsx scripts/smoke-github-live.ts",
     "benchmark:informational": "tsx benchmarks/informational-benchmark.ts",
     "benchmark:validate": "tsx benchmarks/informational-benchmark.ts --validate-only",
     "dev": "tsx watch src/main.ts",

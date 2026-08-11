@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "matrixId": "github-import-journeys-v1",
+  "minimumSuccessRate": 0.9,
+  "acceptance": {
+    "skillCount": 25,
+    "userOnlyCount": 14,
+    "resourceCount": 21,
+    "excludedClassifications": ["discovered", "quarantined"],
+    "grillWithDocsDependencies": ["domain-modeling", "grilling"]
+  },
+  "cases": [
+    {
+      "id": "journey-ask-matt",
+      "task": "ask matt",
+      "expectedSkillName": "ask-matt",
+      "invocationContext": "user-requested",
+      "resourcePaths": ["PHASE-BOUNDARIES.md"]
+    },
+    {
+      "id": "journey-diagnosing-bugs",
+      "task": "diagnosing bugs",
+      "expectedSkillName": "diagnosing-bugs",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-grill-with-docs",
+      "task": "grill with docs",
+      "expectedSkillName": "grill-with-docs",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-triage",
+      "task": "triage",
+      "expectedSkillName": "triage",
+      "invocationContext": "user-requested",
+      "resourcePaths": ["AGENT-BRIEF.md", "OUT-OF-SCOPE.md"]
+    },
+    {
+      "id": "journey-improve-architecture",
+      "task": "improve codebase architecture",
+      "expectedSkillName": "improve-codebase-architecture",
+      "invocationContext": "user-requested",
+      "resourcePaths": ["HTML-REPORT.md"]
+    },
+    {
+      "id": "journey-setup-skills",
+      "task": "setup matt pocock skills",
+      "expectedSkillName": "setup-matt-pocock-skills",
+      "invocationContext": "user-requested",
+      "resourcePaths": [
+        "domain.md",
+        "issue-tracker-github.md",
+        "issue-tracker-gitlab.md",
+        "issue-tracker-local.md",
+        "triage-labels.md"
+      ]
+    },
+    {
+      "id": "journey-tdd",
+      "task": "tdd",
+      "expectedSkillName": "tdd",
+      "invocationContext": "automatic",
+      "resourcePaths": ["mocking.md", "tests.md"]
+    },
+    {
+      "id": "journey-to-spec",
+      "task": "to spec",
+      "expectedSkillName": "to-spec",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-to-tickets",
+      "task": "to tickets",
+      "expectedSkillName": "to-tickets",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-wayfinder",
+      "task": "wayfinder",
+      "expectedSkillName": "wayfinder",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-implement",
+      "task": "implement",
+      "expectedSkillName": "implement",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-prototype",
+      "task": "prototype",
+      "expectedSkillName": "prototype",
+      "invocationContext": "automatic",
+      "resourcePaths": ["LOGIC.md", "UI.md"]
+    },
+    {
+      "id": "journey-research",
+      "task": "research",
+      "expectedSkillName": "research",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-domain-modeling",
+      "task": "domain modeling",
+      "expectedSkillName": "domain-modeling",
+      "invocationContext": "automatic",
+      "resourcePaths": ["ADR-FORMAT.md", "CONTEXT-FORMAT.md"]
+    },
+    {
+      "id": "journey-codebase-design",
+      "task": "codebase design",
+      "expectedSkillName": "codebase-design",
+      "invocationContext": "automatic",
+      "resourcePaths": ["DEEPENING.md", "DESIGN-IT-TWICE.md"]
+    },
+    {
+      "id": "journey-code-review",
+      "task": "code review",
+      "expectedSkillName": "code-review",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-merge-conflicts",
+      "task": "resolving merge conflicts",
+      "expectedSkillName": "resolving-merge-conflicts",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-wizard",
+      "task": "wizard",
+      "expectedSkillName": "wizard",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-grill-me",
+      "task": "grill me",
+      "expectedSkillName": "grill-me",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-grilling",
+      "task": "grilling",
+      "expectedSkillName": "grilling",
+      "invocationContext": "automatic",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-handoff",
+      "task": "handoff",
+      "expectedSkillName": "handoff",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-teach",
+      "task": "teach",
+      "expectedSkillName": "teach",
+      "invocationContext": "user-requested",
+      "resourcePaths": [
+        "LEARNING-RECORD-FORMAT.md",
+        "MISSION-FORMAT.md",
+        "RESOURCES-FORMAT.md"
+      ]
+    },
+    {
+      "id": "journey-questionnaire",
+      "task": "to questionnaire",
+      "expectedSkillName": "to-questionnaire",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-wait-what",
+      "task": "wait what",
+      "expectedSkillName": "wait-what",
+      "invocationContext": "user-requested",
+      "resourcePaths": []
+    },
+    {
+      "id": "journey-writing-for-agents",
+      "task": "writing for agents",
+      "expectedSkillName": "writing-for-agents",
+      "invocationContext": "automatic",
+      "resourcePaths": ["SKILL-MECHANICS.md"]
+    }
+  ]
+}

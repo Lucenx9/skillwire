@@ -1,8 +1,10 @@
 import type { SkillCatalogProvider } from "../ports/skill-catalog-provider.js";
+import type { AsyncSkillCatalogProvider } from "../ports/async-skill-catalog-provider.js";
 import { SkillWireError } from "../errors.js";
 import { sha256Hex } from "../../domain/catalog/canonical-revision.js";
 import { assertSafeResourcePath } from "../../domain/catalog/resource-path.js";
 import type { TextMediaType } from "../../domain/catalog/types.js";
+import type { RequestExecution } from "../request-execution.js";
 
 export interface ReadSkillResourceInput {
   readonly skillId: string;
@@ -22,31 +24,48 @@ export interface ReadSkillResourceResult {
 }
 
 export interface ReadSkillResource {
-  execute(input: ReadSkillResourceInput): ReadSkillResourceResult;
+  execute(
+    input: ReadSkillResourceInput,
+    execution?: RequestExecution,
+  ): Promise<ReadSkillResourceResult>;
 }
 
 export function createReadSkillResource(
-  provider: SkillCatalogProvider,
+  provider: SkillCatalogProvider | AsyncSkillCatalogProvider,
 ): ReadSkillResource {
   return {
-    execute(input) {
+    async execute(input, execution = {}) {
       try {
         assertSafeResourcePath(input.path);
       } catch {
         throw new SkillWireError("RESOURCE_REJECTED");
       }
-      const status = provider.advisoryStatus(input.skillId, input.revision);
+      const status = await Promise.resolve(
+        provider.advisoryStatus(input.skillId, input.revision, execution),
+      );
       if (status === "revoked") throw new SkillWireError("NOT_FOUND");
       let revision;
       try {
-        revision = provider.findRevision(input.skillId, input.revision);
+        revision = await Promise.resolve(
+          provider.findRevision(input.skillId, input.revision, execution),
+        );
       } catch {
         throw new SkillWireError("REVISION_UNAVAILABLE");
       }
       if (revision === undefined) {
-        throw new SkillWireError(
-          status === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
+        const latestStatus = await Promise.resolve(
+          provider.advisoryStatus(input.skillId, input.revision, execution),
         );
+        throw new SkillWireError(
+          latestStatus === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
+        );
+      }
+      if (
+        (await Promise.resolve(
+          provider.advisoryStatus(input.skillId, input.revision, execution),
+        )) === "revoked"
+      ) {
+        throw new SkillWireError("NOT_FOUND");
       }
       const resource = revision.resources.find(
         (entry) => entry.path === input.path,

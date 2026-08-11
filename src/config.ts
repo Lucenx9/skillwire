@@ -30,6 +30,22 @@ export interface ApplicationConfig {
         readonly burst: number;
       }
     | undefined;
+  readonly githubIngestion?: GitHubIngestionConfig | undefined;
+}
+
+export interface GitHubIngestionConfig {
+  readonly enabled: boolean;
+  readonly token?: string | undefined;
+  readonly schedulerIntervalMilliseconds: number;
+  readonly discoveryCadenceMilliseconds: number;
+  readonly sourceCadenceMilliseconds: number;
+  readonly leaseDurationMilliseconds: number;
+  readonly maximumSourcesPerTick: number;
+  readonly maximumRequests: number;
+  readonly maximumResponseBytes: number;
+  readonly maximumResults: number;
+  readonly maximumPagesPerQuery: number;
+  readonly resultsPerPage: number;
 }
 
 const DEFAULT_PORT = 3000;
@@ -93,6 +109,12 @@ function readPositiveInteger(
     throw new Error(`${name} must be a positive bounded integer`);
   }
   return parsed;
+}
+
+function readBoolean(name: string, value: string | undefined): boolean {
+  if (value === undefined || value === "false") return false;
+  if (value === "true") return true;
+  throw new Error(`${name} must be true or false`);
 }
 
 function readAllowedHosts(host: string, value: string | undefined): string[] {
@@ -167,6 +189,16 @@ export function loadConfig(
   ) {
     throw new Error("LOG_LEVEL is invalid");
   }
+  const githubEnabled = readBoolean(
+    "SKILLWIRE_GITHUB_INGESTION_ENABLED",
+    environment["SKILLWIRE_GITHUB_INGESTION_ENABLED"],
+  );
+  const githubToken = githubEnabled
+    ? readRequiredConfiguration(environment, "SKILLWIRE_GITHUB_TOKEN")
+    : undefined;
+  if (githubToken !== undefined && githubToken.length < 20) {
+    throw new Error("SKILLWIRE_GITHUB_TOKEN is invalid");
+  }
   return {
     host,
     allowedHosts: readAllowedHosts(
@@ -225,6 +257,74 @@ export function loadConfig(
         environment["SKILLWIRE_RATE_LIMIT_BURST"],
         30,
         10_000,
+      ),
+    },
+    githubIngestion: {
+      enabled: githubEnabled,
+      ...(githubToken === undefined ? {} : { token: githubToken }),
+      schedulerIntervalMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_SCHEDULER_INTERVAL_SECONDS",
+          environment["SKILLWIRE_GITHUB_SCHEDULER_INTERVAL_SECONDS"],
+          60,
+          3600,
+        ) * 1000,
+      discoveryCadenceMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_DISCOVERY_CADENCE_SECONDS",
+          environment["SKILLWIRE_GITHUB_DISCOVERY_CADENCE_SECONDS"],
+          3600,
+          604_800,
+        ) * 1000,
+      sourceCadenceMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_SYNC_CADENCE_SECONDS",
+          environment["SKILLWIRE_GITHUB_SYNC_CADENCE_SECONDS"],
+          3600,
+          604_800,
+        ) * 1000,
+      leaseDurationMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_LEASE_SECONDS",
+          environment["SKILLWIRE_GITHUB_LEASE_SECONDS"],
+          60,
+          3600,
+        ) * 1000,
+      maximumSourcesPerTick: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_SOURCES_PER_TICK",
+        environment["SKILLWIRE_GITHUB_MAX_SOURCES_PER_TICK"],
+        10,
+        100,
+      ),
+      maximumRequests: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_REQUESTS",
+        environment["SKILLWIRE_GITHUB_MAX_REQUESTS"],
+        512,
+        2000,
+      ),
+      maximumResponseBytes: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_RESPONSE_BYTES",
+        environment["SKILLWIRE_GITHUB_MAX_RESPONSE_BYTES"],
+        8 * 1024 * 1024,
+        32 * 1024 * 1024,
+      ),
+      maximumResults: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_RESULTS",
+        environment["SKILLWIRE_GITHUB_MAX_RESULTS"],
+        1000,
+        4000,
+      ),
+      maximumPagesPerQuery: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_PAGES_PER_QUERY",
+        environment["SKILLWIRE_GITHUB_MAX_PAGES_PER_QUERY"],
+        5,
+        100,
+      ),
+      resultsPerPage: readPositiveInteger(
+        "SKILLWIRE_GITHUB_RESULTS_PER_PAGE",
+        environment["SKILLWIRE_GITHUB_RESULTS_PER_PAGE"],
+        100,
+        100,
       ),
     },
   };

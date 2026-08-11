@@ -142,7 +142,7 @@ export async function evaluateThreeCallJourneys(
         evaluationPrincipal,
       );
       if (evaluationCase.resourcePath !== undefined) {
-        const resource = readResource.execute({
+        const resource = await readResource.execute({
           skillId: loaded.skillId,
           revision: loaded.revision,
           path: evaluationCase.resourcePath,

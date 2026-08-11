@@ -262,6 +262,10 @@ describe("host, schema, size, rate, and execution boundaries", () => {
       "src/ingestion/github/commit-tree-blob-reader.ts",
       "src/application/services/source-synchronization-service.ts",
       "src/ingestion/external-revision-publisher.ts",
+      "src/persistence/postgres/imported-skill-catalog-provider.ts",
+      "src/catalog/unified-catalog-provider.ts",
+      "src/catalog/static-catalog-adapter.ts",
+      "src/application/use-cases/search-skills.ts",
     ];
     const productionSource = sourceFiles
       .map((path) => readFileSync(join(process.cwd(), path), "utf8"))

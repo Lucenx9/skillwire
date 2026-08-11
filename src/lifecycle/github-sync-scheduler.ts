@@ -80,7 +80,9 @@ export class GitHubSyncScheduler {
     this.#timer = setInterval(() => {
       const operation = this.runOnce({ signal: this.#shutdown.signal });
       this.#active.add(operation);
-      void operation.finally(() => this.#active.delete(operation));
+      void operation
+        .catch(() => undefined)
+        .finally(() => this.#active.delete(operation));
     }, intervalMs);
     this.#timer.unref();
   }

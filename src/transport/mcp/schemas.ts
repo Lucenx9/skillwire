@@ -10,6 +10,7 @@ const revisionSchema = z
   .regex(/^(?!latest$|main$|master$|HEAD$)[A-Za-z0-9][A-Za-z0-9._-]*$/)
   .max(128);
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const gitShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const resourcePathSchema = z
   .string()
   .min(1)
@@ -18,7 +19,7 @@ const resourcePathSchema = z
     /^(?!\/)(?!.*(?:^|\/)\.\.?($|\/))(?!.*\\)[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/,
   );
 
-const publishedProvenanceSchema = z
+const firstPartyPublishedProvenanceSchema = z
   .object({
     source: z
       .object({
@@ -33,6 +34,43 @@ const publishedProvenanceSchema = z
     owner: z.string().min(1).max(160),
     license: z.literal("Apache-2.0"),
     trustAtPublication: z.literal("trusted"),
+  })
+  .strict();
+
+const githubCatalogOriginSchema = z
+  .object({
+    kind: z.literal("github"),
+    owner: z.string().min(1).max(100),
+    repository: z.string().min(1).max(100),
+    commitSha: gitShaSchema,
+    skillPath: z.string().min(1).max(512),
+    license: z
+      .object({
+        spdxId: z
+          .string()
+          .regex(/^[A-Za-z0-9.+-]+$/)
+          .max(64),
+        attribution: z.string().min(1).max(200),
+      })
+      .strict(),
+  })
+  .strict();
+
+const externalPublishedProvenanceSchema = z
+  .object({
+    source: z
+      .object({
+        provider: z.literal("github"),
+        reference: z.string().min(1).max(1024),
+      })
+      .strict(),
+    sourceRevision: gitShaSchema,
+    owner: z.string().min(1).max(200),
+    license: z
+      .string()
+      .regex(/^[A-Za-z0-9.+-]+$/)
+      .max(64),
+    trustAtPublication: z.literal("structurally-verified"),
   })
   .strict();
 
@@ -57,10 +95,11 @@ export const searchSkillsInputSchema = z
       ),
     repositoryHash: repositoryHashSchema.optional(),
     limit: z.number().int().min(1).max(10).optional(),
+    invocationContext: z.enum(["automatic", "user-requested"]).optional(),
   })
   .strict();
 
-export const searchPreviewSchema = z
+const firstPartySearchPreviewSchema = z
   .object({
     rank: z.number().int().min(1).max(10),
     skillId: skillIdSchema,
@@ -72,6 +111,27 @@ export const searchPreviewSchema = z
     revision: revisionSchema,
   })
   .strict();
+
+const externalSearchPreviewSchema = z
+  .object({
+    rank: z.number().int().min(1).max(10),
+    skillId: skillIdSchema,
+    name: z.string().min(1).max(120),
+    summary: z.string().min(1).max(1024),
+    matchingCapabilities: z.array(z.string().min(1).max(80)).max(16),
+    trustAtPublication: z.literal("structurally-verified"),
+    currentAdvisoryStatus: z.literal("available"),
+    revision: revisionSchema,
+    catalogOrigin: githubCatalogOriginSchema,
+    currentClassification: z.enum(["verified", "curated"]),
+    invocationMode: z.enum(["automatic", "user-only"]),
+  })
+  .strict();
+
+export const searchPreviewSchema = z.union([
+  firstPartySearchPreviewSchema,
+  externalSearchPreviewSchema,
+]);
 
 export const searchSkillsOutputSchema = z
   .object({
@@ -87,18 +147,51 @@ export const loadSkillInputSchema = z
   })
   .strict();
 
-export const loadSkillOutputSchema = z
+const dependencySchema = z
+  .object({
+    skillId: skillIdSchema,
+    revision: revisionSchema,
+    required: z.boolean(),
+    evidenceKind: z.enum(["manifest", "frontmatter", "explicit-invocation"]),
+  })
+  .strict();
+
+const loadSkillOutputBaseSchema = z
   .object({
     skillId: skillIdSchema,
     revision: revisionSchema,
     revisionSha256: sha256Schema,
-    publishedProvenance: publishedProvenanceSchema,
+    publishedProvenance: z.union([
+      firstPartyPublishedProvenanceSchema,
+      externalPublishedProvenanceSchema,
+    ]),
     currentAdvisoryStatus: z.enum(["available", "unavailable", "revoked"]),
     instructions: z.string().max(262_144),
     resourceManifest: z.array(resourceManifestEntrySchema).max(64),
     memoryRecorded: z.boolean(),
+    catalogOrigin: githubCatalogOriginSchema.optional(),
+    currentClassification: z.enum(["verified", "curated"]).optional(),
+    invocationMode: z.enum(["automatic", "user-only"]).optional(),
+    dependencies: z.array(dependencySchema).max(32).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const imported =
+      value.publishedProvenance.trustAtPublication === "structurally-verified";
+    const hasAllImportedFields =
+      value.catalogOrigin !== undefined &&
+      value.currentClassification !== undefined &&
+      value.invocationMode !== undefined &&
+      value.dependencies !== undefined;
+    if (imported !== hasAllImportedFields) {
+      context.addIssue({
+        code: "custom",
+        message: "Imported response provenance fields are inconsistent",
+      });
+    }
+  });
+
+export const loadSkillOutputSchema = loadSkillOutputBaseSchema;
 
 export const readSkillResourceInputSchema = z
   .object({
