@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/forget_repo_memory.input.schema.json",
+  "title": "forget_repo_memory input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repositoryHash"],
+  "properties": {
+    "repositoryHash": {
+      "$ref": "./common.schema.json#/$defs/RepositoryHash"
+    }
+  }
+}

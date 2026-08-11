@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec",
+  "instructionsSha256": "91e481a5246e10bb342a81bd8f969a9e4c305854a05e68f0d66525bf04410789",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/typescript-code-review"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 539,
+      "mediaType": "text/markdown",
+      "path": "references/review-checklist.md",
+      "sha256": "518152060c6b52e1c406ff2938966ff22ce456046145ee2b16b24d7416ada8cb"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "typescript-code-review",
+  "sourcePaths": {
+    "instructions": "catalog/skills/typescript-code-review/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/typescript-code-review/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/typescript-code-review/1.0.0/references/review-checklist.md"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "postgres-schema-review",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/postgres-schema-review"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/schema-review-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

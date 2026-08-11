@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "typescript-code-review",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/typescript-code-review"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/review-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

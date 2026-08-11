@@ -1,0 +1,9 @@
+[
+  {
+    "id": 101,
+    "draft": false,
+    "prerelease": true,
+    "published_at": "2026-08-11T00:00:00.000Z",
+    "tag_name": "v2.0.0-rc.1"
+  }
+]

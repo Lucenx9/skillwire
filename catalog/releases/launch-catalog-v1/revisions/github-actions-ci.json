@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c",
+  "instructionsSha256": "62b20553445b829693fee1c6ceb3be74bb1e4b76fcda9bc1e825bbef6c2f150a",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/github-actions-ci"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 485,
+      "mediaType": "text/markdown",
+      "path": "references/ci-checklist.md",
+      "sha256": "66031018ed08aea9de297825a5660b3f81835efe36a61fa7bb717609a5088674"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "github-actions-ci",
+  "sourcePaths": {
+    "instructions": "catalog/skills/github-actions-ci/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/github-actions-ci/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/github-actions-ci/1.0.0/references/ci-checklist.md"
+    ]
+  }
+}

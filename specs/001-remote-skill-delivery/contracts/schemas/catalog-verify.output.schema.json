@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.example/schemas/catalog-verify.output.schema.json",
+  "title": "catalog:verify output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["releaseId", "valid", "checks", "revisions", "errors"],
+  "properties": {
+    "releaseId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "valid": { "type": "boolean" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventory", "release", "publicationClaimAbsent", "advisoryChain", "githubBaseline", "baselineMode", "previousReleaseCommit", "selectedGitHubReleaseId", "selectedGitHubPublishedAt", "resolvedPreviousReleaseCommit"],
+      "properties": {
+        "inventory": { "type": "boolean" },
+        "release": { "type": "boolean" },
+        "publicationClaimAbsent": { "type": "boolean" },
+        "advisoryChain": { "type": "boolean" },
+        "githubBaseline": { "type": "boolean" },
+        "baselineMode": { "enum": ["genesis", "non-genesis"] },
+        "previousReleaseCommit": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          ]
+        },
+        "selectedGitHubReleaseId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "selectedGitHubPublishedAt": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date-time" }
+          ]
+        },
+        "resolvedPreviousReleaseCommit": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "baselineMode": { "const": "genesis" } },
+            "required": ["baselineMode"]
+          },
+          "then": {
+            "properties": {
+              "previousReleaseCommit": { "type": "null" },
+              "selectedGitHubReleaseId": { "type": "null" },
+              "selectedGitHubPublishedAt": { "type": "null" },
+              "resolvedPreviousReleaseCommit": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "previousReleaseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+              "selectedGitHubReleaseId": { "type": "integer", "minimum": 1 },
+              "selectedGitHubPublishedAt": { "type": "string", "format": "date-time" },
+              "resolvedPreviousReleaseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+          }
+        }
+      ]
+    },
+    "revisions": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skillId", "revision", "bundleSha256", "valid"],
+        "properties": {
+          "skillId": { "$ref": "common.schema.json#/$defs/SkillId" },
+          "revision": { "$ref": "common.schema.json#/$defs/Revision" },
+          "bundleSha256": { "$ref": "common.schema.json#/$defs/Sha256" },
+          "valid": { "type": "boolean" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
+    }
+  }
+}

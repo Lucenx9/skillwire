@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb",
+  "instructionsSha256": "bb72b8aa1039155b6d5336b086fe92c1fb691ab75f16e9d1b9a29b49245ddc7e",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/threat-modeling"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 420,
+      "mediaType": "text/markdown",
+      "path": "references/threat-model-template.md",
+      "sha256": "f42deec4c5031b83577fe093c026458300a2f35c703e8114faad69e19a93608c"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "threat-modeling",
+  "sourcePaths": {
+    "instructions": "catalog/skills/threat-modeling/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/threat-modeling/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/threat-modeling/1.0.0/references/threat-model-template.md"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env*
+!.env.example
+.secrets/
+benchmarks/results/*
+!benchmarks/results/.gitkeep
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/

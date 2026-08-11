@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599",
+  "instructionsSha256": "c423f8f79d9c383950683374470e1df51e46f806f3e8e0104bc28c18783cc2c9",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/dependency-upgrade-planning"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 493,
+      "mediaType": "text/markdown",
+      "path": "references/upgrade-checklist.md",
+      "sha256": "89471bda71872b1238970e72a90232ceb70392103f9469fb0d4bb10a3c624392"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "dependency-upgrade-planning",
+  "sourcePaths": {
+    "instructions": "catalog/skills/dependency-upgrade-planning/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/dependency-upgrade-planning/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/dependency-upgrade-planning/1.0.0/references/upgrade-checklist.md"
+    ]
+  }
+}

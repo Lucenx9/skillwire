@@ -1,0 +1,58 @@
+{
+  "name": "skillwire",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote MCP skill discovery service",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "auth:admin": "tsx src/authentication/admin-cli.ts",
+    "advisory:verify": "tsx src/catalog/advisory-verify-cli.ts",
+    "catalog:publish": "tsx src/catalog/publish-cli.ts",
+    "catalog:verify": "tsx src/catalog/verify-cli.ts",
+    "db:migrate": "tsx src/persistence/postgres/migration-runner.ts",
+    "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "benchmark:informational": "tsx benchmarks/informational-benchmark.ts",
+    "benchmark:validate": "tsx benchmarks/informational-benchmark.ts --validate-only",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/src/main.js",
+    "format": "prettier --write src tests catalog evaluation benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
+    "format:check": "prettier --check src tests catalog evaluation benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:contract": "vitest run --project contract",
+    "test:integration": "vitest run --project integration --passWithNoTests",
+    "test:e2e": "vitest run --project e2e",
+    "test:evaluation": "vitest run --project evaluation --passWithNoTests",
+    "test:security": "vitest run --project security --passWithNoTests"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.0",
+    "@modelcontextprotocol/hono": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "hono": "4.13.1",
+    "pg": "8.23.0",
+    "pino": "10.3.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@testcontainers/postgresql": "12.1.0",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.21.0",
+    "eslint": "10.8.1",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.10"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/list_repo_memory.output.schema.json",
+  "title": "list_repo_memory successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "./common.schema.json#/$defs/MemoryEntry"
+      }
+    }
+  }
+}

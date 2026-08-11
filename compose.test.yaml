@@ -1,0 +1,26 @@
+services:
+  test:
+    build:
+      context: .
+      target: test
+    image: skillwire-test:local
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - export TEST_DATABASE_URL="$$(cat /run/secrets/database_url)"; exec pnpm
+        test
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+      - /app/node_modules/.vite-temp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"

@@ -1,0 +1,44 @@
+{
+  "skillId": "fixture-skill",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": { "provider": "git", "reference": "skillwire/fixture" },
+    "sourceRevision": "abc123",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "instructions": "# Fixture\n",
+  "instructionsSha256": "7e98df7437f1b50bc0ea2ba7180f28bdb7a043cd2c6045e1783124cdba2fdcc5",
+  "resourceManifest": [
+    {
+      "path": "references/first.md",
+      "mediaType": "text/markdown",
+      "byteLength": 6,
+      "sha256": "b640e840b19d378660b32fb51ae18d67dccb4a8596a29e7bd72c1b2ae5928f41"
+    },
+    {
+      "path": "references/second.md",
+      "mediaType": "text/plain",
+      "byteLength": 7,
+      "sha256": "480c2336b410f1ad5f8bf1b28944490255804b65350c527787e74ebdd511e3a4"
+    }
+  ],
+  "resources": [
+    {
+      "path": "references/first.md",
+      "mediaType": "text/markdown",
+      "byteLength": 6,
+      "sha256": "b640e840b19d378660b32fb51ae18d67dccb4a8596a29e7bd72c1b2ae5928f41",
+      "content": "first\n"
+    },
+    {
+      "path": "references/second.md",
+      "mediaType": "text/plain",
+      "byteLength": 7,
+      "sha256": "480c2336b410f1ad5f8bf1b28944490255804b65350c527787e74ebdd511e3a4",
+      "content": "second\n"
+    }
+  ],
+  "bundleSha256": "9008aeb6071f57cc7a43b3c0f36d66e462d650b7c7bba63ec872baaadba30ec2"
+}

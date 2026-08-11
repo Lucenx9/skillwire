@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40",
+  "instructionsSha256": "427addd65b9cb8bedcdd304e2e7a1579dbb4cf419607a3d07323752efe4b7277",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/node-api-design"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 539,
+      "mediaType": "text/markdown",
+      "path": "references/api-review-checklist.md",
+      "sha256": "5adf449e584527082cf36f48ac3aa1b64cda94bbd3ecbe309a57b04b545de3b8"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "node-api-design",
+  "sourcePaths": {
+    "instructions": "catalog/skills/node-api-design/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/node-api-design/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/node-api-design/1.0.0/references/api-review-checklist.md"
+    ]
+  }
+}

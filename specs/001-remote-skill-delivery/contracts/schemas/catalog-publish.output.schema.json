@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.example/schemas/catalog-publish.output.schema.json",
+  "title": "catalog:publish output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["releaseId", "created", "releasePath", "revisions", "errors"],
+  "properties": {
+    "releaseId": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+      ]
+    },
+    "created": { "type": "boolean" },
+    "releasePath": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^catalog/releases/[a-z0-9-]+$" }
+      ]
+    },
+    "revisions": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skillId", "revision", "bundleSha256", "recordPath", "status", "code"],
+        "properties": {
+          "skillId": { "$ref": "common.schema.json#/$defs/SkillId" },
+          "revision": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "common.schema.json#/$defs/Revision" }
+            ]
+          },
+          "bundleSha256": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "common.schema.json#/$defs/Sha256" }
+            ]
+          },
+          "recordPath": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "string",
+                "pattern": "^catalog/releases/[a-z0-9-]+/revisions/[a-z0-9-]+\\.json$"
+              }
+            ]
+          },
+          "status": { "enum": ["created", "rejected"] },
+          "code": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
+            ]
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "created": { "const": true } } },
+      "then": {
+        "properties": {
+          "releaseId": { "type": "string" },
+          "releasePath": { "type": "string" },
+          "errors": { "maxItems": 0 },
+          "revisions": {
+            "items": {
+              "properties": {
+                "revision": { "$ref": "common.schema.json#/$defs/Revision" },
+                "bundleSha256": { "$ref": "common.schema.json#/$defs/Sha256" },
+                "recordPath": { "type": "string" },
+                "status": { "const": "created" },
+                "code": { "type": "null" }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "releasePath": { "type": "null" },
+          "errors": { "minItems": 1 },
+          "revisions": {
+            "items": {
+              "properties": {
+                "status": { "const": "rejected" },
+                "code": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "threat-modeling",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/threat-modeling"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/threat-model-template.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

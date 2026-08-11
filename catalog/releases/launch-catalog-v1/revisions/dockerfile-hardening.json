@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d",
+  "instructionsSha256": "8f13cd87f7d3cd23062d246bf1e08a0009de925f3ca5492428cb9c36211d5bce",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/dockerfile-hardening"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 454,
+      "mediaType": "text/markdown",
+      "path": "references/hardening-checklist.md",
+      "sha256": "8160ddf49c2807d6935391554494c05cf03615565bfa2cf83eb570ce90243c9a"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "dockerfile-hardening",
+  "sourcePaths": {
+    "instructions": "catalog/skills/dockerfile-hardening/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/dockerfile-hardening/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/dockerfile-hardening/1.0.0/references/hardening-checklist.md"
+    ]
+  }
+}

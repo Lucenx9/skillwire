@@ -1,0 +1,32 @@
+{
+  "bundleSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493",
+  "instructionsSha256": "dad2d2dc27c82db2d6bdfa492dc231e9c7e1ac7b89ba0b056e392d58831ee8fd",
+  "publishedProvenance": {
+    "license": "Apache-2.0",
+    "owner": "SkillWire maintainers",
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/postgres-schema-review"
+    },
+    "sourceRevision": "1.0.0",
+    "trustAtPublication": "trusted"
+  },
+  "resourceManifest": [
+    {
+      "byteLength": 529,
+      "mediaType": "text/markdown",
+      "path": "references/schema-review-checklist.md",
+      "sha256": "0610a5039fd64bc8ee597930d32e5930afb74dab6b1b2d4c11e7a4713ac30d87"
+    }
+  ],
+  "revision": "1.0.0",
+  "schemaVersion": 1,
+  "skillId": "postgres-schema-review",
+  "sourcePaths": {
+    "instructions": "catalog/skills/postgres-schema-review/1.0.0/SKILL.md",
+    "provenance": "catalog/skills/postgres-schema-review/1.0.0/provenance.json",
+    "resources": [
+      "catalog/skills/postgres-schema-review/1.0.0/references/schema-review-checklist.md"
+    ]
+  }
+}

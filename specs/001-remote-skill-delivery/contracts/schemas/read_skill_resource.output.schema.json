@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/contracts/read_skill_resource.output.schema.json",
+  "title": "read_skill_resource successful structured output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skillId",
+    "revision",
+    "revisionSha256",
+    "path",
+    "mediaType",
+    "byteLength",
+    "sha256",
+    "content"
+  ],
+  "properties": {
+    "skillId": {
+      "$ref": "./common.schema.json#/$defs/SkillId"
+    },
+    "revision": {
+      "$ref": "./common.schema.json#/$defs/Revision"
+    },
+    "revisionSha256": {
+      "$ref": "./common.schema.json#/$defs/Sha256"
+    },
+    "path": {
+      "$ref": "./common.schema.json#/$defs/ResourcePath"
+    },
+    "mediaType": {
+      "type": "string",
+      "enum": ["text/markdown", "text/plain"]
+    },
+    "byteLength": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    },
+    "sha256": {
+      "$ref": "./common.schema.json#/$defs/Sha256"
+    },
+    "content": {
+      "type": "string",
+      "maxLength": 262144
+    }
+  }
+}

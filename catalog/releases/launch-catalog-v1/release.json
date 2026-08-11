@@ -1,0 +1,72 @@
+{
+  "advisoryChainHead": "2f58681907204b8be2c1e91d5f693ac032597488806d3ac4aa3262e1c2094a84",
+  "genesis": true,
+  "inventorySha256": "1574dda933ade309eff63a4bbdcb4dbe07ea4ed4bddb6db5df70f2c22a9c7c4c",
+  "previousReleaseCommit": null,
+  "publishedAt": "2026-08-11T00:00:00.000Z",
+  "releaseId": "launch-catalog-v1",
+  "revisionCount": 10,
+  "revisions": [
+    {
+      "bundleSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599",
+      "recordPath": "revisions/dependency-upgrade-planning.json",
+      "revision": "1.0.0",
+      "skillId": "dependency-upgrade-planning"
+    },
+    {
+      "bundleSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d",
+      "recordPath": "revisions/dockerfile-hardening.json",
+      "revision": "1.0.0",
+      "skillId": "dockerfile-hardening"
+    },
+    {
+      "bundleSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c",
+      "recordPath": "revisions/github-actions-ci.json",
+      "revision": "1.0.0",
+      "skillId": "github-actions-ci"
+    },
+    {
+      "bundleSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40",
+      "recordPath": "revisions/node-api-design.json",
+      "revision": "1.0.0",
+      "skillId": "node-api-design"
+    },
+    {
+      "bundleSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493",
+      "recordPath": "revisions/postgres-schema-review.json",
+      "revision": "1.0.0",
+      "skillId": "postgres-schema-review"
+    },
+    {
+      "bundleSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0",
+      "recordPath": "revisions/react-accessibility.json",
+      "revision": "1.0.0",
+      "skillId": "react-accessibility"
+    },
+    {
+      "bundleSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346",
+      "recordPath": "revisions/technical-documentation.json",
+      "revision": "1.0.0",
+      "skillId": "technical-documentation"
+    },
+    {
+      "bundleSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb",
+      "recordPath": "revisions/threat-modeling.json",
+      "revision": "1.0.0",
+      "skillId": "threat-modeling"
+    },
+    {
+      "bundleSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec",
+      "recordPath": "revisions/typescript-code-review.json",
+      "revision": "1.0.0",
+      "skillId": "typescript-code-review"
+    },
+    {
+      "bundleSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3",
+      "recordPath": "revisions/vitest-test-design.json",
+      "revision": "1.0.0",
+      "skillId": "vitest-test-design"
+    }
+  ],
+  "schemaVersion": 1
+}

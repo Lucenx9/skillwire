@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skillId": "vitest-test-design",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": {
+      "provider": "git",
+      "reference": "skillwire/catalog/skills/vitest-test-design"
+    },
+    "sourceRevision": "1.0.0",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    {
+      "path": "references/test-design-checklist.md",
+      "mediaType": "text/markdown"
+    }
+  ]
+}

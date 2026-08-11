@@ -1,0 +1,16 @@
+{
+  "skillId": "fixture-skill",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": { "provider": "git", "reference": "skillwire/fixture" },
+    "sourceRevision": "abc123",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "instructions": "# Mutated fixture\n",
+  "instructionsSha256": "7e98df7437f1b50bc0ea2ba7180f28bdb7a043cd2c6045e1783124cdba2fdcc5",
+  "resourceManifest": [],
+  "resources": [],
+  "bundleSha256": "9008aeb6071f57cc7a43b3c0f36d66e462d650b7c7bba63ec872baaadba30ec2"
+}

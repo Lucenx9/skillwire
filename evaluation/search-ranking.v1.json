@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "search-ranking-v1",
+  "cases": [
+    {
+      "id": "dependency-upgrade-01",
+      "task": "Plan dependency upgrades with compatibility research and rollback",
+      "expectedSkillId": "dependency-upgrade-planning",
+      "rationale": "Names the upgrade, compatibility, and rollback capabilities."
+    },
+    {
+      "id": "dependency-upgrade-02",
+      "task": "Create migration planning for package version changes",
+      "expectedSkillId": "dependency-upgrade-planning",
+      "rationale": "Targets migration planning and version changes."
+    },
+    {
+      "id": "dependency-upgrade-03",
+      "task": "Assess library compatibility before a dependency update",
+      "expectedSkillId": "dependency-upgrade-planning",
+      "rationale": "Targets compatibility research for dependency changes."
+    },
+    {
+      "id": "dockerfile-hardening-01",
+      "task": "Harden a Dockerfile for least privilege and avoid a root user",
+      "expectedSkillId": "dockerfile-hardening",
+      "rationale": "Names Dockerfile and least-privilege controls."
+    },
+    {
+      "id": "dockerfile-hardening-02",
+      "task": "Review container security and secret safety",
+      "expectedSkillId": "dockerfile-hardening",
+      "rationale": "Targets the container security review capability."
+    },
+    {
+      "id": "dockerfile-hardening-03",
+      "task": "Make a container build minimal and reproducible",
+      "expectedSkillId": "dockerfile-hardening",
+      "rationale": "Targets reproducible container builds."
+    },
+    {
+      "id": "github-actions-01",
+      "task": "Design a GitHub Actions CI workflow",
+      "expectedSkillId": "github-actions-ci",
+      "rationale": "Names the platform and CI workflow."
+    },
+    {
+      "id": "github-actions-02",
+      "task": "Improve continuous integration pipelines and delivery automation",
+      "expectedSkillId": "github-actions-ci",
+      "rationale": "Targets CI pipelines and delivery automation."
+    },
+    {
+      "id": "github-actions-03",
+      "task": "Maintain GitHub Actions validation jobs",
+      "expectedSkillId": "github-actions-ci",
+      "rationale": "Names GitHub Actions validation."
+    },
+    {
+      "id": "node-api-design-01",
+      "task": "Design Node.js REST endpoints",
+      "expectedSkillId": "node-api-design",
+      "rationale": "Names Node.js and REST endpoints."
+    },
+    {
+      "id": "node-api-design-02",
+      "task": "Review service interfaces for backward compatibility",
+      "expectedSkillId": "node-api-design",
+      "rationale": "Targets service interfaces and compatibility."
+    },
+    {
+      "id": "node-api-design-03",
+      "task": "Secure a Node API design",
+      "expectedSkillId": "node-api-design",
+      "rationale": "Names Node and API security."
+    },
+    {
+      "id": "postgres-schema-01",
+      "task": "Review a PostgreSQL schema for constraints and indexes",
+      "expectedSkillId": "postgres-schema-review",
+      "rationale": "Names PostgreSQL schema review capabilities."
+    },
+    {
+      "id": "postgres-schema-02",
+      "task": "Check database migrations and data integrity",
+      "expectedSkillId": "postgres-schema-review",
+      "rationale": "Targets migrations and integrity."
+    },
+    {
+      "id": "postgres-schema-03",
+      "task": "Analyze Postgres indexes and constraints",
+      "expectedSkillId": "postgres-schema-review",
+      "rationale": "Targets PostgreSQL index and constraint review."
+    },
+    {
+      "id": "react-accessibility-01",
+      "task": "Review React accessibility, ARIA, and focus management",
+      "expectedSkillId": "react-accessibility",
+      "rationale": "Names React accessibility capabilities."
+    },
+    {
+      "id": "react-accessibility-02",
+      "task": "Check semantic HTML and keyboard input",
+      "expectedSkillId": "react-accessibility",
+      "rationale": "Targets semantic and keyboard accessibility."
+    },
+    {
+      "id": "react-accessibility-03",
+      "task": "Make a React interface accessible for focus and feedback",
+      "expectedSkillId": "react-accessibility",
+      "rationale": "Targets accessible React interface behavior."
+    },
+    {
+      "id": "technical-docs-01",
+      "task": "Write a README with validation instructions",
+      "expectedSkillId": "technical-documentation",
+      "rationale": "Targets README and validation guidance."
+    },
+    {
+      "id": "technical-docs-02",
+      "task": "Create technical documentation using audience analysis",
+      "expectedSkillId": "technical-documentation",
+      "rationale": "Names technical documentation and audience analysis."
+    },
+    {
+      "id": "technical-docs-03",
+      "task": "Produce an accurate operator guide",
+      "expectedSkillId": "technical-documentation",
+      "rationale": "Targets accurate technical guides."
+    },
+    {
+      "id": "threat-modeling-01",
+      "task": "Perform threat modeling for trust boundaries and attacker goals",
+      "expectedSkillId": "threat-modeling",
+      "rationale": "Names threat modeling and attacker analysis."
+    },
+    {
+      "id": "threat-modeling-02",
+      "task": "Identify assets, abuse cases, and mitigations",
+      "expectedSkillId": "threat-modeling",
+      "rationale": "Targets core threat-model artifacts."
+    },
+    {
+      "id": "threat-modeling-03",
+      "task": "Model security threats across trust boundaries",
+      "expectedSkillId": "threat-modeling",
+      "rationale": "Targets threats and trust boundaries."
+    },
+    {
+      "id": "typescript-review-01",
+      "task": "Review TypeScript code for type safety",
+      "expectedSkillId": "typescript-code-review",
+      "rationale": "Names TypeScript review and type safety."
+    },
+    {
+      "id": "typescript-review-02",
+      "task": "Check type narrowing and regression risks",
+      "expectedSkillId": "typescript-code-review",
+      "rationale": "Targets narrowing and regression analysis."
+    },
+    {
+      "id": "typescript-review-03",
+      "task": "Assess TypeScript correctness and maintainability",
+      "expectedSkillId": "typescript-code-review",
+      "rationale": "Targets correctness and maintainability."
+    },
+    {
+      "id": "vitest-design-01",
+      "task": "Design Vitest unit, contract, and integration tests",
+      "expectedSkillId": "vitest-test-design",
+      "rationale": "Names Vitest and its test layers."
+    },
+    {
+      "id": "vitest-design-02",
+      "task": "Test mocking and failure paths with Vitest",
+      "expectedSkillId": "vitest-test-design",
+      "rationale": "Targets Vitest mocking and failure coverage."
+    },
+    {
+      "id": "vitest-design-03",
+      "task": "Improve test coverage using focused Vitest tests",
+      "expectedSkillId": "vitest-test-design",
+      "rationale": "Targets focused Vitest test design."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "skillId": "fixture-skill",
+  "revision": "1.0.0",
+  "publishedProvenance": {
+    "source": { "provider": "git", "reference": "skillwire/fixture" },
+    "sourceRevision": "abc123",
+    "owner": "SkillWire maintainers",
+    "license": "Apache-2.0",
+    "trustAtPublication": "trusted"
+  },
+  "resources": [
+    { "path": "references/first.md", "mediaType": "text/markdown" },
+    { "path": "references/second.md", "mediaType": "text/plain" }
+  ]
+}
