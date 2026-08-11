@@ -1,4 +1,4 @@
-if (process.env["SKILLWIRE_BLOCK_GITHUB_NETWORK"] === "true") {
+if (process.env["SKILLWIRE_BLOCK_GITHUB_NETWORK"] !== "false") {
   const systemFetch = globalThis.fetch;
   globalThis.fetch = (input, init) => {
     const url = new URL(

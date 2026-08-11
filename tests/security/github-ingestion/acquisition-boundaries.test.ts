@@ -6,6 +6,7 @@ import { GitHubSearchDiscoveryProvider } from "../../../src/ingestion/github/dis
 import { requiredBlob } from "../../../src/application/services/source-synchronization-service.js";
 import { GitHubRestClient } from "../../../src/ingestion/github/rest-client.js";
 import { extractTextualResourceReferences } from "../../../src/ingestion/parsing/markdown-resources.js";
+import { createTestDatabase } from "../../helpers/database.js";
 
 describe("GitHub acquisition security boundaries", () => {
   it("rejects alternate-origin redirects and pagination without fetching them", async () => {
@@ -153,6 +154,8 @@ describe("GitHub acquisition security boundaries", () => {
     expect(requiredCi).toContain('SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"');
     expect(requiredCi).not.toMatch(/catalog:verify[^\n]*--github/);
     expect(requiredCi).not.toMatch(/advisory:verify[^\n]*--github/);
+    const composeTest = await readFile("compose.test.yaml", "utf8");
+    expect(composeTest).toContain('SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"');
     const live = await readFile(
       ".github/workflows/github-live-smoke.yml",
       "utf8",
@@ -167,4 +170,19 @@ describe("GitHub acquisition security boundaries", () => {
     expect(smoke).toContain("imported.resourceCount !== 21");
     expect(smoke).not.toMatch(/writeFile|appendFile|rename\(/);
   });
+
+  it("rejects live GitHub while retaining PostgreSQL access in the test boundary", async () => {
+    await expect(
+      fetch("https://api.github.com/repos/mattpocock/skills"),
+    ).rejects.toThrow("UNEXPECTED_LIVE_GITHUB_REQUEST");
+    const database = await createTestDatabase();
+    try {
+      await database.migrate();
+      await expect(
+        database.pool.query("SELECT 1 AS ready"),
+      ).resolves.toMatchObject({ rows: [{ ready: 1 }] });
+    } finally {
+      await database.close();
+    }
+  }, 120_000);
 });

@@ -4,6 +4,7 @@ import { GitHubRestClient } from "../../../src/ingestion/github/rest-client.js";
 
 const enabled =
   process.env["SKILLWIRE_RUN_LIVE_GITHUB_SMOKE"] === "1" &&
+  process.env["SKILLWIRE_BLOCK_GITHUB_NETWORK"] === "false" &&
   typeof process.env["GITHUB_TOKEN"] === "string" &&
   process.env["GITHUB_TOKEN"] !== "";
 

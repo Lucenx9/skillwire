@@ -327,7 +327,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
                 ),
               }),
             ),
-          preSyncAdvisoryHead,
+          null,
           input.observedRepository?.repositoryId ??
             input.revisions[0]?.provenance.repositoryId,
           input.observedRepository?.owner ??
@@ -398,6 +398,22 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           "UPDATE github_sources SET source_classification = 'quarantined' WHERE id = $1",
           [input.sourceId],
         );
+      }
+      const finalizedAdvisoryHead = await client.query<{
+        last_event_sha256: string;
+      }>(
+        "SELECT last_event_sha256 FROM external_advisory_chain_head WHERE singleton",
+      );
+      const finalHead = finalizedAdvisoryHead.rows[0]?.last_event_sha256;
+      if (finalHead === undefined) throw new Error("ADVISORY_CHAIN_INVALID");
+      const finalizedSnapshot = await client.query(
+        `UPDATE external_source_snapshots
+         SET advisory_chain_head_sha256=$2
+         WHERE id=$1 AND advisory_chain_head_sha256 IS NULL`,
+        [snapshotId, finalHead],
+      );
+      if (finalizedSnapshot.rowCount !== 1) {
+        throw new Error("PUBLICATION_CONFLICT");
       }
       if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
       return {

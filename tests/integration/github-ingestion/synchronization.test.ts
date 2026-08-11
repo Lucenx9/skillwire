@@ -97,6 +97,9 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
         "beta/SKILL.md": skill("beta", "Changed beta once more."),
         "gamma/SKILL.md": skill("gamma", "New gamma content."),
       }),
+      this.#commit("5".repeat(40), {
+        "alpha/SKILL.md": skill("alpha", "Keep this content."),
+      }),
     ];
   }
 
@@ -415,6 +418,111 @@ describe("immutable source synchronization", () => {
   }, 120_000);
 
   afterAll(async () => database.close());
+
+  it("anchors snapshots to the final advisory head for zero, one, and multiple events with rollback", async () => {
+    const isolated = await createTestDatabase();
+    await isolated.migrate();
+    try {
+      const provider = new MutableNestedFixtureProvider(6010);
+      const store = new PostgresExternalCatalogStore(isolated.pool);
+      const registration = await new SourceRegistrationService(
+        provider,
+        store,
+      ).add(
+        { owner: "fixture-org", repository: provider.repositoryName },
+        "advisory-anchor-admin",
+      );
+      const synchronization = new SourceSynchronizationService(provider, store);
+      const chainState = async () => {
+        const result = await isolated.pool.query<{
+          last_sequence: string;
+          last_event_sha256: string;
+        }>(
+          "SELECT last_sequence,last_event_sha256 FROM external_advisory_chain_head WHERE singleton",
+        );
+        const row = result.rows[0];
+        if (row === undefined) throw new Error("advisory fixture head missing");
+        return row;
+      };
+      const snapshotHead = async (snapshotId: string) =>
+        (
+          await isolated.pool.query<{ advisory_chain_head_sha256: string }>(
+            "SELECT advisory_chain_head_sha256 FROM external_source_snapshots WHERE id=$1",
+            [snapshotId],
+          )
+        ).rows[0]?.advisory_chain_head_sha256;
+      const snapshotCount = async () =>
+        Number(
+          (
+            await isolated.pool.query<{ count: string }>(
+              "SELECT count(*)::text AS count FROM external_source_snapshots",
+            )
+          ).rows[0]?.count,
+        );
+      const eventCount = async () =>
+        Number(
+          (
+            await isolated.pool.query<{ count: string }>(
+              "SELECT count(*)::text AS count FROM external_revision_advisory_events",
+            )
+          ).rows[0]?.count,
+        );
+
+      const zero = await synchronization.sync(registration.sourceId);
+      expect(await eventCount()).toBe(0);
+      expect(await snapshotHead(zero.snapshotId)).toBe(
+        (await chainState()).last_event_sha256,
+      );
+
+      provider.index = 1;
+      const one = await synchronization.sync(registration.sourceId);
+      expect(await eventCount()).toBe(1);
+      expect(await snapshotHead(one.snapshotId)).toBe(
+        (await chainState()).last_event_sha256,
+      );
+
+      const beforeFailure = {
+        chain: await chainState(),
+        events: await eventCount(),
+        snapshots: await snapshotCount(),
+      };
+      const failAtSequence = BigInt(beforeFailure.chain.last_sequence) + 2n;
+      await isolated.pool.query(`
+        CREATE FUNCTION fail_second_sync_advisory() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.sequence = ${failAtSequence.toString()} THEN
+            RAISE EXCEPTION 'injected second advisory failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$;
+        CREATE TRIGGER fail_second_sync_advisory
+        BEFORE INSERT ON external_revision_advisory_events
+        FOR EACH ROW EXECUTE FUNCTION fail_second_sync_advisory();
+      `);
+      provider.index = 4;
+      await expect(synchronization.sync(registration.sourceId)).rejects.toThrow(
+        "injected second advisory failure",
+      );
+      expect(await chainState()).toEqual(beforeFailure.chain);
+      expect(await eventCount()).toBe(beforeFailure.events);
+      expect(await snapshotCount()).toBe(beforeFailure.snapshots);
+      await isolated.pool.query(`
+        DROP TRIGGER fail_second_sync_advisory ON external_revision_advisory_events;
+        DROP FUNCTION fail_second_sync_advisory();
+      `);
+
+      const multiple = await synchronization.sync(registration.sourceId);
+      expect(await eventCount()).toBe(beforeFailure.events + 2);
+      expect(await snapshotCount()).toBe(beforeFailure.snapshots + 1);
+      expect(await snapshotHead(multiple.snapshotId)).toBe(
+        (await chainState()).last_event_sha256,
+      );
+    } finally {
+      await isolated.close();
+    }
+  }, 120_000);
 
   it("publishes changes, reuses equality, quarantines missing dependencies, and advises removals", async () => {
     const provider = new MutableNestedFixtureProvider();

@@ -21,7 +21,7 @@ describe("external policy migration", () => {
     const versions = await database.pool.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(versions.rows.at(-1)?.version).toBe("007");
+    expect(versions.rows.at(-1)?.version).toBe("008");
     const required = [
       "github_discovery_runs",
       "github_discovery_evidence",

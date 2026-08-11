@@ -10,6 +10,7 @@ services:
         test
     environment:
       SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+      SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
     secrets:
       - database_url
     depends_on:
