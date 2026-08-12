@@ -15,7 +15,9 @@
     "catalog:publish": "tsx src/catalog/publish-cli.ts",
     "catalog:verify": "tsx src/catalog/verify-cli.ts",
     "db:migrate": "tsx src/persistence/postgres/migration-runner.ts",
+    "source:admin": "tsx src/ingestion/admin-cli.ts",
     "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "smoke:github-live": "tsx scripts/smoke-github-live.ts",
     "benchmark:informational": "tsx benchmarks/informational-benchmark.ts",
     "benchmark:validate": "tsx benchmarks/informational-benchmark.ts --validate-only",
     "dev": "tsx watch src/main.ts",
@@ -37,8 +39,10 @@
     "@modelcontextprotocol/hono": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "hono": "4.13.1",
+    "mdast-util-from-markdown": "2.0.3",
     "pg": "8.23.0",
     "pino": "10.3.1",
+    "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

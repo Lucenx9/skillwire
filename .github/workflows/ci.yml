@@ -2,7 +2,8 @@ name: ci
 
 on:
   push:
-    branches: [main, "001-remote-skill-delivery"]
+    branches:
+      [main, "001-remote-skill-delivery", "002-github-catalog-ingestion"]
   pull_request:
   workflow_dispatch:
 
@@ -15,6 +16,8 @@ concurrency:
 
 env:
   PNPM_VERSION: 11.21.0
+  SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+  SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
 
 jobs:
   static:
@@ -117,17 +120,9 @@ jobs:
           corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
       - run: pnpm install --frozen-lockfile
       - name: Read-only catalog verification
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_API_URL: ${{ github.api_url }}
-        run: pnpm catalog:verify --release-id launch-catalog-v1 --github
+        run: pnpm catalog:verify --release-id launch-catalog-v1
       - name: Release-anchored advisory verification
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_API_URL: ${{ github.api_url }}
-        run: pnpm advisory:verify --release-id launch-catalog-v1 --github
+        run: pnpm advisory:verify --release-id launch-catalog-v1
       - run: git diff --check && git diff --exit-code
 
   container:
@@ -147,8 +142,9 @@ jobs:
           mkdir -p .secrets
           openssl rand -hex 32 > .secrets/postgres-password
           openssl rand -hex 32 > .secrets/api-key-pepper
+          : > .secrets/github-token
           node -e "const fs=require('fs'); const p=fs.readFileSync('.secrets/postgres-password','utf8').trim(); fs.writeFileSync('.secrets/database-url', 'postgresql://skillwire:'+p+'@postgres:5432/skillwire\n', {mode:0o600})"
-          chmod 0444 .secrets/database-url .secrets/api-key-pepper
+          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token
       - name: Validate Compose and build production image
         run: |
           docker compose config --quiet

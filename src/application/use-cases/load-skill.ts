@@ -1,9 +1,12 @@
 import type { SkillCatalogProvider } from "../ports/skill-catalog-provider.js";
+import type { AsyncSkillCatalogProvider } from "../ports/async-skill-catalog-provider.js";
 import { SkillWireError } from "../errors.js";
 import type {
   CurrentAdvisoryStatus,
   PublishedProvenance,
   ResourceManifestEntry,
+  GitHubCatalogOrigin,
+  SkillDependencyReference,
 } from "../../domain/catalog/types.js";
 import { repositoryMemoryScope } from "../../domain/repository-memory/types.js";
 import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
@@ -24,6 +27,10 @@ export interface LoadSkillResult {
   readonly instructions: string;
   readonly resourceManifest: readonly ResourceManifestEntry[];
   readonly memoryRecorded: boolean;
+  readonly catalogOrigin?: GitHubCatalogOrigin | undefined;
+  readonly currentClassification?: "verified" | "curated" | undefined;
+  readonly invocationMode?: "automatic" | "user-only" | undefined;
+  readonly dependencies?: readonly SkillDependencyReference[] | undefined;
 }
 
 export interface LoadSkill {
@@ -34,24 +41,35 @@ export interface LoadSkill {
 }
 
 export function createLoadSkill(
-  provider: SkillCatalogProvider,
+  provider: SkillCatalogProvider | AsyncSkillCatalogProvider,
   memoryStore: RepositoryMemoryStore,
 ): LoadSkill {
   return {
     async execute(input, principal) {
-      const status = provider.advisoryStatus(input.skillId, input.revision);
+      const status = await Promise.resolve(
+        provider.advisoryStatus(input.skillId, input.revision, principal),
+      );
       if (status === "revoked") throw new SkillWireError("NOT_FOUND");
       let revision;
       try {
-        revision = provider.findRevision(input.skillId, input.revision);
+        revision = await Promise.resolve(
+          provider.findRevision(input.skillId, input.revision, principal),
+        );
       } catch {
         throw new SkillWireError("REVISION_UNAVAILABLE");
       }
       if (revision === undefined) {
+        const latestStatus = await Promise.resolve(
+          provider.advisoryStatus(input.skillId, input.revision, principal),
+        );
         throw new SkillWireError(
-          status === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
+          latestStatus === "unavailable" ? "REVISION_UNAVAILABLE" : "NOT_FOUND",
         );
       }
+      const finalStatus = await Promise.resolve(
+        provider.advisoryStatus(input.skillId, input.revision, principal),
+      );
+      if (finalStatus === "revoked") throw new SkillWireError("NOT_FOUND");
       const memoryRecorded = input.repositoryHash !== undefined;
       if (input.repositoryHash !== undefined) {
         await memoryStore.recordUsage(
@@ -64,16 +82,25 @@ export function createLoadSkill(
           principal,
         );
       }
-      return {
+      const common = {
         skillId: revision.skillId,
         revision: revision.revision,
         revisionSha256: revision.bundleSha256,
         publishedProvenance: revision.publishedProvenance,
-        currentAdvisoryStatus: status ?? "available",
+        currentAdvisoryStatus: finalStatus ?? status ?? "available",
         instructions: revision.instructions,
         resourceManifest: revision.resourceManifest,
         memoryRecorded,
       };
+      return revision.catalogOrigin === undefined
+        ? common
+        : {
+            ...common,
+            catalogOrigin: revision.catalogOrigin,
+            currentClassification: revision.currentClassification,
+            invocationMode: revision.invocationMode,
+            dependencies: revision.dependencies ?? [],
+          };
     },
   };
 }

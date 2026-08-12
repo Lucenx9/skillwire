@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "github-import-search-v1",
+  "minimumSuccessRate": 0.9,
+  "cases": [
+    {
+      "id": "ask-matt-exact",
+      "task": "ask matt",
+      "expectedSkillName": "ask-matt",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "diagnosing-bugs-exact",
+      "task": "diagnosing bugs",
+      "expectedSkillName": "diagnosing-bugs",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "grill-with-docs-exact",
+      "task": "grill with docs",
+      "expectedSkillName": "grill-with-docs",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "triage-exact",
+      "task": "triage",
+      "expectedSkillName": "triage",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "improve-codebase-architecture-exact",
+      "task": "improve codebase architecture",
+      "expectedSkillName": "improve-codebase-architecture",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "setup-matt-pocock-skills-exact",
+      "task": "setup matt pocock skills",
+      "expectedSkillName": "setup-matt-pocock-skills",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "tdd-exact",
+      "task": "tdd",
+      "expectedSkillName": "tdd",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "to-spec-exact",
+      "task": "to spec",
+      "expectedSkillName": "to-spec",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "to-tickets-exact",
+      "task": "to tickets",
+      "expectedSkillName": "to-tickets",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "wayfinder-exact",
+      "task": "wayfinder",
+      "expectedSkillName": "wayfinder",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "implement-exact",
+      "task": "implement",
+      "expectedSkillName": "implement",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "prototype-exact",
+      "task": "prototype",
+      "expectedSkillName": "prototype",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "research-exact",
+      "task": "research",
+      "expectedSkillName": "research",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "domain-modeling-exact",
+      "task": "domain modeling",
+      "expectedSkillName": "domain-modeling",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "codebase-design-exact",
+      "task": "codebase design",
+      "expectedSkillName": "codebase-design",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "code-review-exact",
+      "task": "code review",
+      "expectedSkillName": "code-review",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "resolving-merge-conflicts-exact",
+      "task": "resolving merge conflicts",
+      "expectedSkillName": "resolving-merge-conflicts",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "wizard-exact",
+      "task": "wizard",
+      "expectedSkillName": "wizard",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "grill-me-exact",
+      "task": "grill me",
+      "expectedSkillName": "grill-me",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "grilling-exact",
+      "task": "grilling",
+      "expectedSkillName": "grilling",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "handoff-exact",
+      "task": "handoff",
+      "expectedSkillName": "handoff",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "teach-exact",
+      "task": "teach",
+      "expectedSkillName": "teach",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "to-questionnaire-exact",
+      "task": "to questionnaire",
+      "expectedSkillName": "to-questionnaire",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "wait-what-exact",
+      "task": "wait what",
+      "expectedSkillName": "wait-what",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "writing-for-agents-exact",
+      "task": "writing for agents",
+      "expectedSkillName": "writing-for-agents",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "ask-matt-alt",
+      "task": "consult ask matt",
+      "expectedSkillName": "ask-matt",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "diagnosing-bugs-alt",
+      "task": "systematic diagnosing bugs",
+      "expectedSkillName": "diagnosing-bugs",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "grill-with-docs-alt",
+      "task": "use grill with docs",
+      "expectedSkillName": "grill-with-docs",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "triage-alt",
+      "task": "perform triage",
+      "expectedSkillName": "triage",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "architecture-alt",
+      "task": "improve codebase architecture design",
+      "expectedSkillName": "improve-codebase-architecture",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "setup-skills-alt",
+      "task": "setup matt pocock skills",
+      "expectedSkillName": "setup-matt-pocock-skills",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "tdd-alt",
+      "task": "practice tdd tests",
+      "expectedSkillName": "tdd",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "to-spec-alt",
+      "task": "convert work to spec",
+      "expectedSkillName": "to-spec",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "to-tickets-alt",
+      "task": "convert spec to tickets",
+      "expectedSkillName": "to-tickets",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "wayfinder-alt",
+      "task": "use wayfinder",
+      "expectedSkillName": "wayfinder",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "implement-alt",
+      "task": "implement a plan",
+      "expectedSkillName": "implement",
+      "invocationContext": "user-requested"
+    },
+    {
+      "id": "prototype-alt",
+      "task": "build prototype",
+      "expectedSkillName": "prototype",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "research-alt",
+      "task": "conduct research",
+      "expectedSkillName": "research",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "domain-modeling-alt",
+      "task": "create domain modeling context",
+      "expectedSkillName": "domain-modeling",
+      "invocationContext": "automatic"
+    },
+    {
+      "id": "codebase-design-alt",
+      "task": "deepen codebase design",
+      "expectedSkillName": "codebase-design",
+      "invocationContext": "automatic"
+    }
+  ]
+}

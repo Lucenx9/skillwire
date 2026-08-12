@@ -1,25 +1,27 @@
 # SkillWire
 
-SkillWire is a remote MCP skill catalog. It discovers ten curated skills, loads
-exact immutable instructions, reads declared textual resources progressively,
-and remembers optional repository-scoped usage in PostgreSQL. Skill content is
-returned as inert MCP response data; it is never installed, executed, or written
-into a client repository.
+SkillWire is a remote MCP skill catalog. It combines ten curated first-party
+skills with verified or curated public GitHub imports, loads exact immutable
+instructions, reads declared textual resources progressively, and remembers
+optional repository-scoped usage in PostgreSQL. Skill content is returned as
+inert MCP response data; it is never installed, executed, or written into a
+client repository.
 
 ## Architecture
 
 ```text
-MCP client -> Hono Streamable HTTP -> application use cases -> immutable catalog
-                                      |                     -> verified catalog cache
-                                      +-> authoritative PostgreSQL repository memory
+MCP client -> Hono Streamable HTTP -> unified catalog -> first-party releases
+                                      |               -> imported PostgreSQL bundles
+                                      +-> repository memory
+Admin scheduler/CLI -> fixed-origin GitHub REST -> validation -> PostgreSQL
 ```
 
 The service is one stateless TypeScript modular monolith. Catalog releases,
 provenance, resource hashes, and the append-only advisory chain are
-version-controlled. PostgreSQL is the sole authority for accounts, API-key
-hashes, repository usage, outcomes, and privacy-safe erasure audit events. There
-is no repository-memory cache, Redis, queue, external catalog ingestion, or
-client-side skill installation.
+version-controlled. PostgreSQL is the sole authority for imported immutable
+bundles, source state, accounts, API-key hashes, repository usage, outcomes, and
+privacy-safe erasure audit events. There is no repository-memory cache, Redis,
+queue, repository clone, content execution, or client-side skill installation.
 
 ## Local development
 
@@ -50,11 +52,12 @@ cp .env.example .env
 install -d -m 700 .secrets
 openssl rand -hex 32 > .secrets/postgres-password
 openssl rand -hex 32 > .secrets/api-key-pepper
+: > .secrets/github-token
 postgres_password="$(tr -d '\n' < .secrets/postgres-password)"
 printf 'postgresql://skillwire:%s@postgres:5432/skillwire\n' "$postgres_password" \
   > .secrets/database-url
 chmod 400 .secrets/postgres-password
-chmod 444 .secrets/database-url .secrets/api-key-pepper
+chmod 444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token
 unset postgres_password
 docker compose up --build --wait
 curl --fail http://127.0.0.1:3000/health/live
@@ -117,6 +120,24 @@ SHA-256 values encoded as exactly 64 lowercase hexadecimal characters.
 ```
 
 Returns previews only—never instruction or resource bodies.
+
+Imported user-only skills require explicit intent:
+
+```json
+{
+  "name": "search_skills",
+  "arguments": {
+    "task": "ask matt",
+    "invocationContext": "user-requested",
+    "limit": 3
+  }
+}
+```
+
+Missing `invocationContext` means `automatic`; an exact-name query does not
+change that default. Imported previews include source owner/repository, pinned
+commit, original path, SPDX license/attribution, classification, and invocation
+mode, but no instruction, resource, or license body.
 
 ```json
 {
@@ -204,6 +225,8 @@ skill bodies or secrets, and writes nothing to the client tree.
   a verified, release-anchored advisory chain.
 - Runtime schemas accept no caller URL, repository source, executable extension,
   or client path.
+- Agent requests never discover, synchronize, clone, or directly read GitHub;
+  exact imported revisions are served from verified PostgreSQL bundles.
 - Resource paths, text encoding, media types, sizes, and hashes are validated
   before response.
 - Structured security logs redact credentials, repository hashes, queries,
@@ -211,7 +234,8 @@ skill bodies or secrets, and writes nothing to the client tree.
 - `forget_repo_memory` covers authoritative live PostgreSQL rows. Backup, WAL,
   snapshot, and media retention remain operator responsibilities.
 
-See [privacy boundaries](docs/privacy.md),
+See [source administration](docs/source-administration.md),
+[privacy boundaries](docs/privacy.md),
 [catalog publication](docs/catalog-publication.md), and
 [operations](docs/operations.md).
 

@@ -9,6 +9,7 @@ import {
 } from "../../helpers/mcp-client.js";
 import { createPublishedCatalogWithStatus } from "../../helpers/catalog-cli.js";
 import { searchSkillsOutputSchema } from "../../../src/transport/mcp/schemas.js";
+import { importedCatalogFixture } from "../../helpers/imported-catalog-provider.js";
 
 describe("load_skill MCP contract", () => {
   let testClient: TestMcpClient | undefined;
@@ -156,5 +157,50 @@ describe("load_skill MCP contract", () => {
     expect(JSON.parse(text.text)).toMatchObject({
       error: { code: "NOT_FOUND", retryable: false },
     });
+  });
+
+  it("returns complete imported provenance without embedding resource bodies", async () => {
+    await testClient?.close();
+    const { app } = createTestApplication({
+      importedCatalogProvider: importedCatalogFixture.provider,
+    });
+    const appFetch: typeof fetch = async (input, init) => {
+      const source = new Request(input, init);
+      const headers = new Headers(source.headers);
+      headers.set("host", "localhost");
+      return app.fetch(new Request(source, { headers }));
+    };
+    testClient = await createTestMcpClient(
+      new URL("http://localhost/mcp"),
+      appFetch,
+    );
+
+    const loaded = await client().client.callTool({
+      name: "load_skill",
+      arguments: {
+        skillId: importedCatalogFixture.automaticId,
+        revision: importedCatalogFixture.revision,
+      },
+    });
+    const output = loadSkillOutputSchema.parse(loaded.structuredContent);
+    expect(output).toMatchObject({
+      publishedProvenance: {
+        sourceRevision: "84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+        owner: "Matt Pocock",
+        license: "MIT",
+        trustAtPublication: "structurally-verified",
+      },
+      catalogOrigin: {
+        owner: "mattpocock",
+        repository: "skills",
+        skillPath: "skills/tdd/SKILL.md",
+      },
+      invocationMode: "automatic",
+      currentClassification: "verified",
+      dependencies: [],
+    });
+    expect(JSON.stringify(output.resourceManifest)).not.toContain(
+      "Imported text",
+    );
   });
 });

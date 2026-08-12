@@ -1,0 +1,172 @@
+{
+  "repositoryId": 1148788086,
+  "owner": "mattpocock",
+  "repository": "skills",
+  "sourceOwner": "Matt Pocock",
+  "commitSha": "84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+  "manifestVersion": "1.2.3",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "ask-matt",
+      "path": "skills/engineering/ask-matt/SKILL.md",
+      "userOnly": true,
+      "resources": ["PHASE-BOUNDARIES.md"]
+    },
+    {
+      "name": "diagnosing-bugs",
+      "path": "skills/engineering/diagnosing-bugs/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "grill-with-docs",
+      "path": "skills/engineering/grill-with-docs/SKILL.md",
+      "userOnly": true,
+      "resources": [],
+      "dependencies": ["domain-modeling", "grilling"]
+    },
+    {
+      "name": "triage",
+      "path": "skills/engineering/triage/SKILL.md",
+      "userOnly": true,
+      "resources": ["AGENT-BRIEF.md", "OUT-OF-SCOPE.md"]
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "path": "skills/engineering/improve-codebase-architecture/SKILL.md",
+      "userOnly": true,
+      "resources": ["HTML-REPORT.md"]
+    },
+    {
+      "name": "setup-matt-pocock-skills",
+      "path": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+      "userOnly": true,
+      "resources": [
+        "domain.md",
+        "issue-tracker-github.md",
+        "issue-tracker-gitlab.md",
+        "issue-tracker-local.md",
+        "triage-labels.md"
+      ]
+    },
+    {
+      "name": "tdd",
+      "path": "skills/engineering/tdd/SKILL.md",
+      "userOnly": false,
+      "resources": ["mocking.md", "tests.md"]
+    },
+    {
+      "name": "to-spec",
+      "path": "skills/engineering/to-spec/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "to-tickets",
+      "path": "skills/engineering/to-tickets/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "wayfinder",
+      "path": "skills/engineering/wayfinder/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "implement",
+      "path": "skills/engineering/implement/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "prototype",
+      "path": "skills/engineering/prototype/SKILL.md",
+      "userOnly": false,
+      "resources": ["LOGIC.md", "UI.md"]
+    },
+    {
+      "name": "research",
+      "path": "skills/engineering/research/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "domain-modeling",
+      "path": "skills/engineering/domain-modeling/SKILL.md",
+      "userOnly": false,
+      "resources": ["ADR-FORMAT.md", "CONTEXT-FORMAT.md"]
+    },
+    {
+      "name": "codebase-design",
+      "path": "skills/engineering/codebase-design/SKILL.md",
+      "userOnly": false,
+      "resources": ["DEEPENING.md", "DESIGN-IT-TWICE.md"]
+    },
+    {
+      "name": "code-review",
+      "path": "skills/engineering/code-review/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "resolving-merge-conflicts",
+      "path": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "wizard",
+      "path": "skills/engineering/wizard/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "grill-me",
+      "path": "skills/productivity/grill-me/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "grilling",
+      "path": "skills/productivity/grilling/SKILL.md",
+      "userOnly": false,
+      "resources": []
+    },
+    {
+      "name": "handoff",
+      "path": "skills/productivity/handoff/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "teach",
+      "path": "skills/productivity/teach/SKILL.md",
+      "userOnly": true,
+      "resources": [
+        "LEARNING-RECORD-FORMAT.md",
+        "MISSION-FORMAT.md",
+        "RESOURCES-FORMAT.md"
+      ]
+    },
+    {
+      "name": "to-questionnaire",
+      "path": "skills/productivity/to-questionnaire/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "wait-what",
+      "path": "skills/productivity/wait-what/SKILL.md",
+      "userOnly": true,
+      "resources": []
+    },
+    {
+      "name": "writing-for-agents",
+      "path": "skills/productivity/writing-for-agents/SKILL.md",
+      "userOnly": false,
+      "resources": ["SKILL-MECHANICS.md"]
+    }
+  ]
+}

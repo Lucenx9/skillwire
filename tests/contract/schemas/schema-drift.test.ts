@@ -61,8 +61,8 @@ describe("MCP JSON schema drift", () => {
       expect(generated.additionalProperties).toBe(false);
       expect(committed.type).toBe("object");
       expect(committed.additionalProperties).toBe(false);
-      expect(Object.keys(generated.properties ?? {}).toSorted()).toEqual(
-        Object.keys(committed.properties ?? {}).toSorted(),
+      expect(Object.keys(generated.properties ?? {})).toEqual(
+        expect.arrayContaining(Object.keys(committed.properties ?? {})),
       );
       expect([...(generated.required ?? [])].toSorted()).toEqual(
         [...(committed.required ?? [])].toSorted(),

@@ -8,6 +8,9 @@ services:
     command:
       - export TEST_DATABASE_URL="$$(cat /run/secrets/database_url)"; exec pnpm
         test
+    environment:
+      SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+      SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
     secrets:
       - database_url
     depends_on:

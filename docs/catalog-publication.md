@@ -39,11 +39,11 @@ pnpm catalog:verify --release-id launch-catalog-v1
 pnpm advisory:verify --release-id launch-catalog-v1
 ```
 
-CI adds `--github` to advisory verification with `GITHUB_REPOSITORY`,
-`GITHUB_TOKEN`, and `GITHUB_API_URL`. It fully paginates non-draft releases,
-resolves the selected tag to an exact commit, and verifies that the current
-advisory chain is an unchanged append of bytes retrieved at that commit. Missing
-or ambiguous GitHub state fails closed.
+Required CI runs these read-only commands entirely from version-controlled
+release fixtures and blocks unexpected `api.github.com` requests. Exact GitHub
+release validation remains available as an explicitly credentialed manual
+operation; it fully paginates non-draft releases, resolves the selected tag to
+an exact commit, and fails closed on missing or ambiguous release state.
 
 Verification has no repair mode and writes neither catalog files nor PostgreSQL
 rows. Runtime containers include only the already-published catalog and execute

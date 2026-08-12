@@ -6,6 +6,7 @@ import {
   createTestMcpClient,
   type TestMcpClient,
 } from "../../helpers/mcp-client.js";
+import { importedCatalogFixture } from "../../helpers/imported-catalog-provider.js";
 
 describe("search_skills MCP contract", () => {
   let testClient: TestMcpClient | undefined;
@@ -134,5 +135,52 @@ describe("search_skills MCP contract", () => {
 
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toBeUndefined();
+  });
+
+  it("defaults to automatic invocation and requires explicit user intent for user-only imports", async () => {
+    await testClient?.close();
+    const { app } = createTestApplication({
+      importedCatalogProvider: importedCatalogFixture.provider,
+    });
+    const appFetch: typeof fetch = async (input, init) => {
+      const source = new Request(input, init);
+      const headers = new Headers(source.headers);
+      headers.set("host", "localhost");
+      return app.fetch(new Request(source, { headers }));
+    };
+    testClient = await createTestMcpClient(
+      new URL("http://localhost/mcp"),
+      appFetch,
+    );
+
+    const automatic = await client().client.callTool({
+      name: "search_skills",
+      arguments: { task: "ask matt", limit: 10 },
+    });
+    expect(
+      searchSkillsOutputSchema.parse(automatic.structuredContent).skills,
+    ).toEqual([]);
+
+    const requested = await client().client.callTool({
+      name: "search_skills",
+      arguments: {
+        task: "ask matt",
+        invocationContext: "user-requested",
+        limit: 10,
+      },
+    });
+    expect(
+      searchSkillsOutputSchema.parse(requested.structuredContent).skills[0],
+    ).toMatchObject({
+      skillId: importedCatalogFixture.userOnlyId,
+      trustAtPublication: "structurally-verified",
+      currentClassification: "verified",
+      invocationMode: "user-only",
+      catalogOrigin: {
+        kind: "github",
+        owner: "mattpocock",
+        repository: "skills",
+      },
+    });
   });
 });
