@@ -26,7 +26,7 @@ The formatted immutable pilot subset SHA-256 is `d88eb75cef1a426d05094b49bf0a647
 | Type-aware ESLint | Pass |
 | Strict TypeScript typecheck | Pass |
 | Production TypeScript build | Pass |
-| `test:activation` | Pass: 13 files, 93 tests |
+| `test:activation` | Pass: 13 files, 94 tests |
 | `test:activation-adapter` | Pass: 6 files, 60 tests, including real Codex-manager lifecycle against the pinned commit |
 | Complete Node 24/PostgreSQL/container Vitest matrix | Pass: 85 files and 415 tests; 1 file / 2 tests skipped by design in the container (credential-gated live GitHub and the `.git`-absent checkout case, which passed separately against the real repository) |
 | Frozen benchmark inputs | Pass |

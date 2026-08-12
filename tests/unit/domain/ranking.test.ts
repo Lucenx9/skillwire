@@ -112,6 +112,23 @@ describe("rankSkills", () => {
     ).toEqual([]);
   });
 
+  it("does not treat common connector words as positive relevance", () => {
+    const skills = [
+      {
+        ...metadata("upgrade-planning", ["dependency upgrades"]),
+        description:
+          "Plan dependency upgrades with compatibility tests and rollback.",
+      },
+    ];
+
+    expect(
+      rankSkills(skills, "Alphabetize apple, banana, and cherry.", 10),
+    ).toEqual([]);
+    expect(rankSkills(skills, "Replace commas with semicolons.", 10)).toEqual(
+      [],
+    );
+  });
+
   it("removes zero-score entries before applying the result limit", () => {
     const irrelevant = metadata("alpha-irrelevant", ["gardening"]);
     const relevant = metadata("zeta-relevant", ["typescript"]);

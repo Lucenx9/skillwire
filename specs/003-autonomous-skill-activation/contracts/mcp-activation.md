@@ -171,6 +171,7 @@ For unchanged task intent the instructed maximum is one search and one load. No 
 ## Relevance and isolation contract
 
 - `MINIMUM_RELEVANCE_SCORE` is `1`, preserving the existing `score > 0` gate.
+- Common non-discriminating connector tokens MUST be excluded before scoring so they cannot make an otherwise unrelated result visible.
 - Entries below the threshold MUST be removed before result limiting.
 - Repository memory MUST NOT make a zero-score result visible and MUST NOT precede task relevance in ordering.
 - In `automatic` context, `invocationMode: "user-only"` entries MUST be removed before ranking.

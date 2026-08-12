@@ -713,9 +713,7 @@ export function evaluateActivationCorpus(
       activationCase.scenarioClass !== "user-requested-without-intent" ||
       !ranked.some(({ skill }) => skill.invocationMode === "user-only");
     const zeroMatch =
-      activationCase.scenarioClass !== "irrelevant" ||
-      activationCase.expectedBehavior.search === "skip" ||
-      ranked.length === 0;
+      activationCase.scenarioClass !== "irrelevant" || ranked.length === 0;
     const matchValid = relevantExpected && isolated && zeroMatch;
 
     const expectedEvents: ActivationTraceEvent[] =
@@ -783,10 +781,7 @@ export function evaluateActivationCorpus(
     if (activationCase.scenarioClass === "irrelevant") {
       cohorts.irrelevant.caseIds.push(activationCase.id);
       zeroMatchDenominator += 1;
-      if (
-        activationCase.expectedBehavior.search === "skip" ||
-        ranked.length === 0
-      ) {
+      if (ranked.length === 0) {
         zeroMatchNumerator += 1;
       }
     }

@@ -121,14 +121,20 @@ describe("search_skills MCP contract", () => {
   });
 
   it("returns an empty list when no catalog text is relevant", async () => {
-    const result = await client().client.callTool({
-      name: "search_skills",
-      arguments: { task: "quasar xylophone zephyr", limit: 10 },
-    });
+    for (const task of [
+      "quasar xylophone zephyr",
+      "Alphabetize apple, banana, and cherry.",
+      "Replace commas with semicolons.",
+    ]) {
+      const result = await client().client.callTool({
+        name: "search_skills",
+        arguments: { task, limit: 10 },
+      });
 
-    expect(
-      searchSkillsOutputSchema.parse(result.structuredContent).skills,
-    ).toEqual([]);
+      expect(
+        searchSkillsOutputSchema.parse(result.structuredContent).skills,
+      ).toEqual([]);
+    }
   });
 
   it("rejects unknown input properties", async () => {
