@@ -83,6 +83,7 @@ describe("composed service startup", () => {
 
   it("transitions through a real PostgreSQL outage and recovery cleanup", async () => {
     await database.simulateOutage();
+    await expect(application.checkReadiness()).resolves.toBe(false);
     const unavailable = await application.app.request("/health/ready", {
       headers: { host: "127.0.0.1" },
     });
@@ -110,6 +111,7 @@ describe("composed service startup", () => {
       `,
       [accountId, randomUUID()],
     );
+    await expect(application.checkReadiness()).resolves.toBe(true);
     const recovered = await application.app.request("/health/ready", {
       headers: { host: "127.0.0.1" },
     });
