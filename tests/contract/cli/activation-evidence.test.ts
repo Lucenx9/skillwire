@@ -39,7 +39,7 @@ describe("activation evidence CLI", () => {
     invalidPair = join(temporaryRoot, "invalid-pair.json");
     const valid = createPairedActivationEvidenceFixture(projectRoot);
     writeFileSync(validPair, `${JSON.stringify(valid)}\n`, { mode: 0o600 });
-    valid.adapter.sourceCommit = "0".repeat(40);
+    valid.adapter.packageSha256 = "0".repeat(64);
     writeFileSync(invalidPair, `${JSON.stringify(valid)}\n`, { mode: 0o600 });
   });
 

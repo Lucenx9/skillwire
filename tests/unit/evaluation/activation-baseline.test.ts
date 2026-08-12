@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 import {
   loadActivationEvidence,
   validateActivationEvidence,
+  validatePairedActivationEvidence,
 } from "../../../src/evaluation/activation-evidence.js";
+import { validateCodexAdapterIntegrityManifest } from "../../../src/evaluation/codex-adapter-package.js";
 import { validateActivationReleaseSubset } from "../../../src/evaluation/activation-release-subset.js";
 import {
   loadActivationFixtures,
@@ -21,6 +23,8 @@ const SERVER_ONLY_EVIDENCE_SHA256 =
   "04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d";
 const RELEASE_SUBSET_SHA256 =
   "d88eb75cef1a426d05094b49bf0a64700ff0a7eebb023747349dd48dd4cd4b74";
+const PAIRED_EVIDENCE_SHA256 =
+  "0e7c1aec0339292b17c81ad9f725ffc22932bfa5030b5715a7f7fc1750aa28e6";
 
 function sha256(relativePath: string): string {
   return createHash("sha256")
@@ -132,5 +136,47 @@ describe("immutable autonomous-activation baseline", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it("validates the immutable paired evidence against its byte-identical release package", () => {
+    const evidencePath = "evaluation/evidence/003/adapter-pair-v1.json";
+    expect(sha256(evidencePath)).toBe(PAIRED_EVIDENCE_SHA256);
+    const evidence = JSON.parse(
+      readFileSync(join(projectRoot, evidencePath), "utf8"),
+    ) as {
+      experiment: { skillWireCommit: string };
+      adapter: { sourceCommit: string; packageSha256: string };
+      claimEligibility: { eligible: boolean };
+    };
+    const integrity = validateCodexAdapterIntegrityManifest(
+      JSON.parse(
+        readFileSync(
+          join(
+            projectRoot,
+            "distribution/codex-marketplace/release-integrity.json",
+          ),
+          "utf8",
+        ),
+      ) as unknown,
+      join(projectRoot, "integrations/codex/skillwire-autonomous-activation"),
+    );
+
+    expect(
+      validatePairedActivationEvidence(evidence, projectRoot),
+    ).toMatchObject({
+      status: "incomplete",
+      claimEligibility: { eligible: false },
+    });
+    expect(evidence.experiment.skillWireCommit).toBe(
+      "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
+    );
+    expect(evidence.adapter.sourceCommit).toBe(
+      "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
+    );
+    expect(integrity.source.commit).toBe(
+      "8c7c297a95cff42eb13212fc7b5c4ede11c35c7d",
+    );
+    expect(evidence.adapter.packageSha256).toBe(integrity.packageSha256);
+    expect(evidence.claimEligibility.eligible).toBe(false);
   });
 });

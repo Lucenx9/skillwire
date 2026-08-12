@@ -432,7 +432,7 @@ describe("autonomous activation through the registered MCP transport", () => {
       protocol: "modern",
       application: {
         importedCatalogProvider: provider,
-        ...(mode === "timeout" ? { requestDeadlineMilliseconds: 5 } : {}),
+        ...(mode === "timeout" ? { requestDeadlineMilliseconds: 500 } : {}),
       },
     });
     harnesses.push(harness);
@@ -465,6 +465,9 @@ describe("autonomous activation through the registered MCP transport", () => {
       "search_skills",
       "load_skill",
     ]);
+    if (mode === "timeout") {
+      expect(harness.httpStatuses.at(-1)).toBe(503);
+    }
     await new Promise((resolve) => setTimeout(resolve, 30));
     await expect(harness.clientTreeIsUnchanged()).resolves.toBe(true);
   });
@@ -585,13 +588,28 @@ function transientProvider(
   return {
     listMetadata: () => Promise.resolve([metadata]),
     advisoryStatus: () => Promise.resolve("available"),
-    findRevision: async () => {
+    findRevision: async (_skillId, _revision, execution) => {
       findCount += 1;
       if (mode === "unavailable") throw new Error("fixture unavailable");
       if (mode === "timeout") {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await new Promise<void>((resolve) => {
+          if (execution?.signal === undefined) {
+            setTimeout(resolve, 1_000);
+          } else if (execution.signal.aborted) {
+            resolve();
+          } else {
+            execution.signal.addEventListener(
+              "abort",
+              () => {
+                resolve();
+              },
+              { once: true },
+            );
+          }
+        });
+        throw new DOMException("fixture deadline exceeded", "TimeoutError");
       }
-      if (mode === "resource-failure" && findCount > 1) {
+      if (findCount > 1) {
         const corrupt: SkillRevision = {
           ...revision,
           resources: revision.resources.map((resource) => ({

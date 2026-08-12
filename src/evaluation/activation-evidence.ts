@@ -16,7 +16,6 @@ import {
 } from "./activation-release-subset.js";
 import {
   CANONICAL_SKILLWIRE_MCP_URL,
-  CODEX_ADAPTER_SOURCE_COMMIT,
   validateCodexAdapterIntegrityManifest,
 } from "./codex-adapter-package.js";
 
@@ -603,7 +602,7 @@ function validatePairControls(
     fatalCodes.add("PAIR_CONTROL_MISMATCH");
   }
   if (
-    experiment.skillWireCommit !== CODEX_ADAPTER_SOURCE_COMMIT ||
+    experiment.skillWireCommit !== pair.adapter.sourceCommit ||
     experiment.codexCliVersion !== serverOnly.harness.version ||
     experiment.codexCliVersion !== adapter.harness.version ||
     JSON.stringify(experiment.model) !== JSON.stringify(serverOnly.model) ||
@@ -646,8 +645,6 @@ function validatePairControls(
       join(projectRoot, "integrations/codex/skillwire-autonomous-activation"),
     );
     if (
-      pair.adapter.sourceCommit !== integrity.source.commit ||
-      pair.adapter.sourceCommit !== CODEX_ADAPTER_SOURCE_COMMIT ||
       pair.adapter.pluginVersion !== integrity.pluginVersion ||
       pair.adapter.packageSha256 !== integrity.packageSha256 ||
       pair.adapter.dependencyUrlSha256 !==
@@ -712,6 +709,7 @@ function deriveClaimEligibility(
       );
       return (
         observation.status !== "completed" ||
+        observation.completionEvidence === "none" ||
         expected === null ||
         expected === undefined ||
         searches.length !== 1 ||
@@ -768,7 +766,7 @@ function hasAttributableWorkflow(
   activationCase: ActivationCorpus["cases"][number],
 ): boolean {
   const expected = activationCase.expectedCatalogMatch;
-  if (expected === null) return false;
+  if (expected === null || !hasCompletedTaskEvidence(observation)) return false;
   const expectedSequence = activationCase.expectedBehavior.operationSequence;
   if (
     JSON.stringify(observation.toolCalls.map(({ toolName }) => toolName)) !==
@@ -1062,17 +1060,26 @@ function sameIdentity(
   );
 }
 
+function hasCompletedTaskEvidence(
+  observation: ActivationEvidence["observations"][number],
+): boolean {
+  return (
+    observation.status === "completed" &&
+    observation.completionEvidence !== "none"
+  );
+}
+
 function recomputeMetrics(
   evidence: ActivationEvidence,
   caseById: ReadonlyMap<string, ActivationCorpus["cases"][number]>,
 ): ActivationEvidenceMetrics {
-  const completed = evidence.observations.filter(
+  const evaluated = evidence.observations.filter(
     ({ status }) => status !== "incomplete",
   );
-  const searchCount = (observation: (typeof completed)[number]) =>
+  const searchCount = (observation: (typeof evaluated)[number]) =>
     observation.toolCalls.filter(({ toolName }) => toolName === "search_skills")
       .length;
-  const cleanRelevant = completed.filter((observation) => {
+  const cleanRelevant = evaluated.filter((observation) => {
     const activationCase = caseById.get(observation.caseId);
     return (
       activationCase?.scenarioClass === "automatic-relevant" &&
@@ -1080,7 +1087,7 @@ function recomputeMetrics(
       activationCase.failureMode === undefined
     );
   });
-  const searchedRelevant = completed.filter((observation) => {
+  const searchedRelevant = evaluated.filter((observation) => {
     const activationCase = caseById.get(observation.caseId);
     return (
       searchCount(observation) > 0 &&
@@ -1089,33 +1096,39 @@ function recomputeMetrics(
       activationCase?.localSkillFixture === undefined
     );
   });
-  const irrelevant = completed.filter(
+  const irrelevant = evaluated.filter(
     (observation) =>
       caseById.get(observation.caseId)?.scenarioClass === "irrelevant",
   );
-  const withoutIntent = completed.filter(
+  const withoutIntent = evaluated.filter(
     (observation) =>
       caseById.get(observation.caseId)?.scenarioClass ===
       "user-requested-without-intent",
   );
-  const loaded = completed.filter(
+  const loaded = evaluated.filter(
     ({ verifiedSkillWireLoad }) => verifiedSkillWireLoad !== null,
   );
-  const local = completed.filter(
+  const local = evaluated.filter(
     (observation) =>
       caseById.get(observation.caseId)?.localSkillFixture !== undefined,
   );
 
   return {
     spontaneousActivation: ratio(
-      cleanRelevant.filter((observation) => searchCount(observation) === 1)
-        .length,
+      cleanRelevant.filter(
+        (observation) =>
+          hasCompletedTaskEvidence(observation) &&
+          searchCount(observation) === 1,
+      ).length,
       cleanRelevant.length,
     ),
     correctSelectionAfterSearch: ratio(
       searchedRelevant.filter((observation) => {
         const expected = caseById.get(observation.caseId)?.expectedCatalogMatch;
-        return sameIdentity(observation.verifiedSkillWireLoad, expected);
+        return (
+          hasCompletedTaskEvidence(observation) &&
+          sameIdentity(observation.verifiedSkillWireLoad, expected)
+        );
       }).length,
       searchedRelevant.length,
     ),
@@ -1136,6 +1149,7 @@ function recomputeMetrics(
           .filter(({ toolName }) => toolName === "read_skill_resource")
           .map(({ resourcePath }) => resourcePath);
         return (
+          hasCompletedTaskEvidence(observation) &&
           searchCount(observation) === 1 &&
           observation.toolCalls.filter(
             ({ toolName }) => toolName === "load_skill",
