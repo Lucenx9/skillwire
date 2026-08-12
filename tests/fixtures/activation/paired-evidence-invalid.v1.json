@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "evidencePairId": "paired-activation-invalid-v1",
+  "preservedBaseline": {
+    "condition": "server-plus-adapter",
+    "path": "candidate-v1.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "completedSpontaneousActivations": 1,
+    "relevantCases": 7
+  },
+  "experiment": {
+    "caseIds": [],
+    "serverOnlyInventory": {
+      "pluginSkills": ["unexpected-plugin-skill"]
+    },
+    "adapterInventory": {
+      "pluginSkills": []
+    }
+  },
+  "adapter": {
+    "pluginId": "wrong-plugin@wrong-marketplace",
+    "effectivePluginCount": 0
+  },
+  "serverOnlyRun": {},
+  "adapterRun": {},
+  "claimEligibility": {
+    "eligible": true,
+    "evaluatedRelevantCases": 0,
+    "diagnosticCodes": ["unmatched-pair"]
+  }
+}

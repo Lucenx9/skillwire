@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { CatalogSkillMetadata } from "../../../src/domain/catalog/types.js";
-import { rankSkills } from "../../../src/domain/catalog/ranking.js";
+import {
+  MINIMUM_RELEVANCE_SCORE,
+  rankSkills,
+} from "../../../src/domain/catalog/ranking.js";
 
 const metadata = (
   id: string,
@@ -17,6 +20,10 @@ const metadata = (
 });
 
 describe("rankSkills", () => {
+  it("publishes the existing positive textual relevance threshold", () => {
+    expect(MINIMUM_RELEVANCE_SCORE).toBe(1);
+  });
+
   it("uses lexical relevance before stable skill-id tie breaking", () => {
     const skills = [
       metadata("zeta-review", ["typescript", "review"]),
@@ -103,5 +110,36 @@ describe("rankSkills", () => {
         },
       ]),
     ).toEqual([]);
+  });
+
+  it("does not treat common connector words as positive relevance", () => {
+    const skills = [
+      {
+        ...metadata("upgrade-planning", ["dependency upgrades"]),
+        description:
+          "Plan dependency upgrades with compatibility tests and rollback.",
+      },
+    ];
+
+    expect(
+      rankSkills(skills, "Alphabetize apple, banana, and cherry.", 10),
+    ).toEqual([]);
+    expect(rankSkills(skills, "Replace commas with semicolons.", 10)).toEqual(
+      [],
+    );
+  });
+
+  it("removes zero-score entries before applying the result limit", () => {
+    const irrelevant = metadata("alpha-irrelevant", ["gardening"]);
+    const relevant = metadata("zeta-relevant", ["typescript"]);
+
+    expect(rankSkills([irrelevant, relevant], "TypeScript", 1)).toMatchObject([
+      {
+        skill: { id: "zeta-relevant" },
+      },
+    ]);
+    expect(rankSkills([irrelevant, relevant], "TypeScript", 1)[0]?.score).toBe(
+      12,
+    );
   });
 });

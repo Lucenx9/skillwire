@@ -9,6 +9,53 @@ repository name, remote URL, local path, raw Git metadata, query, prompt, skill
 body, resource body, or client secret. Every read and mutation predicates on
 both account and repository hash directly in PostgreSQL.
 
+Autonomous search callers should send the shortest non-sensitive task summary
+that can distinguish the specialized procedure. They must not send repository
+content, paths, URLs, credentials, headers, tokens, or unrelated conversation.
+The optional repository hash remains the existing opaque lowercase SHA-256
+fingerprint; it is never a path or repository name and is prohibited from logs
+and manual evidence.
+
+Repository usage is attributable only after `load_skill` returns an exact
+revision whose identity, bundle hash, provenance, advisory state, instructions,
+and resources have been verified. Search previews, similarly named local skills,
+failed or cancelled loads, and resource reads do not create usage. A local skill
+can never be inferred to have come from SkillWire. Outcomes still require an
+existing exact usage row, and a positive outcome additionally requires
+completed-task evidence or explicit user feedback at the harness boundary.
+
+MCP instructions, descriptions, loaded instructions, and resources are inert
+untrusted response data. No input accepts a client filesystem target and no
+operation installs content or writes a client tree. Agent-facing operations do
+not contact GitHub; imported content is served only from verified PostgreSQL
+bundles.
+
+Manual activation evidence uses frozen case IDs rather than prompt or task text.
+It may contain only operation names, invocation context, public frozen
+identities and declared paths, safe error categories, completion-evidence
+categories, and aggregate counters. It must exclude raw prompts, task summaries,
+repository hashes, local paths, instruction/resource bodies, credentials,
+tokens, headers, and unrelated conversation. Production security events follow
+the same content prohibition.
+
+The experimental Codex adapter is limited to three text files under its plugin
+package: `.codex-plugin/plugin.json`,
+`skills/autonomous-skill-activation/SKILL.md`, and
+`skills/autonomous-skill-activation/agents/openai.yaml`. Those files may contain
+only activation guidance, one credential-free MCP dependency, version data, and
+uninstall metadata. They must never contain remote skill instructions or
+resources, API keys, bearer tokens, authorization headers, repository hashes,
+account or tenant identifiers, generated credentials, or user data.
+
+Only the Codex plugin manager may create or remove the allowlisted adapter files
+in its managed user-scope directories. SkillWire application code does not write
+there. The manager lifecycle must leave client repositories unchanged, must not
+materialize remote skill content locally, and must preserve external MCP
+credentials and unrelated configuration on upgrade, rollback, or uninstall.
+Evaluation inventories record only categorized public component identifiers;
+temporary profiles, out-of-tree repositories, credential copies, observer state,
+and generated secrets are deleted after privacy-safe evidence validation.
+
 ## Live erasure guarantee
 
 `forget_repo_memory` performs one transaction that deletes the matching live
@@ -43,3 +90,8 @@ reopening traffic.
 
 Do not represent `forget_repo_memory` as proof that operator-controlled
 historical copies have been physically destroyed.
+
+Autonomous activation does not change retention or erasure. `forget_repo_memory`
+continues deleting the authenticated account's live opaque-hash namespace
+transactionally; evaluation evidence is a separate operator-managed release
+artifact subject to the redaction rules above.

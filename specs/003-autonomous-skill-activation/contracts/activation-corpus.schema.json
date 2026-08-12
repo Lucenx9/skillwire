@@ -1,0 +1,411 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/autonomous-activation-corpus.v1.json",
+  "title": "SkillWire Frozen Autonomous Activation Corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "corpusId",
+    "policyVersion",
+    "catalogRelease",
+    "localInventoryVersion",
+    "cases"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "corpusId": {
+      "const": "autonomous-activation-v1"
+    },
+    "policyVersion": {
+      "const": "skillwire-activation-v1"
+    },
+    "catalogRelease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "localInventoryVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 60,
+      "items": {
+        "$ref": "#/$defs/case"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "scenarioClass": {
+                "const": "automatic-relevant"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "minContains": 25
+        },
+        {
+          "contains": {
+            "properties": {
+              "scenarioClass": {
+                "const": "irrelevant"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "minContains": 15
+        },
+        {
+          "contains": {
+            "properties": {
+              "scenarioClass": {
+                "const": "user-requested-explicit"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "minContains": 10
+        },
+        {
+          "contains": {
+            "properties": {
+              "scenarioClass": {
+                "const": "user-requested-without-intent"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "minContains": 10
+        },
+        {
+          "contains": {
+            "properties": {
+              "localSkillFixture": {
+                "type": "object"
+              }
+            },
+            "required": ["localSkillFixture"]
+          },
+          "minContains": 5
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "skillIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skillId", "revision", "revisionSha256"],
+      "properties": {
+        "skillId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revisionSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "localSkillFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixtureId", "relationship", "explicitlySelected"],
+      "properties": {
+        "fixtureId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "relationship": {
+          "enum": ["equivalent", "overlapping"]
+        },
+        "explicitlySelected": {
+          "type": "boolean"
+        }
+      }
+    },
+    "expectedBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "search",
+        "load",
+        "operationSequence",
+        "maxSearchCalls",
+        "maxLoadCalls",
+        "maxResourceCalls",
+        "resourcePaths",
+        "repositoryHashProvided",
+        "expectedMemoryWrites",
+        "expectedOutcomeWrites",
+        "terminalReason"
+      ],
+      "properties": {
+        "search": {
+          "enum": ["call", "skip"]
+        },
+        "load": {
+          "enum": ["call", "skip"]
+        },
+        "operationSequence": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "enum": [
+              "search_skills",
+              "load_skill",
+              "read_skill_resource"
+            ]
+          }
+        },
+        "maxSearchCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxLoadCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxResourceCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "resourcePaths": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+          }
+        },
+        "repositoryHashProvided": {
+          "type": "boolean"
+        },
+        "expectedMemoryWrites": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "expectedOutcomeWrites": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "terminalReason": {
+          "enum": [
+            "not-applicable",
+            "local-precedence",
+            "no-result",
+            "user-only-isolated",
+            "instructions-sufficient",
+            "resource-consumed",
+            "service-unavailable",
+            "authentication-failed",
+            "rate-limited",
+            "revision-unavailable",
+            "resource-failed"
+          ]
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scenarioClass",
+        "prompt",
+        "explicitUserIntent",
+        "invocationContext",
+        "expectedCatalogMatch",
+        "expectedBehavior",
+        "rationale"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "pairId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "scenarioClass": {
+          "enum": [
+            "automatic-relevant",
+            "irrelevant",
+            "user-requested-explicit",
+            "user-requested-without-intent"
+          ]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "explicitUserIntent": {
+          "type": "boolean"
+        },
+        "invocationContext": {
+          "enum": ["automatic", "user-requested"]
+        },
+        "localSkillFixture": {
+          "$ref": "#/$defs/localSkillFixture"
+        },
+        "expectedCatalogMatch": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/skillIdentity"
+            }
+          ]
+        },
+        "expectedBehavior": {
+          "$ref": "#/$defs/expectedBehavior"
+        },
+        "failureMode": {
+          "enum": [
+            "service-unavailable",
+            "authentication-failed",
+            "rate-limited",
+            "no-relevant-result",
+            "revision-unavailable",
+            "resource-failed"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scenarioClass": {
+                "const": "automatic-relevant"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "then": {
+            "properties": {
+              "explicitUserIntent": {
+                "const": false
+              },
+              "invocationContext": {
+                "const": "automatic"
+              },
+              "expectedCatalogMatch": {
+                "$ref": "#/$defs/skillIdentity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scenarioClass": {
+                "const": "irrelevant"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "then": {
+            "properties": {
+              "explicitUserIntent": {
+                "const": false
+              },
+              "invocationContext": {
+                "const": "automatic"
+              },
+              "expectedCatalogMatch": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scenarioClass": {
+                "const": "user-requested-explicit"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "then": {
+            "required": ["pairId"],
+            "properties": {
+              "explicitUserIntent": {
+                "const": true
+              },
+              "invocationContext": {
+                "const": "user-requested"
+              },
+              "expectedCatalogMatch": {
+                "$ref": "#/$defs/skillIdentity"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scenarioClass": {
+                "const": "user-requested-without-intent"
+              }
+            },
+            "required": ["scenarioClass"]
+          },
+          "then": {
+            "required": ["pairId"],
+            "properties": {
+              "explicitUserIntent": {
+                "const": false
+              },
+              "invocationContext": {
+                "const": "automatic"
+              },
+              "expectedCatalogMatch": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

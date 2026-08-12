@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "activation-catalog-v1",
+  "sourceRelease": "launch-catalog-v1",
+  "importedFixtureCommit": "84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+  "skills": [
+    {
+      "skillId": "dependency-upgrade-planning",
+      "name": "Dependency Upgrade Planning",
+      "description": "Plan dependency upgrades with compatibility research, migration steps, tests, and rollback.",
+      "capabilities": [
+        "dependency upgrades",
+        "compatibility research",
+        "migration planning",
+        "rollback",
+        "version changes"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/upgrade-checklist.md"]
+    },
+    {
+      "skillId": "dockerfile-hardening",
+      "name": "Dockerfile Hardening",
+      "description": "Review container builds for minimal images, least privilege, reproducibility, and secret safety.",
+      "capabilities": [
+        "Dockerfile",
+        "container security",
+        "least privilege",
+        "root user",
+        "reproducible builds",
+        "secret safety"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/hardening-checklist.md"]
+    },
+    {
+      "skillId": "github-actions-ci",
+      "name": "GitHub Actions CI",
+      "description": "Design maintainable GitHub Actions validation and delivery workflows.",
+      "capabilities": [
+        "GitHub Actions",
+        "continuous integration",
+        "CI workflows",
+        "pipelines",
+        "delivery automation"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/ci-checklist.md"]
+    },
+    {
+      "skillId": "node-api-design",
+      "name": "Node API Design",
+      "description": "Design and review clear, compatible, secure Node.js service interfaces.",
+      "capabilities": [
+        "Node.js",
+        "API design",
+        "REST endpoints",
+        "service interfaces",
+        "backward compatibility",
+        "API security"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/api-review-checklist.md"]
+    },
+    {
+      "skillId": "postgres-schema-review",
+      "name": "PostgreSQL Schema Review",
+      "description": "Review PostgreSQL schemas, constraints, indexes, migrations, and data integrity.",
+      "capabilities": [
+        "PostgreSQL",
+        "schema review",
+        "constraints",
+        "indexes",
+        "database migrations",
+        "data integrity"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/schema-review-checklist.md"]
+    },
+    {
+      "skillId": "react-accessibility",
+      "name": "React Accessibility",
+      "description": "Review React interfaces for accessible structure, semantics, input, focus, and feedback.",
+      "capabilities": [
+        "React",
+        "accessibility",
+        "ARIA",
+        "semantic HTML",
+        "keyboard input",
+        "focus management"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/accessibility-checklist.md"]
+    },
+    {
+      "skillId": "technical-documentation",
+      "name": "Technical Documentation",
+      "description": "Produce accurate, audience-appropriate technical documentation and validation guides.",
+      "capabilities": [
+        "technical documentation",
+        "README",
+        "guides",
+        "audience analysis",
+        "validation instructions"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/documentation-checklist.md"]
+    },
+    {
+      "skillId": "threat-modeling",
+      "name": "Threat Modeling",
+      "description": "Identify assets, trust boundaries, attacker goals, abuse cases, and mitigations.",
+      "capabilities": [
+        "threat modeling",
+        "assets",
+        "trust boundaries",
+        "attacker goals",
+        "abuse cases",
+        "mitigations"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/threat-model-template.md"]
+    },
+    {
+      "skillId": "typescript-code-review",
+      "name": "TypeScript Code Review",
+      "description": "Review TypeScript changes for correctness, type safety, maintainability, and regressions.",
+      "capabilities": [
+        "TypeScript",
+        "code review",
+        "type safety",
+        "type narrowing",
+        "correctness",
+        "regression analysis"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/review-checklist.md"]
+    },
+    {
+      "skillId": "vitest-test-design",
+      "name": "Vitest Test Design",
+      "description": "Design focused Vitest unit, contract, integration, and failure-path coverage.",
+      "capabilities": [
+        "Vitest",
+        "unit tests",
+        "contract tests",
+        "integration tests",
+        "mocking",
+        "failure paths"
+      ],
+      "revision": "1.0.0",
+      "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3",
+      "invocationMode": "automatic",
+      "resourcePaths": ["references/test-design-checklist.md"]
+    },
+    {
+      "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+      "name": "ask-matt",
+      "description": "ask-matt imported acceptance skill",
+      "capabilities": ["ask matt", "workflow routing", "skill selection"],
+      "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "invocationMode": "user-only",
+      "resourcePaths": ["REFERENCE.md"]
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/autonomous-activation-local-overlap-evidence.v1.json",
+  "title": "SkillWire Local-Overlap Evaluation Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceId",
+    "recordedAt",
+    "sourceCommit",
+    "corpusId",
+    "corpusSha256",
+    "localInventoryVersion",
+    "harness",
+    "model",
+    "reasoningSetting",
+    "timeoutSeconds",
+    "oneAttempt",
+    "privacyDeclaration",
+    "conditions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "evidenceId": { "const": "local-overlap-v1" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "$ref": "#/$defs/commit" },
+    "corpusId": { "const": "autonomous-activation-v1" },
+    "corpusSha256": {
+      "const": "a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28"
+    },
+    "localInventoryVersion": { "const": "activation-local-v1" },
+    "harness": { "$ref": "#/$defs/namedVersion" },
+    "model": { "$ref": "#/$defs/namedVersion" },
+    "reasoningSetting": { "const": "xhigh" },
+    "timeoutSeconds": { "const": 180 },
+    "oneAttempt": { "const": true },
+    "privacyDeclaration": { "$ref": "#/$defs/privacyDeclaration" },
+    "conditions": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/condition" },
+            { "properties": { "condition": { "const": "server-only" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/condition" },
+            {
+              "properties": {
+                "condition": { "const": "server-plus-adapter" }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "namedVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "privacyDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containsRawPrompts",
+        "containsRepositoryHashes",
+        "containsLocalPaths",
+        "containsSkillContent",
+        "containsCredentialsOrHeaders"
+      ],
+      "properties": {
+        "containsRawPrompts": { "const": false },
+        "containsRepositoryHashes": { "const": false },
+        "containsLocalPaths": { "const": false },
+        "containsSkillContent": { "const": false },
+        "containsCredentialsOrHeaders": { "const": false }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition", "observations", "metrics"],
+      "properties": {
+        "condition": {
+          "enum": ["server-only", "server-plus-adapter"]
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "metrics": { "$ref": "#/$defs/metrics" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "fixtureId",
+        "relationship",
+        "explicitlySelected",
+        "status",
+        "instructionsObserved",
+        "skillWireOperations",
+        "verifiedSkillWireLoad",
+        "clientTreeWrites",
+        "localInventoryWrites"
+      ],
+      "properties": {
+        "caseId": {
+          "enum": [
+            "auto-overlap-1",
+            "auto-overlap-2",
+            "auto-overlap-3",
+            "auto-overlap-4",
+            "auto-overlap-5"
+          ]
+        },
+        "fixtureId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "relationship": { "enum": ["equivalent", "overlapping"] },
+        "explicitlySelected": { "type": "boolean" },
+        "status": { "const": "completed" },
+        "instructionsObserved": { "const": true },
+        "skillWireOperations": { "type": "array", "maxItems": 0 },
+        "verifiedSkillWireLoad": { "const": false },
+        "clientTreeWrites": { "const": 0 },
+        "localInventoryWrites": { "const": 0 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completed",
+        "equivalentCases",
+        "overlappingCases",
+        "skillWireOperations",
+        "remoteOverrideViolations",
+        "clientTreeWrites",
+        "localInventoryWrites"
+      ],
+      "properties": {
+        "completed": { "const": 5 },
+        "equivalentCases": { "const": 3 },
+        "overlappingCases": { "const": 2 },
+        "skillWireOperations": { "const": 0 },
+        "remoteOverrideViolations": { "const": 0 },
+        "clientTreeWrites": { "const": 0 },
+        "localInventoryWrites": { "const": 0 }
+      }
+    }
+  }
+}

@@ -22,6 +22,102 @@ The supported topology is one or more stateless SkillWire instances sharing one
 authoritative PostgreSQL database. Do not add Redis, queues, repository-memory
 replicas, or a second memory authority.
 
+## Autonomous-activation rollout and compatibility
+
+Feature 003 is an additive metadata rollout with an optional experimental Codex
+adapter. Each server instance constructs the existing `McpServer` with the
+centralized `skillwire-activation-v1` instruction value. The official SDK
+publishes that same value through MCP 2025-11-25 `initialize` and MCP 2026-07-28
+`server/discover`. Tool names, titles, inputs, outputs, authentication, tenancy,
+rate limits, and the stateless HTTP transport remain unchanged; descriptions and
+standard annotations are advisory additions.
+
+Deploy normally, then run `pnpm test:activation` and inspect both protocol
+metadata tests before shifting traffic. Mixed old/new instances are safe for
+existing callers, although autonomous behavior may vary until every instance
+publishes the policy. Clients that ignore instructions continue using the
+ordinary six-tool surface. No client configuration migration, repository file,
+installed skill, UI behavior, or database migration is part of rollout.
+
+Rollback the application image to the preceding release if metadata causes an
+unacceptable harness regression. Existing repository-memory and imported-catalog
+rows remain compatible. Do not edit old migrations or delete memory to roll back
+instructions. A rollback removes the new hints; it cannot and need not undo
+client writes because SkillWire has no client-write capability.
+
+The server is stateless per POST and cannot enforce once-per-task search,
+local-skill precedence, conversational intent, or fail-open continuation across
+calls. It enforces each supplied operation independently. Unavailable service,
+authentication failure, rate limiting, request timeout, empty search,
+unavailable revision, memory failure, and resource failure retain their existing
+HTTP/MCP error behavior. The instruction policy tells an automatic harness to
+stop SkillWire calls without retry or substitution and continue normal work.
+Operators should expect clients that never observed instructions to show no
+spontaneous activation.
+
+### Experimental Codex adapter lifecycle
+
+Promote the dedicated marketplace only after its exact Git source commit,
+three-file package hashes, aggregate package hash, validator version, and Codex
+manager version match `distribution/codex-marketplace/release-integrity.json`.
+The marketplace entry must resolve that exact commit. The two-step release is:
+first commit the plugin source, then bind marketplace and integrity metadata to
+that immutable source commit. Do not publish a moving branch as plugin
+provenance.
+
+Use only the Codex plugin manager at user scope:
+
+```text
+codex plugin marketplace add <skillwire-marketplace-git-url> --ref <release-ref> --json
+codex plugin list --marketplace skillwire --available --json
+codex plugin add skillwire-autonomous-activation@skillwire --json
+codex plugin list --marketplace skillwire --json
+codex mcp list --json
+codex plugin marketplace upgrade skillwire --json
+codex plugin remove skillwire-autonomous-activation@skillwire --json
+codex plugin marketplace remove skillwire --json
+```
+
+Verification consists of manager inventory plus byte-for-byte comparison of the
+manager-owned installed package with the release integrity manifest. Rollback
+refreshes the marketplace to the preceding immutable release and uses the same
+manager operations; it never edits the plugin cache. Emergency uninstall uses
+`plugin remove` and removes the marketplace only if nothing else depends on it.
+SkillWire application code and release scripts must not write `HOME`,
+`CODEX_HOME`, `.codex`, `.agents`, plugin caches, or repositories.
+
+The package has no credential field. Configure authentication independently
+through Codex's protected MCP connection mechanism. An equivalent existing
+SkillWire endpoint is reused. A same-name/different-URL conflict is not
+overwritten. An absent, unavailable, unauthenticated, incompatible,
+rate-limited, or timed-out dependency ends the automatic attempt without retry
+and does not block ordinary work. Removing the plugin leaves an independently
+configured SkillWire MCP connection and its credentials untouched, so explicit
+operation remains possible.
+
+The pinned pilot observed attributable exact loads in seven of seven completed
+automatic cases, one additional selected automatic timeout, and unnecessary
+resource reads. `claimEligibility` remains false. Treat the adapter as
+experimental and do not advertise autonomous activation as a guaranteed or
+generally established behavior.
+
+Required CI is deterministic and credential-free: `test:activation` validates
+frozen fixtures, instruction publication, metadata, ranking/filtering, actual
+registered MCP calls, failure bounds, attribution, and security boundaries. All
+existing unit, contract, integration, E2E, evaluation, catalog/advisory, and
+container jobs remain release gates. A real harness/model run is separate
+non-blocking evidence and follows
+[the manual protocol](autonomous-activation-evaluation.md); never add model or
+harness credentials to required CI.
+
+Production observability remains privacy-safe. Existing events may include tool
+name, request/account/key identifiers, safe categorical code, and status. They
+must not include task summaries, prompts, repository hashes, local paths,
+skill/resource content, credentials, tokens, or headers. Because the protocol
+has no task/session correlation field, production logs must not claim per-task
+loop or spontaneous-activation metrics; those come from redacted evaluator
+traces.
+
 ## Health and readiness
 
 - `GET /health/live` reports process responsiveness only.
@@ -91,6 +187,11 @@ credential condition occurred.
 Configure the exact edge/client host rather than accepting arbitrary values. 429
 means the configured account or key token bucket is exhausted; honor
 `Retry-After` rather than bypassing rate controls.
+
+For an autonomous attempt, do not automatically retry a 429, switch to
+`user-requested`, or load another candidate. The current task should proceed
+without SkillWire; a later materially different user objective may begin a new
+attempt.
 
 ### Migration job fails
 
