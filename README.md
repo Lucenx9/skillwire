@@ -107,6 +107,31 @@ configuration is:
 Environment interpolation depends on the MCP client; do not commit a literal
 token.
 
+## Autonomous activation guidance
+
+SkillWire publishes one versioned, client-agnostic activation policy through the
+standard MCP server instruction field. The same text is available through legacy
+`initialize` and current `server/discover`. It advises an MCP-capable agent to
+search once for a specialized task only when no applicable local or already
+loaded skill exists. Greetings, trivial or unrelated work, repeated attempts,
+and tasks already covered locally are non-triggers.
+
+The instructed workflow is preview → one exact load → only the next useful
+declared resource. Agent-initiated searches use `automatic`; `user-requested` is
+reserved for explicit user intent. An empty result or any SkillWire failure ends
+the attempt without retry, reformulation, polling, context escalation, another
+candidate, or revision substitution, so normal agent work can continue.
+
+These instructions and tool annotations are advisory metadata. An MCP server
+cannot force an arbitrary harness to read them or invoke its tools. Clients that
+ignore the guidance retain the same six authenticated operations and degrade
+without blocking ordinary work. SkillWire returns inert untrusted content, never
+installs it, never writes the client tree, and cannot inspect local skill
+inventory. Local precedence and per-task call bounds are therefore measured
+harness behaviors; server enforcement remains authentication, tenant isolation,
+eligibility, positive relevance, exact verified loading, provenance, advisory,
+integrity, resource, rate-limit, and memory scope validation.
+
 ## Six MCP tools
 
 Every input object is strict. Repository hashes are opaque client-generated
@@ -188,7 +213,9 @@ Returns the authenticated account's bounded usage list directly from PostgreSQL.
 }
 ```
 
-Replaces the current outcome with `useful`, `neutral`, or `unsuccessful`.
+Replaces the current outcome with `useful`, `neutral`, or `unsuccessful`. Record
+`useful` only after the exact SkillWire load is attributable and completed-task
+evidence or explicit user feedback exists.
 
 ```json
 {
@@ -237,7 +264,9 @@ skill bodies or secrets, and writes nothing to the client tree.
 See [source administration](docs/source-administration.md),
 [privacy boundaries](docs/privacy.md),
 [catalog publication](docs/catalog-publication.md), and
-[operations](docs/operations.md).
+[operations](docs/operations.md). The deterministic and manual activation
+evaluation boundaries are documented in
+[autonomous activation evaluation](docs/autonomous-activation-evaluation.md).
 
 ## Why there is no local installation
 

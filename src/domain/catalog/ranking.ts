@@ -4,6 +4,8 @@ import type { RepositoryUsageProjection } from "../repository-memory/types.js";
 
 const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
 
+export const MINIMUM_RELEVANCE_SCORE = 1;
+
 function normalizeToken(token: string): string {
   const normalized = token.normalize("NFKD").toLocaleLowerCase("en-US");
   if (normalized.length > 3 && normalized.endsWith("s")) {
@@ -75,7 +77,7 @@ export function rankSkills(
         memoryByRevision.get(`${skill.id}\0${skill.revision}`) ?? 0,
       ),
     )
-    .filter((result) => result.score > 0)
+    .filter((result) => result.score >= MINIMUM_RELEVANCE_SCORE)
     .sort((left, right) => {
       const relevance = right.score - left.score;
       if (relevance !== 0) return relevance;

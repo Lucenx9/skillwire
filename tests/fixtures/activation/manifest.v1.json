@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "activation-fixtures-v1",
+  "files": [
+    {
+      "path": "evaluation/autonomous-activation.v1.json",
+      "sha256": "a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28"
+    },
+    {
+      "path": "tests/fixtures/activation/catalog.v1.json",
+      "sha256": "0ceacbcc8d55394cc044cc4e4bb790e981067537e81fb53ee6ba972c114f067c"
+    },
+    {
+      "path": "tests/fixtures/activation/local-inventory.v1.json",
+      "sha256": "d30af498b0fadd6f71e69159121eb4dfc51b4ff76d31a7ab267c675766d3e278"
+    }
+  ]
+}

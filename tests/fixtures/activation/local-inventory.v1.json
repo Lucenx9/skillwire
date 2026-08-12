@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "inventoryId": "activation-local-v1",
+  "entries": [
+    {
+      "caseId": "auto-overlap-1",
+      "fixtureId": "local-typescript-review",
+      "relationship": "equivalent",
+      "explicitlySelected": true,
+      "remoteSkillId": "typescript-code-review"
+    },
+    {
+      "caseId": "auto-overlap-2",
+      "fixtureId": "local-threat-model",
+      "relationship": "equivalent",
+      "explicitlySelected": false,
+      "remoteSkillId": "threat-modeling"
+    },
+    {
+      "caseId": "auto-overlap-3",
+      "fixtureId": "local-api-review",
+      "relationship": "overlapping",
+      "explicitlySelected": false,
+      "remoteSkillId": "node-api-design"
+    },
+    {
+      "caseId": "auto-overlap-4",
+      "fixtureId": "local-accessibility",
+      "relationship": "equivalent",
+      "explicitlySelected": true,
+      "remoteSkillId": "react-accessibility"
+    },
+    {
+      "caseId": "auto-overlap-5",
+      "fixtureId": "local-test-design",
+      "relationship": "overlapping",
+      "explicitlySelected": false,
+      "remoteSkillId": "vitest-test-design"
+    }
+  ]
+}

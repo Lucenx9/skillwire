@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/autonomous-activation-paired-adapter-evidence.v1.json",
+  "title": "SkillWire Paired Codex Adapter Evidence v1",
+  "$comment": "This schema validates structure. The activation-evidence validator must also recompute both runs, enforce exact pair controls and case/prompt identity, and derive claimEligibility.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidencePairId",
+    "preservedBaseline",
+    "experiment",
+    "adapter",
+    "serverOnlyRun",
+    "adapterRun",
+    "claimEligibility"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "evidencePairId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "preservedBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "path",
+        "sha256",
+        "completedSpontaneousActivations",
+        "relevantCases"
+      ],
+      "properties": {
+        "condition": {
+          "const": "historical-server-only"
+        },
+        "path": {
+          "const": "evaluation/evidence/003/candidate-v1.json"
+        },
+        "sha256": {
+          "const": "04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d"
+        },
+        "completedSpontaneousActivations": {
+          "const": 0
+        },
+        "relevantCases": {
+          "const": 7
+        }
+      }
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skillWireCommit",
+        "codexCliVersion",
+        "model",
+        "reasoningSetting",
+        "serverPolicyVersion",
+        "corpusId",
+        "catalogRelease",
+        "protocolVersion",
+        "evaluatorVersion",
+        "cleanProfileProcedureVersion",
+        "endpointUrlSha256",
+        "authenticationMechanism",
+        "caseIds",
+        "serverOnlyInventory",
+        "adapterInventory"
+      ],
+      "properties": {
+        "skillWireCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "codexCliVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "model": {
+          "$ref": "#/$defs/namedVersion"
+        },
+        "reasoningSetting": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "serverPolicyVersion": {
+          "const": "skillwire-activation-v1"
+        },
+        "corpusId": {
+          "const": "autonomous-activation-v1"
+        },
+        "catalogRelease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "protocolVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "evaluatorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "cleanProfileProcedureVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "endpointUrlSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authenticationMechanism": {
+          "enum": ["ephemeral-bearer-env", "oauth"]
+        },
+        "caseIds": {
+          "type": "array",
+          "minItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          }
+        },
+        "serverOnlyInventory": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/effectiveInventory"
+            },
+            {
+              "properties": {
+                "pluginSkills": {
+                  "maxItems": 0
+                }
+              }
+            }
+          ]
+        },
+        "adapterInventory": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/effectiveInventory"
+            },
+            {
+              "properties": {
+                "pluginSkills": {
+                  "prefixItems": [
+                    {
+                      "const": "skillwire-autonomous-activation:autonomous-skill-activation"
+                    }
+                  ],
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "pluginId",
+        "pluginVersion",
+        "adapterPolicyVersion",
+        "marketplaceName",
+        "sourceCommit",
+        "packageSha256",
+        "dependencyUrlSha256",
+        "dependencyState",
+        "effectivePluginCount"
+      ],
+      "properties": {
+        "condition": {
+          "const": "server-plus-adapter"
+        },
+        "pluginId": {
+          "const": "skillwire-autonomous-activation@skillwire"
+        },
+        "pluginVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+          "maxLength": 64
+        },
+        "adapterPolicyVersion": {
+          "const": "skillwire-codex-adapter-v1"
+        },
+        "marketplaceName": {
+          "const": "skillwire"
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "packageSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependencyUrlSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependencyState": {
+          "enum": [
+            "equivalent-existing",
+            "manager-added",
+            "absent",
+            "name-conflict",
+            "unavailable",
+            "unauthenticated",
+            "incompatible",
+            "rate-limited",
+            "timed-out"
+          ]
+        },
+        "effectivePluginCount": {
+          "const": 1
+        }
+      }
+    },
+    "adapterRun": {
+      "$ref": "./manual-evidence.schema.json"
+    },
+    "serverOnlyRun": {
+      "$ref": "./manual-evidence.schema.json"
+    },
+    "claimEligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "evaluatedRelevantCases", "diagnosticCodes"],
+      "properties": {
+        "eligible": {
+          "type": "boolean"
+        },
+        "evaluatedRelevantCases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnosticCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "insufficient-relevant-cases",
+              "spontaneous-activation-below-target",
+              "correct-selection-below-target",
+              "unnecessary-activation-above-target",
+              "user-requested-isolation-failed",
+              "client-write-observed",
+              "unattributable-success-trace",
+              "unmatched-pair",
+              "incomplete-observations"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "eligible": {
+                "const": true
+              }
+            },
+            "required": ["eligible"]
+          },
+          "then": {
+            "properties": {
+              "evaluatedRelevantCases": {
+                "minimum": 25
+              },
+              "diagnosticCodes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "diagnosticCodes": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "effectiveInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platformBaselineSkills",
+        "userSkills",
+        "repositorySkills",
+        "adminSkills",
+        "pluginSkills",
+        "mcpServers",
+        "inventorySha256"
+      ],
+      "properties": {
+        "platformBaselineSkills": {
+          "$ref": "#/$defs/inventoryNames"
+        },
+        "userSkills": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/inventoryNames"
+            },
+            {
+              "maxItems": 0
+            }
+          ]
+        },
+        "repositorySkills": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/inventoryNames"
+            },
+            {
+              "maxItems": 0
+            }
+          ]
+        },
+        "adminSkills": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/inventoryNames"
+            },
+            {
+              "maxItems": 0
+            }
+          ]
+        },
+        "pluginSkills": {
+          "$ref": "#/$defs/inventoryNames"
+        },
+        "mcpServers": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "skillwire"
+            }
+          ],
+          "items": false,
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "inventorySha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "inventoryNames": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "namedVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

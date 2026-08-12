@@ -8,6 +8,7 @@ import type { RecordSkillOutcome } from "../../application/use-cases/record-skil
 import type { SearchSkills } from "../../application/use-cases/search-skills.js";
 import type { RequestPrincipal } from "../../domain/repository-memory/types.js";
 import type { SecurityLogger } from "../../observability/logger.js";
+import { ACTIVATION_INSTRUCTIONS } from "./activation-policy.js";
 import {
   registerForgetRepoMemoryTool,
   registerListRepoMemoryTool,
@@ -31,7 +32,10 @@ export function createMcpServer(
   principal: RequestPrincipal,
   logger: SecurityLogger,
 ): McpServer {
-  const server = new McpServer({ name: "skillwire", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "skillwire", version: "0.1.0" },
+    { instructions: ACTIVATION_INSTRUCTIONS },
+  );
   registerSearchSkillsTool(server, useCases.searchSkills, principal, logger);
   registerLoadSkillTool(server, useCases.loadSkill, principal, logger);
   registerReadSkillResourceTool(

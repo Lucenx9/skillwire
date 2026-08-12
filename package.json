@@ -32,7 +32,8 @@
     "test:integration": "vitest run --project integration --passWithNoTests",
     "test:e2e": "vitest run --project e2e",
     "test:evaluation": "vitest run --project evaluation --passWithNoTests",
-    "test:security": "vitest run --project security --passWithNoTests"
+    "test:security": "vitest run --project security --passWithNoTests",
+    "test:activation": "vitest run tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/unit/transport/activation-policy.test.ts tests/unit/domain/ranking.test.ts tests/contract/cli/activation-evidence.test.ts tests/contract/mcp/activation-metadata.test.ts tests/contract/mcp/search-skills.test.ts tests/contract/mcp/load-skill.test.ts tests/integration/service/activation-memory-attribution.test.ts tests/e2e/autonomous-activation-transport.test.ts tests/evaluation/autonomous-activation.test.ts tests/security/transport/autonomous-activation-boundaries.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.0",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@modelcontextprotocol/client": "2.0.0",
+    "@openai/codex": "0.147.0",
     "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",
     "@types/pg": "8.21.0",

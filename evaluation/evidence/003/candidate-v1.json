@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "candidate-v1-ed4a216",
+  "recordedAt": "2026-08-12T03:04:56.000Z",
+  "policyVersion": "skillwire-activation-v1",
+  "corpusId": "autonomous-activation-v1",
+  "catalogRelease": "activation-catalog-v1",
+  "protocolVersion": "2026-07-28",
+  "harness": {
+    "name": "Codex CLI",
+    "version": "0.147.0"
+  },
+  "model": {
+    "name": "gpt-5.6-sol",
+    "version": "gpt-5.6-sol"
+  },
+  "environmentProfile": "codex-clean-xhigh-sw-ed4a216-v1",
+  "localInventoryVersion": "activation-local-v1",
+  "evaluatorVersion": "activation-evaluator-v1",
+  "traceSource": "observer-proxy",
+  "instructionsSha256": "d1e923bf6c80b6c41070cc6ffc1678e6caa738f1427ac2e9dfda6c00ceb1091e",
+  "privacyDeclaration": {
+    "containsRawPrompts": false,
+    "containsTaskSummaries": false,
+    "containsRepositoryHashes": false,
+    "containsLocalPaths": false,
+    "containsSkillContent": false,
+    "containsCredentialsOrHeaders": false
+  },
+  "observations": [
+    {
+      "caseId": "auto-threat-modeling-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-typescript-code-review-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-node-api-design-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-postgres-schema-review-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-react-accessibility-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-vitest-test-design-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-dockerfile-hardening-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "completed",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "observed-completion",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+    },
+    {
+      "caseId": "auto-github-actions-ci-1",
+      "instructionsObserved": true,
+      "instructionMethod": "server/discover",
+      "status": "incomplete",
+      "toolCalls": [],
+      "guidanceSource": "none",
+      "verifiedSkillWireLoad": null,
+      "completionEvidence": "none",
+      "positiveOutcomeRecorded": false,
+      "clientTreeWrites": 0,
+      "githubRequests": 0,
+      "diagnosticCodes": ["EXPECTED_SEARCH_MISSING", "INCOMPLETE_TRACE"]
+    }
+  ],
+  "metrics": {
+    "spontaneousActivation": {
+      "numerator": 0,
+      "denominator": 7,
+      "rate": 0
+    },
+    "correctSelectionAfterSearch": {
+      "numerator": 0,
+      "denominator": 0,
+      "rate": 0
+    },
+    "unnecessaryActivation": {
+      "numerator": 0,
+      "denominator": 0,
+      "rate": 0
+    },
+    "userRequestedIsolation": {
+      "numerator": 0,
+      "denominator": 0,
+      "rate": 0
+    },
+    "progressiveLoadingConformance": {
+      "numerator": 0,
+      "denominator": 0,
+      "rate": 0
+    },
+    "zeroClientWrites": true,
+    "zeroAgentFacingGithubRequests": true,
+    "localOverlap": {
+      "equivalentCases": 0,
+      "overlappingCases": 0,
+      "violations": 0
+    }
+  }
+}

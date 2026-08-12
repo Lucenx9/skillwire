@@ -7,6 +7,10 @@ import {
   type TestMcpClient,
 } from "../../helpers/mcp-client.js";
 import { importedCatalogFixture } from "../../helpers/imported-catalog-provider.js";
+import {
+  loadActivationFixtures,
+  validateActivationFixtures,
+} from "../../../src/evaluation/activation-corpus-runner.js";
 
 describe("search_skills MCP contract", () => {
   let testClient: TestMcpClient | undefined;
@@ -182,5 +186,77 @@ describe("search_skills MCP contract", () => {
         repository: "skills",
       },
     });
+  });
+
+  it("enforces every frozen explicit/no-intent isolation pair", async () => {
+    await testClient?.close();
+    const { app } = createTestApplication({
+      importedCatalogProvider: importedCatalogFixture.provider,
+    });
+    const appFetch: typeof fetch = async (input, init) => {
+      const source = new Request(input, init);
+      const headers = new Headers(source.headers);
+      headers.set("host", "localhost");
+      return app.fetch(new Request(source, { headers }));
+    };
+    testClient = await createTestMcpClient(
+      new URL("http://localhost/mcp"),
+      appFetch,
+    );
+    const { corpus } = validateActivationFixtures(
+      loadActivationFixtures(process.cwd()),
+    );
+
+    for (const explicit of corpus.cases.filter(
+      ({ scenarioClass }) => scenarioClass === "user-requested-explicit",
+    )) {
+      const withoutIntent = corpus.cases.find(
+        ({ pairId, scenarioClass }) =>
+          pairId === explicit.pairId &&
+          scenarioClass === "user-requested-without-intent",
+      );
+      expect(withoutIntent).toBeDefined();
+
+      for (const invocationContext of [undefined, "automatic"] as const) {
+        const result = searchSkillsOutputSchema.parse(
+          (
+            await client().client.callTool({
+              name: "search_skills",
+              arguments: {
+                task: withoutIntent?.prompt,
+                limit: 10,
+                ...(invocationContext === undefined
+                  ? {}
+                  : { invocationContext }),
+              },
+            })
+          ).structuredContent,
+        );
+        expect(
+          result.skills.some(
+            ({ skillId }) => skillId === explicit.expectedCatalogMatch?.skillId,
+          ),
+        ).toBe(false);
+      }
+
+      const requested = searchSkillsOutputSchema.parse(
+        (
+          await client().client.callTool({
+            name: "search_skills",
+            arguments: {
+              task: explicit.prompt,
+              invocationContext: "user-requested",
+              limit: 10,
+            },
+          })
+        ).structuredContent,
+      );
+      expect(requested.skills[0]).toMatchObject({
+        skillId: explicit.expectedCatalogMatch?.skillId,
+        revision: explicit.expectedCatalogMatch?.revision,
+        invocationMode: "user-only",
+        currentClassification: "verified",
+      });
+    }
   });
 });

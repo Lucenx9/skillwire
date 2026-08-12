@@ -19,6 +19,9 @@ COPY src ./src
 RUN pnpm build
 
 FROM dependencies AS test
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN pnpm build && chmod -R a+rX /app
 CMD ["pnpm", "test"]
