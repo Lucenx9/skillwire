@@ -21,6 +21,8 @@ import {
   ADAPTER_POLICY_VERSION,
   CANONICAL_SKILLWIRE_MCP_URL,
   CODEX_ADAPTER_VALIDATOR_VERSION,
+  CODEX_ADAPTER_SOURCE_COMMIT,
+  CODEX_ADAPTER_SOURCE_PATH,
   CODEX_MANAGER_VERSION,
   CodexAdapterValidationError,
   SKILLWIRE_PLUGIN_SOURCE_GIT_URL,
@@ -61,6 +63,31 @@ function expectInvalid(root: string, code: string): void {
     expect(error).toBeInstanceOf(CodexAdapterValidationError);
     expect((error as CodexAdapterValidationError).codes).toContain(code);
   }
+}
+
+function immutablePluginCheckout(): string {
+  const root = mkdtempSync(join(tmpdir(), "skillwire-adapter-checkout-"));
+  temporaryRoots.push(root);
+  const checkout = join(root, "source");
+  const clone = spawnSync(
+    "git",
+    ["clone", "--no-local", "--no-checkout", projectRoot, checkout],
+    { encoding: "utf8" },
+  );
+  expect(clone.status, clone.stderr).toBe(0);
+  const checkedOut = spawnSync(
+    "git",
+    ["checkout", "--detach", CODEX_ADAPTER_SOURCE_COMMIT],
+    { cwd: checkout, encoding: "utf8" },
+  );
+  expect(checkedOut.status, checkedOut.stderr).toBe(0);
+  expect(
+    spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: checkout,
+      encoding: "utf8",
+    }).stdout.trim(),
+  ).toBe(CODEX_ADAPTER_SOURCE_COMMIT);
+  return join(checkout, CODEX_ADAPTER_SOURCE_PATH.slice(2));
 }
 
 describe("Codex activation adapter package", () => {
@@ -252,6 +279,134 @@ describe("Codex activation adapter package", () => {
     }
   });
 
+  it("maps every frozen non-trigger and failure to a bounded fail-open outcome", () => {
+    const fixtures = validateActivationFixtures(
+      loadActivationFixtures(projectRoot),
+    );
+    const skill = readFileSync(
+      join(pluginRoot, "skills/autonomous-skill-activation/SKILL.md"),
+      "utf8",
+    );
+    const irrelevant = fixtures.corpus.cases.filter(
+      ({ scenarioClass }) => scenarioClass === "irrelevant",
+    );
+    const local = fixtures.corpus.cases.filter(
+      ({ localSkillFixture }) => localSkillFixture !== undefined,
+    );
+    const failures = fixtures.corpus.cases.filter(
+      ({ failureMode }) => failureMode !== undefined,
+    );
+
+    expect(irrelevant).toHaveLength(15);
+    expect(
+      irrelevant.filter(({ failureMode }) => failureMode === undefined),
+    ).toHaveLength(14);
+    expect(
+      irrelevant
+        .filter(({ failureMode }) => failureMode === undefined)
+        .every(
+          ({ expectedBehavior }) =>
+            expectedBehavior.search === "skip" &&
+            expectedBehavior.operationSequence.length === 0,
+        ),
+    ).toBe(true);
+    expect(
+      irrelevant.find(({ failureMode }) => failureMode === "no-relevant-result")
+        ?.expectedBehavior,
+    ).toMatchObject({
+      search: "call",
+      maxSearchCalls: 1,
+      load: "skip",
+      terminalReason: "no-result",
+    });
+    expect(local).toHaveLength(5);
+    expect(
+      local.every(
+        ({ expectedBehavior }) =>
+          expectedBehavior.search === "skip" &&
+          expectedBehavior.load === "skip",
+      ),
+    ).toBe(true);
+    expect(new Set(failures.map(({ failureMode }) => failureMode))).toEqual(
+      new Set([
+        "service-unavailable",
+        "authentication-failed",
+        "rate-limited",
+        "no-relevant-result",
+        "revision-unavailable",
+        "resource-failed",
+      ]),
+    );
+    expect(
+      failures.every(
+        ({ expectedBehavior }) =>
+          expectedBehavior.maxSearchCalls <= 1 &&
+          expectedBehavior.maxLoadCalls <= 1,
+      ),
+    ).toBe(true);
+    expect(skill).toMatch(
+      /tasks that cannot be summarized without sensitive data/i,
+    );
+    expect(skill).toMatch(/repeated intent/i);
+    expect(skill).toMatch(/no retry, reformulation, polling/i);
+    expect(skill).toMatch(/continue normal work/i);
+  });
+
+  it("keeps explicit user intent and local precedence distinct across every frozen pair and overlap", () => {
+    const fixtures = validateActivationFixtures(
+      loadActivationFixtures(projectRoot),
+    );
+    const skill = readFileSync(
+      join(pluginRoot, "skills/autonomous-skill-activation/SKILL.md"),
+      "utf8",
+    );
+    const pairs = fixtures.pairIds.map((pairId) =>
+      fixtures.corpus.cases.filter((entry) => entry.pairId === pairId),
+    );
+    expect(pairs).toHaveLength(10);
+    for (const pair of pairs) {
+      expect(pair).toHaveLength(2);
+      expect(
+        pair.map(({ invocationContext }) => invocationContext).sort(),
+      ).toEqual(["automatic", "user-requested"]);
+      const explicit = pair.find(
+        ({ explicitUserIntent }) => explicitUserIntent,
+      );
+      const automatic = pair.find(
+        ({ explicitUserIntent }) => !explicitUserIntent,
+      );
+      expect(explicit?.scenarioClass).toBe("user-requested-explicit");
+      expect(explicit?.expectedCatalogMatch).not.toBeNull();
+      expect(automatic?.scenarioClass).toBe("user-requested-without-intent");
+      expect(automatic?.expectedCatalogMatch).toBeNull();
+    }
+    expect(skill).toMatch(/active user explicitly requests/i);
+    expect(skill).not.toMatch(/infer(?:red)? (?:intent|consent)/i);
+
+    const overlaps = fixtures.corpus.cases.filter(
+      ({ localSkillFixture }) => localSkillFixture !== undefined,
+    );
+    expect(overlaps).toHaveLength(5);
+    expect(
+      overlaps.map(({ localSkillFixture }) => localSkillFixture?.relationship),
+    ).toContain("equivalent");
+    expect(
+      overlaps.map(({ localSkillFixture }) => localSkillFixture?.relationship),
+    ).toContain("overlapping");
+    expect(
+      overlaps.some(
+        ({ localSkillFixture }) => localSkillFixture?.explicitlySelected,
+      ),
+    ).toBe(true);
+    expect(
+      overlaps.every(
+        ({ expectedBehavior }) =>
+          expectedBehavior.search === "skip" &&
+          expectedBehavior.operationSequence.length === 0,
+      ),
+    ).toBe(true);
+  });
+
   it("builds reproducible ordered integrity metadata bound to source identity", () => {
     const sourceCommit = "1234567890abcdef1234567890abcdef12345678";
     const first = createCodexAdapterIntegrityManifest(pluginRoot, {
@@ -294,6 +449,38 @@ describe("Codex activation adapter package", () => {
       first,
     );
   });
+
+  it.skipIf(!existsSync(join(projectRoot, ".git")))(
+    "reproduces the checked-in release from two exact immutable-source checkouts",
+    () => {
+      const integrity = JSON.parse(
+        readFileSync(
+          join(
+            projectRoot,
+            "distribution/codex-marketplace/release-integrity.json",
+          ),
+          "utf8",
+        ),
+      ) as unknown;
+      const firstRoot = immutablePluginCheckout();
+      const secondRoot = immutablePluginCheckout();
+      const first = validateCodexAdapterIntegrityManifest(integrity, firstRoot);
+      const second = validateCodexAdapterIntegrityManifest(
+        integrity,
+        secondRoot,
+      );
+
+      expect(first.source).toEqual({
+        url: SKILLWIRE_PLUGIN_SOURCE_GIT_URL,
+        path: CODEX_ADAPTER_SOURCE_PATH,
+        commit: CODEX_ADAPTER_SOURCE_COMMIT,
+      });
+      expect(first).toEqual(second);
+      expect(first.packageSha256).toBe(
+        validateCodexAdapterPackage(pluginRoot).packageSha256,
+      );
+    },
+  );
 
   it("rejects stale hashes, package drift at the same version, and invalid source binding", () => {
     const integrity = createCodexAdapterIntegrityManifest(pluginRoot, {

@@ -8,7 +8,7 @@
 
 Retain the implemented, centralized `ServerOptions.instructions` policy and refined metadata as the client-agnostic advisory baseline, while treating the preserved Codex CLI `0/7` result as evidence that this server-only surface is insufficient for the tested harness. Add one optional user-scoped Codex plugin distributed through a configured SkillWire marketplace. The plugin contains exactly one narrowly described, implicitly invocable activation skill and one official skill-level MCP dependency declaration; it contains no remote skill content, executable payload, credential, repository state, or custom lifecycle code.
 
-Codex's plugin manager—not SkillWire application code—configures the marketplace and installs, refreshes, verifies, and removes the adapter. The server remains independently usable through the same six MCP operations. Required CI deterministically validates the server, plugin package, marketplace metadata, lifecycle, security boundaries, frozen 75-case corpus, and Feature 001/002 compatibility. Real-model server-only and adapter-assisted measurements remain non-blocking, but SkillWire must not claim autonomous Codex activation until the adapter cohort reaches the existing 80% target with attributable `search_skills -> load_skill` traces.
+Codex's plugin manager—not SkillWire application code—configures the marketplace and installs, refreshes, verifies, and removes the adapter. The server remains independently usable through the same six MCP operations. Required CI deterministically validates the server, plugin package, marketplace metadata, lifecycle, security boundaries, frozen 75-case corpus, the outcome-independent 15-case stratified pilot, and Feature 001/002 compatibility. Real-model server-only and adapter-assisted measurements remain non-blocking. The pilot can support only a qualified release-candidate observation after the adapter cohort reaches the 80% target with attributable `search_skills -> load_skill` traces; it is not a statistically definitive activation estimate. The 30-case pair becomes an optional extended benchmark and the 65-case pair an optional expanded benchmark.
 
 ## Technical Context
 
@@ -28,7 +28,7 @@ Codex's plugin manager—not SkillWire application code—configures the marketp
 
 **Constraints**: Exactly six MCP tools; no schema changes, migrations, `.mcp.json`, `.app.json`, hooks, scripts, assets, client-repository files, remote-skill installation, embedded secrets, UI code, or SkillWire writes to Codex-managed paths
 
-**Scale/Scope**: Existing frozen 75-case activation corpus; one plugin identity, one skill, one MCP dependency, one marketplace entry, one server-only baseline artifact, and paired release evidence
+**Scale/Scope**: Existing frozen 75-case activation corpus; one immutable 15-case 8/3/2/2 release-candidate pilot; one plugin identity, one skill, one MCP dependency, one marketplace entry, one server-only baseline artifact, and paired pilot evidence
 
 ## Constitution Check
 
@@ -62,6 +62,7 @@ specs/003-autonomous-skill-activation/
 │   └── requirements.md
 └── contracts/
     ├── activation-corpus.schema.json
+    ├── activation-release-subset.schema.json
     ├── codex-activation-plugin.md
     ├── manual-evidence.schema.json
     ├── paired-adapter-evidence.schema.json
@@ -96,6 +97,7 @@ distribution/codex-marketplace/
 
 evaluation/
 ├── autonomous-activation.v1.json            # existing immutable 75-case corpus
+├── autonomous-activation-release-subset.v1.json # frozen 15-case RC pilot
 └── evidence/003/
     ├── candidate-v1.json                    # immutable 0/7 server-only baseline
     └── adapter-pair-v1.json                  # fresh matched runs; created only when complete
@@ -119,7 +121,7 @@ tests/
 
 - `src/transport/mcp/activation-policy.ts`, `server-factory.ts`, and `tool-adapters.ts`: centralized policy, legacy/current exposure, six-tool descriptions, and annotations remain the portable baseline.
 - `src/domain/catalog/ranking.ts` and `src/application/use-cases/load-skill.ts`: relevance threshold, isolation, exact verified-load attribution, and memory ordering remain valid.
-- `evaluation/autonomous-activation.v1.json` and `contracts/activation-corpus.schema.json`: reuse the frozen 75 cases unchanged.
+- `evaluation/autonomous-activation.v1.json` and `contracts/activation-corpus.schema.json`: reuse the frozen 75 cases unchanged. Derive and validate the separate 15-case 8/3/2/2 pilot strictly from source-corpus order; never choose from observed model outcomes.
 - Existing metadata, ranking, transport, memory, no-GitHub, no-client-write, and Feature 001/002 regression tests.
 - `contracts/mcp-activation.md`: server contract remains authoritative; revise only wording that implies server-only autonomous success.
 - `contracts/manual-evidence.schema.json` and `evaluation/evidence/003/candidate-v1.json`: retain v1 validation and the exact baseline bytes. Baseline SHA-256 is `04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d`.
@@ -136,6 +138,7 @@ tests/
 - The three plugin files under `integrations/codex/skillwire-autonomous-activation/`.
 - `distribution/codex-marketplace/marketplace.json` and `release-integrity.json`.
 - `contracts/codex-activation-plugin.md` and `contracts/paired-adapter-evidence.schema.json`.
+- `evaluation/autonomous-activation-release-subset.v1.json` and `contracts/activation-release-subset.schema.json`.
 - `src/evaluation/codex-adapter-package.ts` and focused unit/CLI lifecycle tests.
 
 Features 001 and 002 artifacts are not modified.
@@ -207,7 +210,7 @@ Adapter invocation, tool availability, prose, a search preview, or a local skill
 
 ### Deterministic required CI
 
-Reuse the 75-case corpus and all compatible tests. Add gates that:
+Reuse the 75-case corpus and all compatible tests. Validate the immutable 15-case release-candidate pilot and add gates that:
 
 1. Preserve legacy/current instruction identity, the 512-code-point decision capsule, six tools, descriptions, annotations, and unchanged schemas.
 2. Validate the exact three-file package allowlist, JSON/YAML/frontmatter schemas, names, versions, relative paths, implicit policy, dependency URL, semantic consistency with server policy, and absence of secrets, hashes, account/repository data, executable bits, hooks, scripts, remote skill content, and repository paths.
@@ -221,16 +224,16 @@ These tests validate artifacts, manager behavior, and server-controlled invarian
 
 ### Paired clean-profile manual evaluation
 
-Keep `candidate-v1.json` unchanged as the historical server-only `0/7` baseline. A new paired envelope binds its exact path/hash and contains two fresh v1-compatible runs: server instructions only and server instructions plus adapter. First-class experiment controls record the exact SkillWire commit, Codex CLI/model/reasoning, server policy, corpus/catalog/protocol/evaluator, clean-profile procedure, endpoint URL hash, authentication mechanism, and selected case IDs. The pair validator requires those controls, prompt bytes, and server configuration to match; only the adapter/plugin inventory may differ. It must never relabel or mutate the historical baseline.
+Keep `candidate-v1.json` unchanged as the historical server-only `0/7` baseline. A new paired envelope binds its exact path/hash and contains two fresh v1-compatible runs: server instructions only and server instructions plus adapter. First-class experiment controls record the exact SkillWire commit, Codex CLI/model/reasoning, server policy, source corpus, immutable pilot ID, catalog/protocol/evaluator, clean-profile procedure, endpoint URL hash, authentication mechanism, and selected case IDs. The pair validator requires the exact 15 pilot IDs, prompt bytes, and server configuration to match; only the adapter/plugin inventory may differ. It must never relabel or mutate the historical baseline.
 
-For a release candidate, run the frozen corpus in fresh isolated Codex sessions under:
+For a release candidate, run the immutable stratified pilot—8 clean automatic, 3 irrelevant, 2 explicit user-requested, and the corresponding 2 no-intent cases—in fresh isolated Codex sessions under:
 
 - A: server instructions only;
 - B: the identical server connection plus `skillwire-autonomous-activation@skillwire`.
 
 Use disposable restrictive `HOME`/`CODEX_HOME`, an empty Git repository outside the SkillWire hierarchy, no repository/admin/user/plugin skills other than unavoidable Codex system skills, no extra MCP servers, and a protected ephemeral credential mechanism cleaned afterward. Record the effective skill and MCP inventories, Codex/plugin-manager version, model/reasoning, SkillWire commit, server policy, adapter version/hash, corpus/catalog versions, and actual redacted MCP traces. The prompt text comes only from the existing corpus and does not mention SkillWire, MCP, tool names, or exact skill names except explicit-intent cases.
 
-Report clean relevant, irrelevant, user-requested, and resource-progressive cohorts separately. The five predeclared local-overlap cases are not part of the clean-profile claim cohort: retain their deterministic coverage and report any optional real-harness overlap run separately against a version-recorded, pre-existing controlled local inventory that SkillWire neither installs nor modifies. Preserve incomplete/externally blocked cases outside positive denominators. Model-dependent evidence remains outside required CI, but no autonomous activation claim is permitted until cohort B reaches at least 80% spontaneous automatic search over at least 25 relevant clean prompts, >=90% exact selection after search, <=10% irrelevant activation, 100% user-requested isolation, and zero client-tree writes. Every counted success must include exact ordered search/load evidence.
+Report clean relevant, irrelevant, user-requested, and resource-progressive strata separately. The five predeclared local-overlap cases are not part of the pilot: retain their deterministic coverage and report any optional real-harness overlap run separately against a version-recorded, pre-existing controlled local inventory that SkillWire neither installs nor modifies. Preserve incomplete/externally blocked cases outside positive denominators and surface them as claim diagnostics. Model-dependent evidence remains outside required CI. The pilot target is at least 80% spontaneous automatic search over the 8 selected relevant prompts, >=90% exact selection after search, <=10% irrelevant activation over the 3 selected irrelevant prompts, 100% isolation over the 2 selected user-requested pairs, and zero client-tree writes. Every counted success must include exact ordered search/load evidence. Passing supports only a qualified pilot observation for the recorded configuration, never a statistically definitive or universal autonomous-activation claim. The 30-case 15/5/5/5 pair is an optional, separately identified, non-blocking extended benchmark; the full 65-case non-overlap pair is optional expanded evidence.
 
 ## Security, Privacy, and Observability
 
@@ -262,7 +265,7 @@ Report clean relevant, irrelevant, user-requested, and resource-progressive coho
 2. Land package/marketplace contracts and failing deterministic validators before adding the three plugin artifacts.
 3. Validate package and full disposable manager lifecycle offline, including current server regressions.
 4. Publish plugin source commit, hashes, and then the exact-SHA marketplace entry. Installation is opt-in (`AVAILABLE`, `ON_USE`).
-5. Run paired clean-profile evidence. Preserve `candidate-v1.json` byte-for-byte and with its recorded SHA-256.
+5. Run the frozen 15-case paired clean-profile pilot. Preserve `candidate-v1.json` byte-for-byte and with its recorded SHA-256; treat the 30-case pair as an optional extended benchmark and the 65-case pair as optional expanded evidence.
 6. Claim autonomous Codex activation only after adapter evidence meets the acceptance target; otherwise keep the plugin experimental and report the measured limitation.
 
 Server clients see no operation or schema change. Users without the plugin keep the same explicit SkillWire workflow and advisory instructions. Removing the plugin through Codex restores server-only behavior without changing server, database, repository memory, external credentials, or repositories. Emergency rollback is manager uninstall; normal rollback republishes last-known-good content under a higher semantic version and promotes its exact commit through the marketplace.

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "subsetId": "activation-release-candidate-pilot-v1",
+  "sourceCorpusId": "autonomous-activation-v1",
+  "sourceCorpusSha256": "a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28",
+  "selectionRule": "corpus-order-first-n-per-stratum",
+  "purpose": "pilot-release-candidate-evidence",
+  "strata": {
+    "cleanAutomatic": [
+      "auto-dependency-upgrade-planning-1",
+      "auto-dependency-upgrade-planning-2",
+      "auto-dependency-upgrade-planning-3",
+      "auto-dockerfile-hardening-1",
+      "auto-dockerfile-hardening-2",
+      "auto-dockerfile-hardening-3",
+      "auto-github-actions-ci-1",
+      "auto-github-actions-ci-2"
+    ],
+    "irrelevant": ["irrelevant-01", "irrelevant-02", "irrelevant-03"],
+    "userRequestedExplicit": ["ask-matt-explicit-01", "ask-matt-explicit-02"],
+    "userRequestedWithoutIntent": [
+      "ask-matt-without-intent-01",
+      "ask-matt-without-intent-02"
+    ]
+  },
+  "caseIds": [
+    "auto-dependency-upgrade-planning-1",
+    "auto-dependency-upgrade-planning-2",
+    "auto-dependency-upgrade-planning-3",
+    "auto-dockerfile-hardening-1",
+    "auto-dockerfile-hardening-2",
+    "auto-dockerfile-hardening-3",
+    "auto-github-actions-ci-1",
+    "auto-github-actions-ci-2",
+    "irrelevant-01",
+    "irrelevant-02",
+    "irrelevant-03",
+    "ask-matt-explicit-01",
+    "ask-matt-explicit-02",
+    "ask-matt-without-intent-01",
+    "ask-matt-without-intent-02"
+  ]
+}

@@ -275,4 +275,48 @@ describe("frozen autonomous-activation corpus", () => {
       ]),
     ).toEqual({ valid: true, reasonCodes: [] });
   });
+
+  it("covers every terminal failure without authorizing a second attempt", () => {
+    const { corpus } = validateActivationFixtures(
+      loadActivationFixtures(projectRoot),
+    );
+    const failures = corpus.cases.filter(
+      ({ failureMode }) => failureMode !== undefined,
+    );
+
+    expect(new Set(failures.map(({ failureMode }) => failureMode))).toEqual(
+      new Set([
+        "service-unavailable",
+        "authentication-failed",
+        "rate-limited",
+        "no-relevant-result",
+        "revision-unavailable",
+        "resource-failed",
+      ]),
+    );
+    for (const activationCase of failures) {
+      const terminal = activationCase.expectedBehavior.operationSequence.at(-1);
+      if (terminal === undefined) continue;
+      const result =
+        activationCase.failureMode === "no-relevant-result" ? "empty" : "error";
+      const validation = validateActivationTrace([
+        {
+          taskIntent: activationCase.id,
+          toolName: terminal,
+          result,
+          ...(terminal === "search_skills"
+            ? { invocationContext: activationCase.invocationContext }
+            : {}),
+        },
+        {
+          taskIntent: activationCase.id,
+          toolName: "search_skills",
+          result: "success",
+          invocationContext: "automatic",
+        },
+      ]);
+      expect(validation.valid).toBe(false);
+      expect(validation.reasonCodes).toContain("CALL_AFTER_TERMINAL");
+    }
+  });
 });

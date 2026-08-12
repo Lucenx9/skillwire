@@ -63,6 +63,7 @@
         "reasoningSetting",
         "serverPolicyVersion",
         "corpusId",
+        "releaseSubsetId",
         "catalogRelease",
         "protocolVersion",
         "evaluatorVersion",
@@ -98,6 +99,9 @@
         "corpusId": {
           "const": "autonomous-activation-v1"
         },
+        "releaseSubsetId": {
+          "const": "activation-release-candidate-pilot-v1"
+        },
         "catalogRelease": {
           "type": "string",
           "minLength": 1,
@@ -128,7 +132,8 @@
         },
         "caseIds": {
           "type": "array",
-          "minItems": 50,
+          "minItems": 15,
+          "maxItems": 15,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -264,6 +269,7 @@
               "user-requested-isolation-failed",
               "client-write-observed",
               "unattributable-success-trace",
+              "progressive-loading-conformance-failed",
               "unmatched-pair",
               "incomplete-observations"
             ]
@@ -283,7 +289,7 @@
           "then": {
             "properties": {
               "evaluatedRelevantCases": {
-                "minimum": 25
+                "minimum": 8
               },
               "diagnosticCodes": {
                 "maxItems": 0

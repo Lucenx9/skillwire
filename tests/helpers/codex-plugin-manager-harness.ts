@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -18,6 +19,7 @@ import { spawnSync } from "node:child_process";
 import {
   CODEX_ADAPTER_FILES,
   CODEX_ADAPTER_PLUGIN_NAME,
+  CODEX_ADAPTER_SOURCE_COMMIT,
   CODEX_ADAPTER_SOURCE_PATH,
   validateCodexAdapterPackage,
 } from "../../src/evaluation/codex-adapter-package.js";
@@ -138,31 +140,38 @@ class Harness implements CodexPluginManagerHarness {
       this.#home,
       this.#codexHome,
       this.#repository,
-      this.#pluginRepository,
       this.#marketplaceRepository,
     ]) {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
-    const pluginRoot = join(
-      projectRoot,
-      "integrations/codex/skillwire-autonomous-activation",
-    );
+    const pluginRoot = join(projectRoot, CODEX_ADAPTER_SOURCE_PATH.slice(2));
     validateCodexAdapterPackage(pluginRoot);
-    const pluginDestination = join(
-      this.#pluginRepository,
-      CODEX_ADAPTER_SOURCE_PATH.slice(2),
-    );
-    mkdirSync(dirname(pluginDestination), { recursive: true, mode: 0o700 });
-    cpSync(pluginRoot, pluginDestination, { recursive: true });
 
     this.#initializeRepository(this.#repository, false);
     this.#initialRepositoryDigest = digestTree(this.#repository);
-    this.#initializeRepository(this.#pluginRepository, true);
-    this.#currentSourceCommit = this.#git(this.#pluginRepository, [
-      "rev-parse",
-      "HEAD",
-    ]).trim();
+    const immutableSourceAvailable = existsSync(join(projectRoot, ".git"));
+    if (immutableSourceAvailable) {
+      this.#cloneImmutableSource(projectRoot);
+      this.#currentSourceCommit = CODEX_ADAPTER_SOURCE_COMMIT;
+    } else {
+      const pluginDestination = join(
+        this.#pluginRepository,
+        CODEX_ADAPTER_SOURCE_PATH.slice(2),
+      );
+      mkdirSync(dirname(pluginDestination), { recursive: true, mode: 0o700 });
+      cpSync(pluginRoot, pluginDestination, { recursive: true });
+      this.#initializeRepository(this.#pluginRepository, true);
+      this.#currentSourceCommit = this.#git(this.#pluginRepository, [
+        "rev-parse",
+        "HEAD",
+      ]).trim();
+    }
+    const checkedOutPluginRoot = join(
+      this.#pluginRepository,
+      CODEX_ADAPTER_SOURCE_PATH.slice(2),
+    );
+    expectExactPackageBytes(pluginRoot, checkedOutPluginRoot);
 
     this.#marketplacePath = join(
       this.#marketplaceRepository,
@@ -529,6 +538,53 @@ class Harness implements CodexPluginManagerHarness {
     }
   }
 
+  #cloneImmutableSource(projectRoot: string): void {
+    const clone = spawnSync(
+      "git",
+      [
+        "clone",
+        "--no-local",
+        "--no-checkout",
+        projectRoot,
+        this.#pluginRepository,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+          HOME: this.#home,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      },
+    );
+    if (clone.status !== 0) {
+      throw new Error(`immutable source clone failed: ${clone.stderr}`);
+    }
+    this.#git(this.#pluginRepository, [
+      "config",
+      "user.email",
+      "fixture@skillwire.invalid",
+    ]);
+    this.#git(this.#pluginRepository, [
+      "config",
+      "user.name",
+      "SkillWire Fixture",
+    ]);
+    this.#git(this.#pluginRepository, [
+      "checkout",
+      "--detach",
+      CODEX_ADAPTER_SOURCE_COMMIT,
+    ]);
+    const checkedOut = this.#git(this.#pluginRepository, [
+      "rev-parse",
+      "HEAD",
+    ]).trim();
+    if (checkedOut !== CODEX_ADAPTER_SOURCE_COMMIT) {
+      throw new Error("immutable source checkout mismatch");
+    }
+  }
+
   #git(cwd: string, args: readonly string[]): string {
     const result = spawnSync("git", args, {
       cwd,
@@ -697,6 +753,17 @@ function walkFiles(root: string): string[] {
   };
   visit(root);
   return files;
+}
+
+function expectExactPackageBytes(
+  currentPluginRoot: string,
+  checkedOutPluginRoot: string,
+): void {
+  const current = validateCodexAdapterPackage(currentPluginRoot);
+  const checkedOut = validateCodexAdapterPackage(checkedOutPluginRoot);
+  if (current.packageSha256 !== checkedOut.packageSha256) {
+    throw new Error("working adapter differs from immutable source commit");
+  }
 }
 
 function digestTree(root: string): string {

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
+import { CODEX_ADAPTER_SOURCE_COMMIT } from "../../../src/evaluation/codex-adapter-package.js";
 import {
   createCodexPluginManagerHarness,
   type CodexPluginManagerHarness,
@@ -19,6 +22,11 @@ describe("Codex activation plugin manager lifecycle", () => {
     harnesses.push(harness);
 
     expect(harness.managerVersion).toBe("0.147.0");
+    if (existsSync(join(process.cwd(), ".git"))) {
+      expect(harness.sourceCommit).toBe(CODEX_ADAPTER_SOURCE_COMMIT);
+    } else {
+      expect(harness.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    }
     expect(harness.profileModes()).toEqual({ home: 0o700, codexHome: 0o700 });
 
     harness.addMarketplace();

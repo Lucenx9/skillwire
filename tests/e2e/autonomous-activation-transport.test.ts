@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { join } from "node:path";
 
 import {
   loadSkillOutputSchema,
@@ -22,6 +23,7 @@ import type {
   CatalogSkillMetadata,
   SkillRevision,
 } from "../../src/domain/catalog/types.js";
+import { validateCodexAdapterPackage } from "../../src/evaluation/codex-adapter-package.js";
 
 describe("autonomous activation through the registered MCP transport", () => {
   const harnesses: ActivationMcpHarness[] = [];
@@ -292,6 +294,80 @@ describe("autonomous activation through the registered MCP transport", () => {
     expect(harness.toolCalls).toEqual([]);
     expect(memoryStore.recordUsageCount).toBe(0);
     await expect(harness.clientTreeIsUnchanged()).resolves.toBe(true);
+  });
+
+  it("attributes neither adapter inventory, local guidance, previews, nor failed loads as remote usage", async () => {
+    const memoryStore = new FakeRepositoryMemoryStore();
+    const adapter = validateCodexAdapterPackage(
+      join(process.cwd(), "integrations/codex/skillwire-autonomous-activation"),
+    );
+    const { corpus } = validateActivationFixtures(
+      loadActivationFixtures(process.cwd()),
+    );
+    const local = corpus.cases.find(
+      ({ localSkillFixture }) => localSkillFixture !== undefined,
+    );
+    expect(adapter.pluginName).toBe("skillwire-autonomous-activation");
+    expect(local?.expectedBehavior.operationSequence).toEqual([]);
+    expect(memoryStore.recordUsageCount).toBe(0);
+
+    const attempted = await createActivationMcpHarness({
+      protocol: "modern",
+      application: { memoryStore },
+    });
+    harnesses.push(attempted);
+    const preview = searchSkillsOutputSchema.parse(
+      (
+        await attempted.callTool("search_skills", {
+          task: "Review TypeScript type safety",
+          invocationContext: "automatic",
+          repositoryHash: "7".repeat(64),
+          limit: 1,
+        })
+      ).structuredContent,
+    ).skills[0];
+    expect(preview).toBeDefined();
+    expect(memoryStore.recordUsageCount).toBe(0);
+    const failed = await attempted.callTool("load_skill", {
+      skillId: "missing-skill",
+      revision: "1.0.0",
+      repositoryHash: "7".repeat(64),
+    });
+    expect(failed.isError).toBe(true);
+    expect(memoryStore.recordUsageCount).toBe(0);
+
+    const verified = await createActivationMcpHarness({
+      protocol: "modern",
+      application: { memoryStore },
+    });
+    harnesses.push(verified);
+    const exactPreview = searchSkillsOutputSchema.parse(
+      (
+        await verified.callTool("search_skills", {
+          task: "Review TypeScript type safety",
+          invocationContext: "automatic",
+          repositoryHash: "7".repeat(64),
+          limit: 1,
+        })
+      ).structuredContent,
+    ).skills[0];
+    const exact = loadSkillOutputSchema.parse(
+      (
+        await verified.callTool("load_skill", {
+          skillId: exactPreview?.skillId,
+          revision: exactPreview?.revision,
+          repositoryHash: "7".repeat(64),
+        })
+      ).structuredContent,
+    );
+    expect(exact).toMatchObject({
+      skillId: exactPreview?.skillId,
+      revision: exactPreview?.revision,
+      memoryRecorded: true,
+    });
+    expect(memoryStore.recordUsageCount).toBe(1);
+    await expect(attempted.clientTreeIsUnchanged()).resolves.toBe(true);
+    await expect(verified.clientTreeIsUnchanged()).resolves.toBe(true);
   });
 
   it.each([

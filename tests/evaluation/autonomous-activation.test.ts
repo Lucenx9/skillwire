@@ -53,6 +53,53 @@ describe("frozen autonomous-activation evaluation", () => {
     ).toBe(false);
   });
 
+  it("preserves all explicit/no-intent pairs and local precedence as separate advisory cohorts", () => {
+    const fixtures = validateActivationFixtures(
+      loadActivationFixtures(process.cwd()),
+    );
+    const evaluated = evaluateActivationCorpus(fixtures);
+
+    expect(evaluated.userRequestedIsolation).toEqual({
+      numerator: 10,
+      denominator: 10,
+      rate: 1,
+    });
+    for (const pairId of fixtures.pairIds) {
+      const members = fixtures.corpus.cases.filter(
+        (entry) => entry.pairId === pairId,
+      );
+      const explicit = members.find(
+        ({ scenarioClass }) => scenarioClass === "user-requested-explicit",
+      );
+      const withoutIntent = members.find(
+        ({ scenarioClass }) =>
+          scenarioClass === "user-requested-without-intent",
+      );
+      expect(explicit).toMatchObject({
+        explicitUserIntent: true,
+        invocationContext: "user-requested",
+      });
+      expect(explicit?.expectedCatalogMatch).not.toBeNull();
+      expect(withoutIntent).toMatchObject({
+        explicitUserIntent: false,
+        invocationContext: "automatic",
+        expectedCatalogMatch: null,
+      });
+    }
+
+    const overlaps = fixtures.corpus.cases.filter(
+      ({ localSkillFixture }) => localSkillFixture !== undefined,
+    );
+    expect(overlaps).toHaveLength(5);
+    expect(
+      overlaps.every(
+        ({ expectedBehavior }) =>
+          expectedBehavior.operationSequence.length === 0 &&
+          expectedBehavior.terminalReason === "local-precedence",
+      ),
+    ).toBe(true);
+  });
+
   it("preserves every bounded expected operation sequence and failure category", () => {
     const result = evaluateActivationCorpus(
       validateActivationFixtures(loadActivationFixtures(process.cwd())),

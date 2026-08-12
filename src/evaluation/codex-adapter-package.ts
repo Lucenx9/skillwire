@@ -15,6 +15,8 @@ export const SKILLWIRE_PLUGIN_SOURCE_GIT_URL =
   "https://github.com/Lucenx9/skillwire.git";
 export const CODEX_ADAPTER_SOURCE_PATH =
   "./integrations/codex/skillwire-autonomous-activation";
+export const CODEX_ADAPTER_SOURCE_COMMIT =
+  "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9";
 
 export const CODEX_ADAPTER_FILES = [
   ".codex-plugin/plugin.json",

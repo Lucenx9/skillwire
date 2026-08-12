@@ -5,10 +5,18 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
+  derivePairedClaimEligibility,
   EvidenceValidationError,
   loadActivationEvidence,
+  recomputeActivationEvidenceMetrics,
   validateActivationEvidence,
+  validatePairedActivationEvidence,
 } from "../../../src/evaluation/activation-evidence.js";
+import { createPairedActivationEvidenceFixture } from "../../helpers/paired-activation-evidence.js";
+import {
+  loadActivationFixtures,
+  validateActivationFixtures,
+} from "../../../src/evaluation/activation-corpus-runner.js";
 
 const projectRoot = process.cwd();
 const fixture = (name: string) =>
@@ -49,13 +57,14 @@ const pairedEnvelopeStructuralSchema = z
         reasoningSetting: z.string().min(1),
         serverPolicyVersion: z.literal("skillwire-activation-v1"),
         corpusId: z.literal("autonomous-activation-v1"),
+        releaseSubsetId: z.literal("activation-release-candidate-pilot-v1"),
         catalogRelease: z.string().min(1),
         protocolVersion: z.string().min(1),
         evaluatorVersion: z.string().min(1),
         cleanProfileProcedureVersion: z.string().min(1),
         endpointUrlSha256: sha256Schema,
         authenticationMechanism: z.enum(["ephemeral-bearer-env", "oauth"]),
-        caseIds: z.array(z.string()).min(50),
+        caseIds: z.array(z.string()).length(15),
         serverOnlyInventory: emptyInventorySchema.extend({
           pluginSkills: z.array(z.string()).max(0),
         }),
@@ -120,7 +129,7 @@ describe("manual autonomous-activation evidence", () => {
     ) as unknown;
     const parsed = pairedEnvelopeStructuralSchema.parse(paired);
 
-    expect(parsed.experiment.caseIds).toHaveLength(50);
+    expect(parsed.experiment.caseIds).toHaveLength(15);
     expect(parsed.experiment.serverOnlyInventory.pluginSkills).toEqual([]);
     expect(parsed.experiment.adapterInventory.pluginSkills).toEqual([
       "skillwire-autonomous-activation:autonomous-skill-activation",
@@ -133,6 +142,260 @@ describe("manual autonomous-activation evidence", () => {
     ).toBe("complete");
     expect(JSON.stringify(parsed)).not.toMatch(
       /(?:authorization["':]|api[_-]?key|-----BEGIN|\/home\/|[A-Z]:\\)/i,
+    );
+  });
+
+  it("validates a complete paired experiment and derives eligibility only from exact traces", () => {
+    const paired = createPairedActivationEvidenceFixture(projectRoot);
+    const report = validatePairedActivationEvidence(paired, projectRoot);
+
+    expect(paired.experiment.caseIds).toHaveLength(15);
+    expect(report.status).toBe("complete");
+    expect(report.serverOnly.metrics.spontaneousActivation).toEqual({
+      numerator: 0,
+      denominator: 8,
+      rate: 0,
+    });
+    expect(report.adapter.metrics.spontaneousActivation).toEqual({
+      numerator: 8,
+      denominator: 8,
+      rate: 1,
+    });
+    expect(report.claimEligibility).toEqual({
+      eligible: true,
+      evaluatedRelevantCases: 8,
+      diagnosticCodes: [],
+    });
+  });
+
+  it("rejects historical, case-set, control, inventory, release, and submitted-claim drift", () => {
+    const cases = [
+      {
+        code: "PAIRED_EVIDENCE_SCHEMA_INVALID",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.preservedBaseline.sha256 = "0".repeat(64) as never;
+        },
+      },
+      {
+        code: "PAIR_CASE_MISMATCH",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.adapterRun.observations.reverse();
+        },
+      },
+      {
+        code: "PAIR_CONTROL_MISMATCH",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.adapterRun.model.version = "different";
+        },
+      },
+      {
+        code: "INVENTORY_HASH_MISMATCH",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.experiment.adapterInventory.inventorySha256 = "0".repeat(64);
+        },
+      },
+      {
+        code: "ADAPTER_RELEASE_MISMATCH",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.adapter.packageSha256 = "0".repeat(64);
+        },
+      },
+      {
+        code: "CLAIM_ELIGIBILITY_MISMATCH",
+        mutate(
+          value: ReturnType<typeof createPairedActivationEvidenceFixture>,
+        ) {
+          value.claimEligibility = {
+            eligible: false,
+            evaluatedRelevantCases: 8,
+            diagnosticCodes: ["spontaneous-activation-below-target"],
+          };
+        },
+      },
+    ];
+
+    for (const entry of cases) {
+      const paired = createPairedActivationEvidenceFixture(projectRoot);
+      entry.mutate(paired);
+      try {
+        validatePairedActivationEvidence(paired, projectRoot);
+        throw new Error(`Expected invalid pair: ${entry.code}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(EvidenceValidationError);
+        expect((error as EvidenceValidationError).codes).toContain(entry.code);
+      }
+    }
+  });
+
+  it("withholds the claim for prose-only/search-only and incomplete observations", () => {
+    const paired = createPairedActivationEvidenceFixture(projectRoot);
+    const observation = paired.adapterRun.observations.find(
+      ({ caseId }) => caseId === "auto-dependency-upgrade-planning-1",
+    );
+    if (observation === undefined) throw new Error("missing fixture case");
+    observation.toolCalls = observation.toolCalls.slice(0, 1);
+    observation.guidanceSource = "none";
+    observation.verifiedSkillWireLoad = null;
+    observation.completionEvidence = "none";
+    paired.adapterRun.metrics = recomputeActivationEvidenceMetrics(
+      paired.adapterRun,
+      projectRoot,
+    );
+    paired.claimEligibility = derivePairedClaimEligibility(paired, projectRoot);
+
+    const searchOnly = validatePairedActivationEvidence(paired, projectRoot);
+    expect(searchOnly.claimEligibility).toMatchObject({ eligible: false });
+    expect(searchOnly.claimEligibility.diagnosticCodes).toContain(
+      "unattributable-success-trace",
+    );
+
+    const incomplete = createPairedActivationEvidenceFixture(projectRoot, {
+      incompleteCaseId: "auto-dependency-upgrade-planning-1",
+    });
+    const incompleteReport = validatePairedActivationEvidence(
+      incomplete,
+      projectRoot,
+    );
+    expect(incompleteReport.status).toBe("incomplete");
+    expect(incompleteReport.claimEligibility.eligible).toBe(false);
+    expect(incompleteReport.claimEligibility.diagnosticCodes).toContain(
+      "incomplete-observations",
+    );
+  });
+
+  it("applies every acceptance threshold to completed adapter traces", () => {
+    const passingPilot = createPairedActivationEvidenceFixture(projectRoot);
+    const relevantAtThreshold = passingPilot.adapterRun.observations.filter(
+      ({ caseId }) => caseId.startsWith("auto-") && !caseId.includes("overlap"),
+    );
+    for (const observation of relevantAtThreshold.slice(0, 1)) {
+      removeActivation(observation);
+    }
+    recomputePair(passingPilot);
+    expect(passingPilot.adapterRun.metrics.spontaneousActivation).toEqual({
+      numerator: 7,
+      denominator: 8,
+      rate: 0.875,
+    });
+    expect(
+      validatePairedActivationEvidence(passingPilot, projectRoot)
+        .claimEligibility.eligible,
+    ).toBe(true);
+
+    const belowActivation = structuredClone(passingPilot);
+    removeActivation(relevantObservation(belowActivation, 1));
+    recomputePair(belowActivation);
+    expect(belowActivation.claimEligibility.diagnosticCodes).toContain(
+      "spontaneous-activation-below-target",
+    );
+
+    const unnecessary = createPairedActivationEvidenceFixture(projectRoot);
+    for (const caseId of ["irrelevant-01", "irrelevant-02"]) {
+      const observation = unnecessary.adapterRun.observations.find(
+        (entry) => entry.caseId === caseId,
+      );
+      if (observation === undefined) throw new Error("missing irrelevant case");
+      observation.toolCalls = [
+        {
+          sequence: 1,
+          toolName: "search_skills",
+          invocationContext: "automatic",
+          result: "success",
+        },
+      ];
+    }
+    recomputePair(unnecessary);
+    expect(unnecessary.claimEligibility.diagnosticCodes).toContain(
+      "unnecessary-activation-above-target",
+    );
+
+    const isolation = createPairedActivationEvidenceFixture(projectRoot);
+    const fixtures = validateActivationFixtures(
+      loadActivationFixtures(projectRoot),
+    );
+    const explicit = fixtures.corpus.cases.find(
+      ({ id }) => id === "ask-matt-explicit-01",
+    );
+    const noIntent = isolation.adapterRun.observations.find(
+      ({ caseId }) => caseId === "ask-matt-without-intent-01",
+    );
+    const identity = explicit?.expectedCatalogMatch;
+    if (identity === null || identity === undefined || noIntent === undefined) {
+      throw new Error("missing isolation fixture");
+    }
+    noIntent.toolCalls = [
+      {
+        sequence: 1,
+        toolName: "search_skills",
+        invocationContext: "automatic",
+        result: "success",
+      },
+      {
+        sequence: 2,
+        toolName: "load_skill",
+        skill: identity,
+        result: "success",
+      },
+    ];
+    noIntent.guidanceSource = "skillwire";
+    noIntent.verifiedSkillWireLoad = identity;
+    recomputePair(isolation);
+    expect(isolation.claimEligibility.diagnosticCodes).toContain(
+      "user-requested-isolation-failed",
+    );
+
+    const explicitMissing = createPairedActivationEvidenceFixture(projectRoot);
+    const explicitObservation = explicitMissing.adapterRun.observations.find(
+      ({ caseId }) => caseId === "ask-matt-explicit-01",
+    );
+    if (explicitObservation === undefined)
+      throw new Error("missing explicit observation");
+    removeActivation(explicitObservation);
+    recomputePair(explicitMissing);
+    expect(explicitMissing.claimEligibility.diagnosticCodes).toContain(
+      "user-requested-isolation-failed",
+    );
+  });
+
+  it("accepts observed unnecessary resource evidence but blocks the claim", () => {
+    const paired = createPairedActivationEvidenceFixture(projectRoot);
+    const observation = paired.adapterRun.observations.find(
+      ({ caseId }) => caseId === "ask-matt-explicit-02",
+    );
+    const identity = observation?.verifiedSkillWireLoad;
+    if (
+      observation === undefined ||
+      identity === null ||
+      identity === undefined
+    ) {
+      throw new Error("missing explicit fixture load");
+    }
+    observation.toolCalls.push({
+      sequence: 3,
+      toolName: "read_skill_resource",
+      skill: identity,
+      resourcePath: "REFERENCE.md",
+      result: "success",
+    });
+    recomputePair(paired);
+
+    const report = validatePairedActivationEvidence(paired, projectRoot);
+    expect(report.adapter.diagnosticCodes).toEqual(
+      expect.arrayContaining(["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]),
+    );
+    expect(report.claimEligibility).toMatchObject({ eligible: false });
+    expect(report.claimEligibility.diagnosticCodes).toContain(
+      "progressive-loading-conformance-failed",
     );
   });
 
@@ -251,3 +514,37 @@ describe("manual autonomous-activation evidence", () => {
     }
   });
 });
+
+function relevantObservation(
+  pair: ReturnType<typeof createPairedActivationEvidenceFixture>,
+  index: number,
+) {
+  const observations = pair.adapterRun.observations.filter(
+    ({ caseId }) => caseId.startsWith("auto-") && !caseId.includes("overlap"),
+  );
+  const observation = observations[index];
+  if (observation === undefined)
+    throw new Error("missing relevant observation");
+  return observation;
+}
+
+function removeActivation(
+  observation: ReturnType<
+    typeof createPairedActivationEvidenceFixture
+  >["adapterRun"]["observations"][number],
+): void {
+  observation.toolCalls = [];
+  observation.guidanceSource = "none";
+  observation.verifiedSkillWireLoad = null;
+  observation.completionEvidence = "none";
+}
+
+function recomputePair(
+  pair: ReturnType<typeof createPairedActivationEvidenceFixture>,
+): void {
+  pair.adapterRun.metrics = recomputeActivationEvidenceMetrics(
+    pair.adapterRun,
+    projectRoot,
+  );
+  pair.claimEligibility = derivePairedClaimEligibility(pair, projectRoot);
+}

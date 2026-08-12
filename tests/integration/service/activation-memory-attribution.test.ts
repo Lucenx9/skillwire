@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -11,6 +12,7 @@ import {
   repositoryMemoryScope,
   type RequestPrincipal,
 } from "../../../src/domain/repository-memory/types.js";
+import { validateCodexAdapterPackage } from "../../../src/evaluation/codex-adapter-package.js";
 import { PostgresApiKeyStore } from "../../../src/persistence/postgres/api-key-store.js";
 import { PostgresRepositoryMemoryStore } from "../../../src/persistence/postgres/repository-memory-store.js";
 import {
@@ -58,6 +60,13 @@ describe("verified SkillWire load repository-memory attribution", () => {
     const load = createLoadSkill(provider, store);
     const read = createReadSkillResource(provider);
     const outcome = createRecordSkillOutcome(store);
+    const adapter = validateCodexAdapterPackage(
+      join(process.cwd(), "integrations/codex/skillwire-autonomous-activation"),
+    );
+    expect(adapter.pluginName).toBe("skillwire-autonomous-activation");
+    await expect(
+      store.list(repositoryMemoryScope(accountA, hash)),
+    ).resolves.toEqual([]);
 
     await search.execute(
       {

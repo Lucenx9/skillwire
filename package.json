@@ -22,8 +22,8 @@
     "benchmark:validate": "tsx benchmarks/informational-benchmark.ts --validate-only",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/src/main.js",
-    "format": "prettier --write src tests catalog evaluation benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
-    "format:check": "prettier --check src tests catalog evaluation benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
+    "format": "prettier --write src tests catalog evaluation distribution benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
+    "format:check": "prettier --check src tests catalog evaluation distribution benchmarks scripts .github README.md docs package.json tsconfig.json vitest.config.ts eslint.config.mjs .prettierrc.json compose.yaml compose.test.yaml compose.benchmark.yaml",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -33,7 +33,8 @@
     "test:e2e": "vitest run --project e2e",
     "test:evaluation": "vitest run --project evaluation --passWithNoTests",
     "test:security": "vitest run --project security --passWithNoTests",
-    "test:activation": "vitest run tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/unit/transport/activation-policy.test.ts tests/unit/domain/ranking.test.ts tests/contract/cli/activation-evidence.test.ts tests/contract/mcp/activation-metadata.test.ts tests/contract/mcp/search-skills.test.ts tests/contract/mcp/load-skill.test.ts tests/integration/service/activation-memory-attribution.test.ts tests/e2e/autonomous-activation-transport.test.ts tests/evaluation/autonomous-activation.test.ts tests/security/transport/autonomous-activation-boundaries.test.ts"
+    "test:activation": "vitest run tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/unit/transport/activation-policy.test.ts tests/unit/domain/ranking.test.ts tests/contract/cli/activation-evidence.test.ts tests/contract/mcp/activation-metadata.test.ts tests/contract/mcp/search-skills.test.ts tests/contract/mcp/load-skill.test.ts tests/integration/service/activation-memory-attribution.test.ts tests/e2e/autonomous-activation-transport.test.ts tests/evaluation/autonomous-activation.test.ts tests/security/transport/autonomous-activation-boundaries.test.ts",
+    "test:activation-adapter": "vitest run tests/unit/evaluation/codex-adapter-package.test.ts tests/unit/evaluation/codex-marketplace.test.ts tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/contract/cli/codex-activation-plugin.test.ts tests/contract/cli/activation-evidence.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.0",

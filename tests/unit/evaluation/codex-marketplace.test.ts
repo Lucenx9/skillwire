@@ -1,9 +1,19 @@
-import { join } from "node:path";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CodexAdapterValidationError,
+  CODEX_ADAPTER_SOURCE_COMMIT,
   SKILLWIRE_PLUGIN_SOURCE_GIT_URL,
   createCodexMarketplace,
   validateCodexAdapterPackage,
@@ -16,6 +26,7 @@ const pluginRoot = join(
   "integrations/codex/skillwire-autonomous-activation",
 );
 const sourceCommit = "1234567890abcdef1234567890abcdef12345678";
+const temporaryRoots: string[] = [];
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -33,6 +44,12 @@ function expectInvalid(value: unknown, code: string): void {
 }
 
 describe("SkillWire Codex marketplace metadata", () => {
+  afterEach(() => {
+    temporaryRoots.splice(0).forEach((root) => {
+      rmSync(root, { recursive: true });
+    });
+  });
+
   it("accepts one immutable, credential-free git-subdir plugin entry", () => {
     const plugin = validateCodexAdapterPackage(pluginRoot);
     const marketplace = createCodexMarketplace(sourceCommit);
@@ -117,6 +134,36 @@ describe("SkillWire Codex marketplace metadata", () => {
     > & { repositoryActivationFile?: string };
     extraField.repositoryActivationFile = ".agents/plugins/marketplace.json";
     expectInvalid(extraField, "MARKETPLACE_SCHEMA_INVALID");
+  });
+
+  it("stages the exact release input only in a dedicated marketplace checkout", () => {
+    const releasePath = join(
+      projectRoot,
+      "distribution/codex-marketplace/marketplace.json",
+    );
+    const release = JSON.parse(readFileSync(releasePath, "utf8")) as unknown;
+    const plugin = validateCodexAdapterPackage(pluginRoot);
+    const report = validateCodexMarketplace(release, plugin);
+    expect(report.sourceCommit).toBe(CODEX_ADAPTER_SOURCE_COMMIT);
+
+    const publication = mkdtempSync(
+      join(tmpdir(), "skillwire-marketplace-publication-"),
+    );
+    temporaryRoots.push(publication);
+    const publicationPath = join(
+      publication,
+      ".agents/plugins/marketplace.json",
+    );
+    mkdirSync(dirname(publicationPath), { recursive: true, mode: 0o700 });
+    cpSync(releasePath, publicationPath);
+    expect(
+      validateCodexMarketplace(
+        JSON.parse(readFileSync(publicationPath, "utf8")) as unknown,
+        plugin,
+      ),
+    ).toEqual(report);
+    expect(existsSync(join(projectRoot, ".agents/plugins"))).toBe(false);
+    expect(existsSync(join(projectRoot, ".codex"))).toBe(false);
   });
 });
 
