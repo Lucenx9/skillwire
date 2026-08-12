@@ -253,13 +253,13 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           client,
           existing.id,
         );
+        await this.#recordMissingAndAdvisories(
+          client,
+          input.sourceId,
+          undefined,
+          candidates,
+        );
         if (traces.length > 0) {
-          await this.#recordMissingAndAdvisories(
-            client,
-            input.sourceId,
-            undefined,
-            candidates,
-          );
           for (const candidate of candidateTraces) {
             if (candidate.revision !== undefined) {
               await this.#restoreAvailabilityIfNeeded(
@@ -274,8 +274,8 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           );
         } else {
           await client.query(
-            "UPDATE github_sources SET source_classification='quarantined' WHERE id=$1",
-            [input.sourceId],
+            "UPDATE github_sources SET current_published_snapshot_id=$2, source_classification='quarantined' WHERE id=$1",
+            [input.sourceId, existing.id],
           );
         }
         if (input.lease !== undefined)
@@ -407,21 +407,21 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
         }
       }
       await this.#publishDependencies(client, snapshotId, candidates);
+      await this.#recordMissingAndAdvisories(
+        client,
+        input.sourceId,
+        snapshotId,
+        candidates,
+      );
       if (traces.length > 0) {
-        await this.#recordMissingAndAdvisories(
-          client,
-          input.sourceId,
-          snapshotId,
-          candidates,
-        );
         await client.query(
           "UPDATE github_sources SET current_published_snapshot_id = $2, source_classification = 'verified' WHERE id = $1",
           [input.sourceId, snapshotId],
         );
       } else {
         await client.query(
-          "UPDATE github_sources SET source_classification = 'quarantined' WHERE id = $1",
-          [input.sourceId],
+          "UPDATE github_sources SET current_published_snapshot_id = $2, source_classification = 'quarantined' WHERE id = $1",
+          [input.sourceId, snapshotId],
         );
       }
       const finalizedAdvisoryHead = await client.query<{
@@ -1049,7 +1049,12 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     const previousSnapshotId = current.rows[0]?.current_published_snapshot_id;
     if (previousSnapshotId === null || previousSnapshotId === undefined) return;
     const roots = new Set(
-      candidates.map(({ skillPath }) => skillRoot(skillPath)),
+      candidates
+        .filter(
+          ({ classification, revision }) =>
+            classification === "verified" && revision !== undefined,
+        )
+        .map(({ skillPath }) => skillRoot(skillPath)),
     );
     const previous = await client.query<{
       skill_identity_id: string;
