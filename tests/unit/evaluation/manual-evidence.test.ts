@@ -273,9 +273,24 @@ describe("manual autonomous-activation evidence", () => {
     );
   });
 
-  it.each(["failed-status", "missing-completion-evidence"] as const)(
+  it.each([
+    {
+      condition: "failed-status",
+      spontaneousActivation: { numerator: 7, denominator: 7, rate: 1 },
+      correctSelectionAfterSearch: { numerator: 9, denominator: 9, rate: 1 },
+    },
+    {
+      condition: "missing-completion-evidence",
+      spontaneousActivation: { numerator: 7, denominator: 8, rate: 0.875 },
+      correctSelectionAfterSearch: {
+        numerator: 9,
+        denominator: 10,
+        rate: 0.9,
+      },
+    },
+  ] as const)(
     "does not count an exact successful trace with $condition as attributable activation",
-    (condition) => {
+    ({ condition, spontaneousActivation, correctSelectionAfterSearch }) => {
       const paired = createPairedActivationEvidenceFixture(projectRoot);
       const observation = relevantObservation(paired, 0);
       if (condition === "failed-status") {
@@ -285,24 +300,96 @@ describe("manual autonomous-activation evidence", () => {
       }
       recomputePair(paired);
 
-      expect(paired.adapterRun.metrics.spontaneousActivation).toEqual({
-        numerator: 7,
-        denominator: 8,
-        rate: 0.875,
-      });
-      expect(paired.adapterRun.metrics.correctSelectionAfterSearch).toEqual({
-        numerator: 9,
-        denominator: 10,
-        rate: 0.9,
-      });
+      expect(paired.adapterRun.metrics.spontaneousActivation).toEqual(
+        spontaneousActivation,
+      );
+      expect(paired.adapterRun.metrics.correctSelectionAfterSearch).toEqual(
+        correctSelectionAfterSearch,
+      );
 
       const report = validatePairedActivationEvidence(paired, projectRoot);
       expect(report.claimEligibility.eligible).toBe(false);
       expect(report.claimEligibility.diagnosticCodes).toContain(
         "unattributable-success-trace",
       );
+      if (condition === "failed-status") {
+        expect(report.claimEligibility.diagnosticCodes).toContain(
+          "failed-observations",
+        );
+      }
     },
   );
+
+  it.each([
+    { caseId: "irrelevant-01", metric: "unnecessaryActivation" },
+    {
+      caseId: "ask-matt-without-intent-01",
+      metric: "userRequestedIsolation",
+    },
+  ] as const)(
+    "does not credit a failed $caseId negative control",
+    ({ caseId, metric }) => {
+      const paired = createPairedActivationEvidenceFixture(projectRoot);
+      const observation = paired.adapterRun.observations.find(
+        (entry) => entry.caseId === caseId,
+      );
+      if (observation === undefined)
+        throw new Error("missing negative control");
+      observation.status = "failed";
+      recomputePair(paired);
+
+      expect(paired.adapterRun.metrics[metric].denominator).toBe(
+        metric === "unnecessaryActivation" ? 2 : 1,
+      );
+      const report = validatePairedActivationEvidence(paired, projectRoot);
+      expect(report.claimEligibility.eligible).toBe(false);
+      expect(report.claimEligibility.diagnosticCodes).toContain(
+        "failed-observations",
+      );
+    },
+  );
+
+  it.each([
+    {
+      name: "load before search",
+      order: ["load_skill", "search_skills", "read_skill_resource"],
+      code: "LOAD_WITHOUT_PREVIEW",
+    },
+    {
+      name: "resource before load",
+      order: ["search_skills", "read_skill_resource", "load_skill"],
+      code: "RESOURCE_WITHOUT_LOAD",
+    },
+  ] as const)("rejects $name", ({ order, code }) => {
+    const paired = createPairedActivationEvidenceFixture(projectRoot);
+    const observation = paired.adapterRun.observations.find(
+      ({ caseId }) => caseId === "ask-matt-explicit-01",
+    );
+    if (observation === undefined) throw new Error("missing explicit case");
+    const byName = new Map(
+      observation.toolCalls.map((call) => [call.toolName, call]),
+    );
+    observation.toolCalls = order.map((toolName, index) => {
+      const call = byName.get(toolName);
+      if (call === undefined) throw new Error(`missing ${toolName}`);
+      return { ...call, sequence: index + 1 };
+    });
+    recomputePair(paired);
+
+    expect(paired.claimEligibility.eligible).toBe(false);
+    expect(paired.claimEligibility.diagnosticCodes).toContain(
+      "user-requested-isolation-failed",
+    );
+    try {
+      validatePairedActivationEvidence(paired, projectRoot);
+      throw new Error(`expected ${code}`);
+    } catch (error) {
+      expect(error).toBeInstanceOf(EvidenceValidationError);
+      expect((error as EvidenceValidationError).codes).toContain(
+        `ADAPTER_${code}`,
+      );
+    }
+  });
 
   it("does not count an exact trace when activation instructions were not observed", () => {
     const paired = createPairedActivationEvidenceFixture(projectRoot);

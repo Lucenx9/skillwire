@@ -229,6 +229,7 @@ const claimDiagnosticCodeSchema = z.enum([
   "progressive-loading-conformance-failed",
   "unmatched-pair",
   "incomplete-observations",
+  "failed-observations",
 ]);
 
 const claimEligibilitySchema = z
@@ -716,6 +717,7 @@ function deriveClaimEligibility(
         expected === undefined ||
         searches.length !== 1 ||
         searches[0]?.invocationContext !== "user-requested" ||
+        !hasProgressiveWorkflowOrder(observation) ||
         !sameIdentity(observation.verifiedSkillWireLoad, expected)
       );
     })
@@ -738,6 +740,12 @@ function deriveClaimEligibility(
     pair.adapterRun.observations.some(({ status }) => status === "incomplete")
   ) {
     diagnostics.add("incomplete-observations");
+  }
+  if (
+    pair.serverOnlyRun.observations.some(({ status }) => status === "failed") ||
+    pair.adapterRun.observations.some(({ status }) => status === "failed")
+  ) {
+    diagnostics.add("failed-observations");
   }
 
   for (const observation of pair.adapterRun.observations) {
@@ -967,10 +975,28 @@ function diagnoseObservation(
     diagnostics.add("WRONG_INVOCATION_CONTEXT");
   }
   if (loads.length > 1) diagnostics.add("REPEATED_LOAD");
-  if (loads.length > 0 && searches.length === 0)
+  const firstSearchIndex = observation.toolCalls.findIndex(
+    ({ toolName }) => toolName === "search_skills",
+  );
+  const firstLoadIndex = observation.toolCalls.findIndex(
+    ({ toolName }) => toolName === "load_skill",
+  );
+  if (
+    loads.length > 0 &&
+    (firstSearchIndex === -1 || firstLoadIndex < firstSearchIndex)
+  ) {
     diagnostics.add("LOAD_WITHOUT_PREVIEW");
-  if (resources.length > 0 && loads.length === 0)
+  }
+  if (
+    resources.length > 0 &&
+    (firstLoadIndex === -1 ||
+      observation.toolCalls.some(
+        ({ toolName }, index) =>
+          toolName === "read_skill_resource" && index < firstLoadIndex,
+      ))
+  ) {
     diagnostics.add("RESOURCE_WITHOUT_LOAD");
+  }
 
   const expectedIdentity = activationCase.expectedCatalogMatch;
   for (const load of loads) {
@@ -1093,12 +1119,28 @@ function hasObservedActivationInstructions(
   );
 }
 
+function hasProgressiveWorkflowOrder(
+  observation: ActivationEvidence["observations"][number],
+): boolean {
+  let searchSeen = false;
+  let loadSeen = false;
+  for (const { toolName } of observation.toolCalls) {
+    if (toolName === "search_skills") searchSeen = true;
+    if (toolName === "load_skill") {
+      if (!searchSeen) return false;
+      loadSeen = true;
+    }
+    if (toolName === "read_skill_resource" && !loadSeen) return false;
+  }
+  return true;
+}
+
 function recomputeMetrics(
   evidence: ActivationEvidence,
   caseById: ReadonlyMap<string, ActivationCorpus["cases"][number]>,
 ): ActivationEvidenceMetrics {
   const evaluated = evidence.observations.filter(
-    ({ status }) => status !== "incomplete",
+    ({ status }) => status === "completed",
   );
   const searchCount = (observation: (typeof evaluated)[number]) =>
     observation.toolCalls.filter(({ toolName }) => toolName === "search_skills")
@@ -1151,6 +1193,7 @@ function recomputeMetrics(
         const expected = caseById.get(observation.caseId)?.expectedCatalogMatch;
         return (
           hasCompletedTaskEvidence(observation, evidence.protocolVersion) &&
+          hasProgressiveWorkflowOrder(observation) &&
           sameIdentity(observation.verifiedSkillWireLoad, expected)
         );
       }).length,
@@ -1174,6 +1217,7 @@ function recomputeMetrics(
           .map(({ resourcePath }) => resourcePath);
         return (
           hasCompletedTaskEvidence(observation, evidence.protocolVersion) &&
+          hasProgressiveWorkflowOrder(observation) &&
           searchCount(observation) === 1 &&
           observation.toolCalls.filter(
             ({ toolName }) => toolName === "load_skill",

@@ -271,7 +271,8 @@
               "unattributable-success-trace",
               "progressive-loading-conformance-failed",
               "unmatched-pair",
-              "incomplete-observations"
+              "incomplete-observations",
+              "failed-observations"
             ]
           }
         }
