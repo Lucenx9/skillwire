@@ -420,7 +420,10 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
         );
       } else {
         await client.query(
-          "UPDATE github_sources SET source_classification = 'quarantined' WHERE id = $1",
+          `UPDATE github_sources
+           SET source_classification = 'quarantined',
+               current_published_snapshot_id = NULL
+           WHERE id = $1`,
           [input.sourceId],
         );
       }

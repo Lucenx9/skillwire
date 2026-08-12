@@ -263,6 +263,34 @@ describe("PostgreSQL imported catalog provider", () => {
     ).toBeUndefined();
   });
 
+  it("does not expose revisions from a quarantined source", async () => {
+    const selected = (await imported.listMetadata(principal))[0];
+    if (selected === undefined) throw new Error("fixture missing skill");
+
+    await database.pool.query(
+      "UPDATE github_sources SET source_classification='quarantined' WHERE id=$1",
+      [sourceId],
+    );
+    try {
+      expect(await imported.listMetadata(principal)).toEqual([]);
+      expect(
+        await imported.advisoryStatus(
+          selected.id,
+          selected.revision,
+          principal,
+        ),
+      ).toBeUndefined();
+      expect(
+        await imported.findRevision(selected.id, selected.revision, principal),
+      ).toBeUndefined();
+    } finally {
+      await database.pool.query(
+        "UPDATE github_sources SET source_classification='verified' WHERE id=$1",
+        [sourceId],
+      );
+    }
+  });
+
   it("omits unavailable revisions from discovery, serves their verified cache, and denies revoked loads", async () => {
     const store = new PostgresExternalCatalogStore(database.pool);
     const selected = (await imported.listMetadata(principal))[0];

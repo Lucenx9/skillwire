@@ -182,6 +182,7 @@ export class PostgresImportedSkillCatalogProvider implements AsyncSkillCatalogPr
          JOIN external_snapshot_skill_observations observation ON observation.revision_id=r.id
          JOIN external_source_snapshots snapshot ON snapshot.id=observation.snapshot_id
          WHERE snapshot.id=gs.current_published_snapshot_id
+           AND gs.source_classification='verified'
            AND rc.classification IN ('verified','curated')
            AND COALESCE(advisory.advisory_status,'available')='available'
          ORDER BY i.catalog_skill_id,r.revision`,
@@ -215,12 +216,14 @@ export class PostgresImportedSkillCatalogProvider implements AsyncSkillCatalogPr
         `SELECT rc.classification,advisory.advisory_status
          FROM external_skill_revisions r
          JOIN external_skill_identities i ON i.id=r.skill_identity_id
+         JOIN github_sources gs ON gs.id=i.source_id
          JOIN external_current_revision_classifications rc ON rc.revision_id=r.id
          LEFT JOIN LATERAL (
            SELECT e.advisory_status FROM external_revision_advisory_events e
            WHERE e.revision_id=r.id ORDER BY e.sequence DESC LIMIT 1
          ) advisory ON true
-         WHERE i.catalog_skill_id=$1 AND r.revision=$2`,
+         WHERE i.catalog_skill_id=$1 AND r.revision=$2
+           AND gs.source_classification='verified'`,
         [skillId, revision],
       );
       const row = result.rows[0];
@@ -240,7 +243,8 @@ export class PostgresImportedSkillCatalogProvider implements AsyncSkillCatalogPr
       await verifyAdvisories(client);
       const result = await client.query<RevisionRow>(
         `${baseRevisionQuery}
-         WHERE i.catalog_skill_id=$1 AND r.revision=$2`,
+         WHERE i.catalog_skill_id=$1 AND r.revision=$2
+           AND gs.source_classification='verified'`,
         [skillId, revision],
       );
       const row = result.rows[0];
