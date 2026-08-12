@@ -304,6 +304,34 @@ describe("manual autonomous-activation evidence", () => {
     },
   );
 
+  it("does not count an exact trace when activation instructions were not observed", () => {
+    const paired = createPairedActivationEvidenceFixture(projectRoot);
+    const observation = relevantObservation(paired, 0);
+    observation.instructionsObserved = false;
+    observation.instructionMethod = "not-observed";
+    recomputePair(paired);
+
+    expect(paired.adapterRun.metrics.spontaneousActivation).toEqual({
+      numerator: 7,
+      denominator: 8,
+      rate: 0.875,
+    });
+    expect(paired.adapterRun.metrics.correctSelectionAfterSearch).toEqual({
+      numerator: 9,
+      denominator: 10,
+      rate: 0.9,
+    });
+
+    const report = validatePairedActivationEvidence(paired, projectRoot);
+    expect(report.adapter.diagnosticCodes).toContain(
+      "INSTRUCTIONS_NOT_OBSERVED",
+    );
+    expect(report.claimEligibility.eligible).toBe(false);
+    expect(report.claimEligibility.diagnosticCodes).toContain(
+      "unattributable-success-trace",
+    );
+  });
+
   it("applies every acceptance threshold to completed adapter traces", () => {
     const passingPilot = createPairedActivationEvidenceFixture(projectRoot);
     const relevantAtThreshold = passingPilot.adapterRun.observations.filter(

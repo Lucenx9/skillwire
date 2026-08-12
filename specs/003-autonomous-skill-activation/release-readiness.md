@@ -16,7 +16,7 @@ The 15-case selection rule was supplied independently of outcomes. By the time t
 
 The pilot retains Codex CLI `0.147.0`, `gpt-5.6-sol`, `xhigh`, the 180-second single-attempt timeout, frozen-catalog SkillWire revision, protected ephemeral authentication, redacted observer, fresh-session isolation, privacy boundary, and zero-write checks. Its result is pilot/release-candidate evidence only for the recorded configuration. It is not a statistically definitive or universal claim about other prompts, clients, models, reasoning settings, or harness versions. The 30-case 15/5/5/5 pair is now an optional non-blocking extended benchmark; the original 65-case non-overlap pair is an optional expanded benchmark. Each needs a separate evidence identity and neither can replace or be merged into the pilot. The historical `candidate-v1.json` remains byte-for-byte unchanged and is neither replaced nor reinterpreted.
 
-The formatted immutable pilot subset SHA-256 is `d88eb75cef1a426d05094b49bf0a64700ff0a7eebb023747349dd48dd4cd4b74`. The source corpus remains `a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28`, and the preserved historical candidate remains `04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d`.
+The formatted immutable pilot subset SHA-256 is `d88eb75cef1a426d05094b49bf0a64700ff0a7eebb023747349dd48dd4cd4b74`. The source corpus remains `a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28`, the preserved historical candidate remains `04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d`, and the separately observed local-overlap evidence remains `213e2ea57c4f8e5f1d836567ebddffe100ad5ec72a3dd4e59dfe6a3abba410e8`.
 
 ## Deterministic gates
 
@@ -26,8 +26,8 @@ The formatted immutable pilot subset SHA-256 is `d88eb75cef1a426d05094b49bf0a647
 | Type-aware ESLint | Pass |
 | Strict TypeScript typecheck | Pass |
 | Production TypeScript build | Pass |
-| `test:activation` | Pass: 13 files, 92 tests |
-| `test:activation-adapter` | Pass: 6 files, 59 tests, including real Codex-manager lifecycle against the pinned commit |
+| `test:activation` | Pass: 13 files, 93 tests |
+| `test:activation-adapter` | Pass: 6 files, 60 tests, including real Codex-manager lifecycle against the pinned commit |
 | Complete Node 24/PostgreSQL/container Vitest matrix | Pass: 85 files and 415 tests; 1 file / 2 tests skipped by design in the container (credential-gated live GitHub and the `.git`-absent checkout case, which passed separately against the real repository) |
 | Frozen benchmark inputs | Pass |
 | Launch catalog integrity | Pass: 10 exact revisions |

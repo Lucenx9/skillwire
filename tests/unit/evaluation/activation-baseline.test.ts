@@ -25,6 +25,8 @@ const RELEASE_SUBSET_SHA256 =
   "d88eb75cef1a426d05094b49bf0a64700ff0a7eebb023747349dd48dd4cd4b74";
 const PAIRED_EVIDENCE_SHA256 =
   "0e7c1aec0339292b17c81ad9f725ffc22932bfa5030b5715a7f7fc1750aa28e6";
+const LOCAL_OVERLAP_EVIDENCE_SHA256 =
+  "213e2ea57c4f8e5f1d836567ebddffe100ad5ec72a3dd4e59dfe6a3abba410e8";
 
 function sha256(relativePath: string): string {
   return createHash("sha256")
@@ -90,6 +92,9 @@ describe("immutable autonomous-activation baseline", () => {
   });
 
   it("preserves the separately observed local-overlap conditions", () => {
+    expect(sha256("evaluation/evidence/003/local-overlap-v1.json")).toBe(
+      LOCAL_OVERLAP_EVIDENCE_SHA256,
+    );
     const evidence = JSON.parse(
       readFileSync(
         join(projectRoot, "evaluation/evidence/003/local-overlap-v1.json"),

@@ -708,8 +708,10 @@ function deriveClaimEligibility(
         ({ toolName }) => toolName === "search_skills",
       );
       return (
-        observation.status !== "completed" ||
-        observation.completionEvidence === "none" ||
+        !hasCompletedTaskEvidence(
+          observation,
+          pair.adapterRun.protocolVersion,
+        ) ||
         expected === null ||
         expected === undefined ||
         searches.length !== 1 ||
@@ -750,7 +752,14 @@ function deriveClaimEligibility(
     const searched = observation.toolCalls.some(
       ({ toolName }) => toolName === "search_skills",
     );
-    if (searched && !hasAttributableWorkflow(observation, activationCase)) {
+    if (
+      searched &&
+      !hasAttributableWorkflow(
+        observation,
+        activationCase,
+        pair.adapterRun.protocolVersion,
+      )
+    ) {
       diagnostics.add("unattributable-success-trace");
     }
   }
@@ -764,9 +773,15 @@ function deriveClaimEligibility(
 function hasAttributableWorkflow(
   observation: ActivationEvidence["observations"][number],
   activationCase: ActivationCorpus["cases"][number],
+  protocolVersion: ActivationEvidence["protocolVersion"],
 ): boolean {
   const expected = activationCase.expectedCatalogMatch;
-  if (expected === null || !hasCompletedTaskEvidence(observation)) return false;
+  if (
+    expected === null ||
+    !hasCompletedTaskEvidence(observation, protocolVersion)
+  ) {
+    return false;
+  }
   const expectedSequence = activationCase.expectedBehavior.operationSequence;
   if (
     JSON.stringify(observation.toolCalls.map(({ toolName }) => toolName)) !==
@@ -918,12 +933,7 @@ function diagnoseObservation(
   protocolVersion: ActivationEvidence["protocolVersion"],
 ): EvidenceDiagnosticCode[] {
   const diagnostics = new Set<EvidenceDiagnosticCode>();
-  const expectedMethod =
-    protocolVersion === "2025-11-25" ? "initialize" : "server/discover";
-  if (
-    !observation.instructionsObserved ||
-    observation.instructionMethod !== expectedMethod
-  ) {
+  if (!hasObservedActivationInstructions(observation, protocolVersion)) {
     diagnostics.add("INSTRUCTIONS_NOT_OBSERVED");
   }
   if (observation.status === "incomplete") diagnostics.add("INCOMPLETE_TRACE");
@@ -1062,10 +1072,24 @@ function sameIdentity(
 
 function hasCompletedTaskEvidence(
   observation: ActivationEvidence["observations"][number],
+  protocolVersion: ActivationEvidence["protocolVersion"],
 ): boolean {
   return (
     observation.status === "completed" &&
-    observation.completionEvidence !== "none"
+    observation.completionEvidence !== "none" &&
+    hasObservedActivationInstructions(observation, protocolVersion)
+  );
+}
+
+function hasObservedActivationInstructions(
+  observation: ActivationEvidence["observations"][number],
+  protocolVersion: ActivationEvidence["protocolVersion"],
+): boolean {
+  const expectedMethod =
+    protocolVersion === "2025-11-25" ? "initialize" : "server/discover";
+  return (
+    observation.instructionsObserved &&
+    observation.instructionMethod === expectedMethod
   );
 }
 
@@ -1117,7 +1141,7 @@ function recomputeMetrics(
     spontaneousActivation: ratio(
       cleanRelevant.filter(
         (observation) =>
-          hasCompletedTaskEvidence(observation) &&
+          hasCompletedTaskEvidence(observation, evidence.protocolVersion) &&
           searchCount(observation) === 1,
       ).length,
       cleanRelevant.length,
@@ -1126,7 +1150,7 @@ function recomputeMetrics(
       searchedRelevant.filter((observation) => {
         const expected = caseById.get(observation.caseId)?.expectedCatalogMatch;
         return (
-          hasCompletedTaskEvidence(observation) &&
+          hasCompletedTaskEvidence(observation, evidence.protocolVersion) &&
           sameIdentity(observation.verifiedSkillWireLoad, expected)
         );
       }).length,
@@ -1149,7 +1173,7 @@ function recomputeMetrics(
           .filter(({ toolName }) => toolName === "read_skill_resource")
           .map(({ resourcePath }) => resourcePath);
         return (
-          hasCompletedTaskEvidence(observation) &&
+          hasCompletedTaskEvidence(observation, evidence.protocolVersion) &&
           searchCount(observation) === 1 &&
           observation.toolCalls.filter(
             ({ toolName }) => toolName === "load_skill",
