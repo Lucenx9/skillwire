@@ -206,6 +206,8 @@ export interface TestApplicationOptions {
         readonly accountRequestsPerMinute: number;
         readonly apiKeyRequestsPerMinute: number;
         readonly burst: number;
+        readonly authenticationRequestsPerMinute?: number;
+        readonly authenticationBurst?: number;
       }
     | undefined;
   readonly now?: (() => number) | undefined;

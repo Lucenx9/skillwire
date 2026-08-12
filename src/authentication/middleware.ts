@@ -4,6 +4,7 @@ import { safeErrorEnvelope, SkillWireError } from "../application/errors.js";
 import type { RequestPrincipal } from "../domain/repository-memory/types.js";
 import type { SecurityLogger } from "../observability/logger.js";
 import type { ApiKeyAuthenticator } from "./api-key-authenticator.js";
+import { parseApiKeyToken } from "./api-key-token.js";
 
 export interface SkillWireHonoEnvironment {
   readonly Variables: {
@@ -19,6 +20,53 @@ export interface RateLimitPolicy {
   readonly accountRequestsPerMinute: number;
   readonly apiKeyRequestsPerMinute: number;
   readonly burst: number;
+  readonly authenticationRequestsPerMinute?: number;
+  readonly authenticationBurst?: number;
+}
+
+export class AuthenticationRateLimiter {
+  private readonly requestsPerMinute: number;
+  private readonly burst: number;
+  private bucket: TokenBucket;
+
+  public constructor(
+    policy: RateLimitPolicy,
+    private readonly now: () => number = Date.now,
+  ) {
+    this.requestsPerMinute =
+      policy.authenticationRequestsPerMinute ?? policy.apiKeyRequestsPerMinute;
+    this.burst = policy.authenticationBurst ?? policy.burst;
+    if (
+      !Number.isInteger(this.requestsPerMinute) ||
+      !Number.isInteger(this.burst) ||
+      this.requestsPerMinute < 1 ||
+      this.burst < 1
+    ) {
+      throw new Error("Authentication rate-limit policy is invalid");
+    }
+    this.bucket = { tokens: this.burst, updatedAt: this.now() };
+  }
+
+  public consume(): RateLimitDecision {
+    const now = this.now();
+    const elapsed = Math.max(0, now - this.bucket.updatedAt);
+    this.bucket.tokens = Math.min(
+      this.burst,
+      this.bucket.tokens + (elapsed * this.requestsPerMinute) / 60_000,
+    );
+    this.bucket.updatedAt = now;
+    if (this.bucket.tokens >= 1) {
+      this.bucket.tokens -= 1;
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(
+        1,
+        Math.ceil(((1 - this.bucket.tokens) * 60) / this.requestsPerMinute),
+      ),
+    };
+  }
 }
 
 interface TokenBucket {
@@ -142,6 +190,34 @@ export function bearerAuthentication(
       signal: context.get("abortController").signal,
       deadline: context.get("deadline"),
     });
+    await next();
+    return;
+  };
+}
+
+export function rateLimitAuthentication(
+  limiter: AuthenticationRateLimiter,
+  logger: SecurityLogger,
+): MiddlewareHandler<SkillWireHonoEnvironment> {
+  return async (context, next) => {
+    const authorization = context.req.header("authorization");
+    const match = /^Bearer ([^\s]+)$/.exec(authorization ?? "");
+    if (match !== null && parseApiKeyToken(match[1] ?? "") !== undefined) {
+      const decision = limiter.consume();
+      if (!decision.allowed) {
+        const requestId = context.get("requestId");
+        logger.emit("request_rate_limited", {
+          requestId,
+          code: "RATE_LIMITED",
+          status: 429,
+        });
+        context.header("Retry-After", String(decision.retryAfterSeconds));
+        return context.json(
+          safeErrorEnvelope(new SkillWireError("RATE_LIMITED"), requestId),
+          429,
+        );
+      }
+    }
     await next();
     return;
   };

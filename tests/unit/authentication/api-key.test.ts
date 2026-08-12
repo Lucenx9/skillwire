@@ -6,7 +6,10 @@ import {
   createApiKeyToken,
   parseApiKeyToken,
 } from "../../../src/authentication/api-key-token.js";
-import { AccountApiKeyRateLimiter } from "../../../src/authentication/middleware.js";
+import {
+  AccountApiKeyRateLimiter,
+  AuthenticationRateLimiter,
+} from "../../../src/authentication/middleware.js";
 import type { RequestPrincipal } from "../../../src/domain/repository-memory/types.js";
 
 const pepper = "test-pepper-that-is-at-least-thirty-two-bytes";
@@ -89,5 +92,30 @@ describe("account and API-key rate policy", () => {
     expect(limiter.consume(principal("account-b", "key-b")).allowed).toBe(true);
     now = 1000;
     expect(limiter.consume(principal("account-a", "key-a")).allowed).toBe(true);
+  });
+});
+
+describe("authentication rate policy", () => {
+  it("caps unauthenticated database-bound attempts and refills globally", () => {
+    let now = 0;
+    const limiter = new AuthenticationRateLimiter(
+      {
+        accountRequestsPerMinute: 600,
+        apiKeyRequestsPerMinute: 600,
+        burst: 10,
+        authenticationRequestsPerMinute: 60,
+        authenticationBurst: 2,
+      },
+      () => now,
+    );
+
+    expect(limiter.consume().allowed).toBe(true);
+    expect(limiter.consume().allowed).toBe(true);
+    expect(limiter.consume()).toEqual({
+      allowed: false,
+      retryAfterSeconds: 1,
+    });
+    now = 1000;
+    expect(limiter.consume().allowed).toBe(true);
   });
 });

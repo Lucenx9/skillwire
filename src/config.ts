@@ -28,6 +28,8 @@ export interface ApplicationConfig {
         readonly accountRequestsPerMinute: number;
         readonly apiKeyRequestsPerMinute: number;
         readonly burst: number;
+        readonly authenticationRequestsPerMinute?: number;
+        readonly authenticationBurst?: number;
       }
     | undefined;
 }
@@ -224,6 +226,18 @@ export function loadConfig(
         "SKILLWIRE_RATE_LIMIT_BURST",
         environment["SKILLWIRE_RATE_LIMIT_BURST"],
         30,
+        10_000,
+      ),
+      authenticationRequestsPerMinute: readPositiveInteger(
+        "SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE",
+        environment["SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE"],
+        600,
+        100_000,
+      ),
+      authenticationBurst: readPositiveInteger(
+        "SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST",
+        environment["SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST"],
+        60,
         10_000,
       ),
     },
