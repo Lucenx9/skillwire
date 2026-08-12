@@ -148,6 +148,12 @@ Also run the existing build, catalog integrity, advisory integrity, PostgreSQL, 
 
 These operator commands are outside required CI and must use Codex's manager. SkillWire application code must never reproduce their writes.
 
+The release marketplace and integrity manifest resolve immutable source commit
+`8c7c297a95cff42eb13212fc7b5c4ede11c35c7d`. Its aggregate three-file package
+SHA-256 is
+`7939fa2ca5db807365a9f54c90534538291c09bbfae56762e72f372447998830`.
+Do not substitute a moving branch or an unverified working tree.
+
 ```text
 codex plugin marketplace add <skillwire-marketplace-git-url> --ref <release-channel>
 codex plugin marketplace list --json
@@ -184,12 +190,12 @@ An unavailable/unauthenticated/conflicting dependency leaves the plugin installe
 
 This step is non-blocking and outside required CI. Use restrictive disposable profiles and an empty Git repository outside the SkillWire hierarchy. Load no normal user configuration, plugins, extra MCP servers, user/repository/admin skills, `AGENTS.md`, `.agents/skills`, or `.codex` repository files. Unavoidable Codex system skills are platform baseline.
 
-For every applicable non-overlap frozen case, run fresh otherwise identical sessions under:
+For every case in `evaluation/autonomous-activation-release-subset.v1.json`, run fresh otherwise identical sessions under:
 
 1. server instructions only;
 2. server instructions plus `skillwire-autonomous-activation@skillwire`.
 
-Preconfigure exactly the same authenticated SkillWire MCP endpoint in both cohorts through a protected ephemeral mechanism. Record effective skill/plugin/MCP inventories, Codex/model/reasoning, SkillWire commit, server and adapter policies, corpus/catalog, plugin source/hash, dependency state, and ordered privacy-safe MCP traces. Prompts come verbatim from the frozen corpus and do not mention SkillWire, MCP, tool names, the adapter, or exact skill names except explicit-intent cases.
+The release-candidate pilot contains 8 clean automatic, 3 irrelevant, 2 explicit user-requested, and the corresponding 2 paired no-intent cases. They are chosen independently of outcomes as the first cases in immutable corpus order within each stratum, not as the first 15 sequential corpus cases. Pin a 180-second, one-attempt limit. Preconfigure exactly the same authenticated SkillWire MCP endpoint in both cohorts through a protected ephemeral mechanism. Record effective skill/plugin/MCP inventories, Codex/model/reasoning, SkillWire commit, server and adapter policies, corpus/subset/catalog, plugin source/hash, dependency state, and ordered privacy-safe MCP traces. Prompts come verbatim from the frozen corpus and do not mention SkillWire, MCP, tool names, the adapter, or exact skill names except explicit-intent cases.
 
 Count activation only when observer/server evidence proves:
 
@@ -206,16 +212,42 @@ pnpm exec tsx scripts/activation-evidence.ts validate --input <adapter-run.json>
 pnpm exec tsx scripts/activation-evidence.ts validate-pair --input <paired-evidence.json>
 ```
 
-The paired envelope must bind the immutable historical baseline path and SHA-256 and embed both fresh runs through `paired-adapter-evidence.schema.json`. Validation rejects different case sets, prompt bytes, catalog, server commit/configuration, endpoint/auth mechanism, Codex/model/reasoning versions, protocol, evaluator, or clean-profile procedure. Only the adapter/plugin inventory may differ. Neither fresh run replaces `candidate-v1.json`.
+The paired envelope must bind the immutable historical baseline path and SHA-256, the exact 15-case pilot, and both fresh runs through `paired-adapter-evidence.schema.json`. Validation rejects different case sets/order, prompt bytes, catalog, server commit/configuration, endpoint/auth mechanism, Codex/model/reasoning versions, protocol, evaluator, or clean-profile procedure. Only the adapter/plugin inventory may differ. Neither fresh run replaces `candidate-v1.json`. The 30-case 15/5/5/5 pair is an optional extended benchmark and the original 65-case non-overlap pair is an optional expanded benchmark; each requires a separate evidence identity.
 
 ## 10. Interpret results honestly
 
 | Adapter cohort metric | Claim threshold |
 |-----------------------|-----------------|
-| Spontaneous automatic search on at least 25 relevant clean prompts | >=80% |
+| Spontaneous automatic search on 8 selected relevant clean prompts | >=80% |
 | Correct exact load after search | >=90% |
-| Any SkillWire operation on at least 15 irrelevant prompts | <=10% |
-| User-requested isolation | 100% |
+| Any SkillWire operation on 3 selected irrelevant prompts | <=10% |
+| User-requested isolation across 2 selected pairs | 100% |
 | Client-tree writes | zero |
 
-Incomplete/external failures are reported separately and never counted positive. Server-only results are descriptive baselines. Model-dependent evidence remains non-blocking, but SkillWire must not claim autonomous Codex activation unless the adapter cohort meets all claim thresholds with attributable traces.
+Incomplete/external failures are reported separately and never counted positive. Server-only results are descriptive baselines. Model-dependent evidence remains non-blocking, but SkillWire must not make even a qualified pilot/release-candidate autonomous Codex observation unless the adapter cohort meets all claim thresholds with attributable traces. A passing 15-case pilot is not a statistically definitive universal claim.
+
+## 11. Recorded pilot result
+
+The committed pair at `evaluation/evidence/003/adapter-pair-v1.json` is
+pilot/release-candidate evidence for Codex CLI `0.147.0`, `gpt-5.6-sol`, and
+`xhigh`; it is not a universal estimate.
+
+- Server-only: `0/7` completed automatic activations; one selected automatic
+  case is incomplete.
+- Server plus adapter: `7/7` completed automatic activations with attributable
+  search and exact-load traces; the eighth selected automatic case is
+  incomplete and not counted positive.
+- Exact selection after search: `9/9`; irrelevant activation: `0/3`;
+  user-requested isolation: `2/2`.
+- Progressive loading: `3/9`; six loads made unnecessary resource reads.
+- Client repository writes and agent-facing GitHub requests: zero.
+
+The paired validator returns `claimEligibility.eligible=false` because the full
+eight-case relevant stratum did not complete and progressive-loading
+conformance failed. Treat the adapter as experimental and make no definitive
+autonomous-activation claim.
+
+The separate `evaluation/evidence/003/local-overlap-v1.json` record contains five
+server-only and five adapter observations. All ten completed with zero SkillWire
+operations, zero remote overrides, zero client-tree writes, and zero controlled
+local-inventory writes.

@@ -1,0 +1,983 @@
+{
+  "schemaVersion": 1,
+  "evidencePairId": "adapter-pair-pilot-v1-bd7de55",
+  "preservedBaseline": {
+    "condition": "historical-server-only",
+    "path": "evaluation/evidence/003/candidate-v1.json",
+    "sha256": "04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d",
+    "completedSpontaneousActivations": 0,
+    "relevantCases": 7
+  },
+  "experiment": {
+    "skillWireCommit": "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
+    "codexCliVersion": "0.147.0",
+    "model": {
+      "name": "gpt-5.6-sol",
+      "version": "gpt-5.6-sol"
+    },
+    "reasoningSetting": "xhigh",
+    "serverPolicyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "releaseSubsetId": "activation-release-candidate-pilot-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "evaluatorVersion": "activation-pair-evaluator-v1",
+    "cleanProfileProcedureVersion": "codex-clean-paired-pilot-v1",
+    "endpointUrlSha256": "e54ec3df0d470b97f7b18038e2615dc76326bff623a35e67d4c991f420d686fd",
+    "authenticationMechanism": "ephemeral-bearer-env",
+    "caseIds": [
+      "auto-dependency-upgrade-planning-1",
+      "auto-dependency-upgrade-planning-2",
+      "auto-dependency-upgrade-planning-3",
+      "auto-dockerfile-hardening-1",
+      "auto-dockerfile-hardening-2",
+      "auto-dockerfile-hardening-3",
+      "auto-github-actions-ci-1",
+      "auto-github-actions-ci-2",
+      "irrelevant-01",
+      "irrelevant-02",
+      "irrelevant-03",
+      "ask-matt-explicit-01",
+      "ask-matt-explicit-02",
+      "ask-matt-without-intent-01",
+      "ask-matt-without-intent-02"
+    ],
+    "serverOnlyInventory": {
+      "platformBaselineSkills": [
+        "imagegen",
+        "openai-docs",
+        "plugin-creator",
+        "skill-creator",
+        "skill-installer"
+      ],
+      "userSkills": [],
+      "repositorySkills": [],
+      "adminSkills": [],
+      "pluginSkills": [],
+      "mcpServers": ["skillwire"],
+      "inventorySha256": "e0ba0c9859074ebd4e56ca4e1e641a572424087f8eedb4f12b2c8b802cf844d4"
+    },
+    "adapterInventory": {
+      "platformBaselineSkills": [
+        "imagegen",
+        "openai-docs",
+        "plugin-creator",
+        "skill-creator",
+        "skill-installer"
+      ],
+      "userSkills": [],
+      "repositorySkills": [],
+      "adminSkills": [],
+      "pluginSkills": [
+        "skillwire-autonomous-activation:autonomous-skill-activation"
+      ],
+      "mcpServers": ["skillwire"],
+      "inventorySha256": "e0011884284cc28b4d8e039aafa1dee356fe2a29be105f787208b8838f061fba"
+    }
+  },
+  "adapter": {
+    "condition": "server-plus-adapter",
+    "pluginId": "skillwire-autonomous-activation@skillwire",
+    "pluginVersion": "0.1.0",
+    "adapterPolicyVersion": "skillwire-codex-adapter-v1",
+    "marketplaceName": "skillwire",
+    "sourceCommit": "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
+    "packageSha256": "7939fa2ca5db807365a9f54c90534538291c09bbfae56762e72f372447998830",
+    "dependencyUrlSha256": "4c997b5cdc58ccb069de7279628f449fef148e0eb951e3c65aa6a41cb29665fa",
+    "dependencyState": "equivalent-existing",
+    "effectivePluginCount": 1
+  },
+  "serverOnlyRun": {
+    "schemaVersion": 1,
+    "recordedAt": "2026-08-12T16:08:16.385Z",
+    "policyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "harness": {
+      "name": "Codex CLI",
+      "version": "0.147.0"
+    },
+    "model": {
+      "name": "gpt-5.6-sol",
+      "version": "gpt-5.6-sol"
+    },
+    "localInventoryVersion": "activation-local-v1",
+    "evaluatorVersion": "activation-pair-evaluator-v1",
+    "traceSource": "observer-proxy",
+    "instructionsSha256": "d1e923bf6c80b6c41070cc6ffc1678e6caa738f1427ac2e9dfda6c00ceb1091e",
+    "privacyDeclaration": {
+      "containsRawPrompts": false,
+      "containsTaskSummaries": false,
+      "containsRepositoryHashes": false,
+      "containsLocalPaths": false,
+      "containsSkillContent": false,
+      "containsCredentialsOrHeaders": false
+    },
+    "evidenceId": "paired-server-only-pilot-v1-bd7de55",
+    "environmentProfile": "codex-clean-server-only-pilot-v1",
+    "observations": [
+      {
+        "caseId": "auto-dependency-upgrade-planning-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-dependency-upgrade-planning-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-dependency-upgrade-planning-3",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-3",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "auto-github-actions-ci-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "incomplete",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "none",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING", "INCOMPLETE_TRACE"]
+      },
+      {
+        "caseId": "auto-github-actions-ci-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "irrelevant-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "irrelevant-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "irrelevant-03",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "ask-matt-explicit-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "ask-matt-explicit-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["EXPECTED_SEARCH_MISSING"]
+      },
+      {
+        "caseId": "ask-matt-without-intent-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "ask-matt-without-intent-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      }
+    ],
+    "metrics": {
+      "spontaneousActivation": {
+        "numerator": 0,
+        "denominator": 7,
+        "rate": 0
+      },
+      "correctSelectionAfterSearch": {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": 0
+      },
+      "unnecessaryActivation": {
+        "numerator": 0,
+        "denominator": 3,
+        "rate": 0
+      },
+      "userRequestedIsolation": {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1
+      },
+      "progressiveLoadingConformance": {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": 0
+      },
+      "zeroClientWrites": true,
+      "zeroAgentFacingGithubRequests": true,
+      "localOverlap": {
+        "equivalentCases": 0,
+        "overlappingCases": 0,
+        "violations": 0
+      }
+    }
+  },
+  "adapterRun": {
+    "schemaVersion": 1,
+    "recordedAt": "2026-08-12T16:08:16.385Z",
+    "policyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "harness": {
+      "name": "Codex CLI",
+      "version": "0.147.0"
+    },
+    "model": {
+      "name": "gpt-5.6-sol",
+      "version": "gpt-5.6-sol"
+    },
+    "localInventoryVersion": "activation-local-v1",
+    "evaluatorVersion": "activation-pair-evaluator-v1",
+    "traceSource": "observer-proxy",
+    "instructionsSha256": "d1e923bf6c80b6c41070cc6ffc1678e6caa738f1427ac2e9dfda6c00ceb1091e",
+    "privacyDeclaration": {
+      "containsRawPrompts": false,
+      "containsTaskSummaries": false,
+      "containsRepositoryHashes": false,
+      "containsLocalPaths": false,
+      "containsSkillContent": false,
+      "containsCredentialsOrHeaders": false
+    },
+    "evidenceId": "paired-adapter-pilot-v1-bd7de55",
+    "environmentProfile": "codex-clean-adapter-pilot-v1",
+    "observations": [
+      {
+        "caseId": "auto-dependency-upgrade-planning-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            },
+            "resourcePath": "references/upgrade-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dependency-upgrade-planning",
+          "revision": "1.0.0",
+          "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "auto-dependency-upgrade-planning-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            },
+            "resourcePath": "references/upgrade-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dependency-upgrade-planning",
+          "revision": "1.0.0",
+          "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "auto-dependency-upgrade-planning-3",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dependency-upgrade-planning",
+              "revision": "1.0.0",
+              "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+            },
+            "resourcePath": "references/upgrade-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dependency-upgrade-planning",
+          "revision": "1.0.0",
+          "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            },
+            "resourcePath": "references/hardening-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dockerfile-hardening",
+          "revision": "1.0.0",
+          "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            },
+            "resourcePath": "references/hardening-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dockerfile-hardening",
+          "revision": "1.0.0",
+          "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "auto-dockerfile-hardening-3",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "dockerfile-hardening",
+              "revision": "1.0.0",
+              "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+            },
+            "resourcePath": "references/hardening-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "dockerfile-hardening",
+          "revision": "1.0.0",
+          "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "auto-github-actions-ci-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "incomplete",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "github-actions-ci",
+              "revision": "1.0.0",
+              "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "github-actions-ci",
+              "revision": "1.0.0",
+              "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+            },
+            "resourcePath": "references/ci-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "github-actions-ci",
+          "revision": "1.0.0",
+          "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+        },
+        "completionEvidence": "none",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": [
+          "UNDECLARED_RESOURCE",
+          "UNNECESSARY_RESOURCE",
+          "INCOMPLETE_TRACE"
+        ]
+      },
+      {
+        "caseId": "auto-github-actions-ci-2",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "github-actions-ci",
+              "revision": "1.0.0",
+              "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "github-actions-ci",
+              "revision": "1.0.0",
+              "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+            },
+            "resourcePath": "references/ci-checklist.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "github-actions-ci",
+          "revision": "1.0.0",
+          "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "irrelevant-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "irrelevant-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "irrelevant-03",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "ask-matt-explicit-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "user-requested"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+              "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+              "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "resourcePath": "REFERENCE.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+          "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "ask-matt-explicit-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "user-requested"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "result": "success",
+            "skill": {
+              "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+              "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "sequence": 3,
+            "toolName": "read_skill_resource",
+            "result": "success",
+            "skill": {
+              "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+              "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "resourcePath": "REFERENCE.md"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+          "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNDECLARED_RESOURCE", "UNNECESSARY_RESOURCE"]
+      },
+      {
+        "caseId": "ask-matt-without-intent-01",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      },
+      {
+        "caseId": "ask-matt-without-intent-02",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "result": "success",
+            "invocationContext": "automatic"
+          }
+        ],
+        "guidanceSource": "none",
+        "verifiedSkillWireLoad": null,
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": ["UNNECESSARY_SEARCH"]
+      }
+    ],
+    "metrics": {
+      "spontaneousActivation": {
+        "numerator": 7,
+        "denominator": 7,
+        "rate": 1
+      },
+      "correctSelectionAfterSearch": {
+        "numerator": 9,
+        "denominator": 9,
+        "rate": 1
+      },
+      "unnecessaryActivation": {
+        "numerator": 0,
+        "denominator": 3,
+        "rate": 0
+      },
+      "userRequestedIsolation": {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1
+      },
+      "progressiveLoadingConformance": {
+        "numerator": 3,
+        "denominator": 9,
+        "rate": 0.3333333333333333
+      },
+      "zeroClientWrites": true,
+      "zeroAgentFacingGithubRequests": true,
+      "localOverlap": {
+        "equivalentCases": 0,
+        "overlappingCases": 0,
+        "violations": 0
+      }
+    }
+  },
+  "claimEligibility": {
+    "eligible": false,
+    "evaluatedRelevantCases": 7,
+    "diagnosticCodes": [
+      "insufficient-relevant-cases",
+      "progressive-loading-conformance-failed",
+      "incomplete-observations",
+      "unattributable-success-trace"
+    ]
+  }
+}

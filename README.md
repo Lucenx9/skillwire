@@ -132,6 +132,23 @@ harness behaviors; server enforcement remains authentication, tenant isolation,
 eligibility, positive relevance, exact verified loading, provenance, advisory,
 integrity, resource, rate-limit, and memory scope validation.
 
+Codex users may optionally install the experimental
+`skillwire-autonomous-activation@skillwire` plugin from a configured SkillWire
+marketplace. The plugin contains only bounded activation guidance, one
+credential-free SkillWire MCP dependency declaration, version metadata, and
+uninstall metadata. It contains no remote skill content, executable code, API
+key, bearer token, account data, or repository hash. Install, upgrade, verify,
+and remove it only through the Codex plugin manager; SkillWire application code
+never writes Codex-managed directories or a client repository.
+
+In the pinned 15-case release-candidate pilot, the plugin cohort produced exact
+`search_skills` -> `load_skill` traces in all seven completed automatic cases;
+the eighth selected automatic case timed out and remains incomplete. The
+observer also recorded unnecessary resource reads, so the evidence validator
+keeps `claimEligibility.eligible=false`. The adapter is therefore experimental,
+and SkillWire makes no definitive autonomous-activation claim. Explicit use of
+the six MCP operations remains available without the plugin.
+
 ## Six MCP tools
 
 Every input object is strict. Repository hashes are opaque client-generated

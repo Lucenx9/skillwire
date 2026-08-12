@@ -38,6 +38,24 @@ repository hashes, local paths, instruction/resource bodies, credentials,
 tokens, headers, and unrelated conversation. Production security events follow
 the same content prohibition.
 
+The experimental Codex adapter is limited to three text files under its plugin
+package: `.codex-plugin/plugin.json`,
+`skills/autonomous-skill-activation/SKILL.md`, and
+`skills/autonomous-skill-activation/agents/openai.yaml`. Those files may contain
+only activation guidance, one credential-free MCP dependency, version data, and
+uninstall metadata. They must never contain remote skill instructions or
+resources, API keys, bearer tokens, authorization headers, repository hashes,
+account or tenant identifiers, generated credentials, or user data.
+
+Only the Codex plugin manager may create or remove the allowlisted adapter files
+in its managed user-scope directories. SkillWire application code does not write
+there. The manager lifecycle must leave client repositories unchanged, must not
+materialize remote skill content locally, and must preserve external MCP
+credentials and unrelated configuration on upgrade, rollback, or uninstall.
+Evaluation inventories record only categorized public component identifiers;
+temporary profiles, out-of-tree repositories, credential copies, observer state,
+and generated secrets are deleted after privacy-safe evidence validation.
+
 ## Live erasure guarantee
 
 `forget_repo_memory` performs one transaction that deletes the matching live
