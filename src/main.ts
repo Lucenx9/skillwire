@@ -24,10 +24,7 @@ export async function startHttpService(
     config.logLevel ?? "info",
   ),
 ): Promise<RunningService> {
-  const application = await createApplication(
-    config,
-    config.catalogRoot ?? process.cwd(),
-  );
+  const application = await createApplication(config);
   let server: Server;
   try {
     server = serve({

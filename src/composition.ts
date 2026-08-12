@@ -140,7 +140,7 @@ export async function createApplication(
   const readiness = new ReadinessState();
   const logger = createSecurityLogger(undefined, config.logLevel ?? "info");
   try {
-    await runMigrations(pool, `${catalogRoot}/migrations`);
+    await runMigrations(pool, `${projectRoot}/migrations`);
     const memoryStore = new PostgresRepositoryMemoryStore(pool);
     const auditStore = new PostgresErasureAuditStore(pool);
     const expiration = new AuditExpirationService(auditStore);
