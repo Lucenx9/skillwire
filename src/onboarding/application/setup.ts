@@ -1,4 +1,5 @@
 import type { ClientName } from "../cli/main.js";
+import type { ClientConflictFinding } from "./client-lifecycle.js";
 
 export interface GuidedSetupOptions {
   readonly clients: "none" | "codex" | "claude" | "codex,claude";
@@ -6,8 +7,11 @@ export interface GuidedSetupOptions {
 
 export interface SetupClientResult {
   readonly client: ClientName;
-  readonly status: "verified" | "failed" | "recovery-required";
+  readonly status:
+    "verified" | "external-verified" | "failed" | "recovery-required";
   readonly compensated: boolean;
+  readonly owned?: boolean;
+  readonly conflict?: ClientConflictFinding | undefined;
 }
 
 export interface GuidedSetupDependencies {
@@ -55,7 +59,10 @@ export async function runGuidedSetup(
     ({ status: clientStatus }) => clientStatus === "recovery-required",
   )
     ? "recovery-required"
-    : clients.some(({ status: clientStatus }) => clientStatus !== "verified")
+    : clients.some(
+          ({ status: clientStatus }) =>
+            clientStatus !== "verified" && clientStatus !== "external-verified",
+        )
       ? "incomplete"
       : "success";
   return {

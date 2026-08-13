@@ -6,6 +6,7 @@ import {
   SKILLWIRE_TOOL_NAMES,
   type UpstreamConnection,
 } from "./upstream-client.js";
+import { bridgeMcpError } from "./bridge-errors.js";
 
 const allowedTools = new Set<string>(SKILLWIRE_TOOL_NAMES);
 
@@ -24,22 +25,41 @@ export function createStdioProxyServer(
     { name: "skillwire", version: "0.1.0" },
     { capabilities: { tools: {} }, instructions: upstream.instructions },
   );
-  server.setRequestHandler("tools/list", async (request, context) =>
-    upstream.client.listTools(request.params, {
-      signal: requestSignal(signal, context.mcpReq.signal),
-      timeout: 5_000,
-      maxTotalTimeout: 5_000,
-      cacheMode: "bypass",
-    }),
-  );
+  server.setRequestHandler("tools/list", async (request, context) => {
+    try {
+      return await upstream.client.listTools(request.params, {
+        signal: requestSignal(signal, context.mcpReq.signal),
+        timeout: 5_000,
+        maxTotalTimeout: 5_000,
+        cacheMode: "bypass",
+      });
+    } catch (error) {
+      throw bridgeMcpError(
+        error,
+        context.mcpReq.signal.aborted || signal.aborted
+          ? "cancellation"
+          : "transport",
+      );
+    }
+  });
   server.setRequestHandler("tools/call", async (request, context) => {
     if (!allowedTools.has(request.params.name))
       throw new Error("Tool is not available through the SkillWire bridge");
-    const result = await upstream.client.callTool(request.params, {
-      signal: requestSignal(signal, context.mcpReq.signal),
-      timeout: 5_000,
-      maxTotalTimeout: 5_000,
-    });
+    let result;
+    try {
+      result = await upstream.client.callTool(request.params, {
+        signal: requestSignal(signal, context.mcpReq.signal),
+        timeout: 5_000,
+        maxTotalTimeout: 5_000,
+      });
+    } catch (error) {
+      throw bridgeMcpError(
+        error,
+        context.mcpReq.signal.aborted || signal.aborted
+          ? "cancellation"
+          : "transport",
+      );
+    }
     const outputSchema = upstream.tools.find(
       ({ name }) => name === request.params.name,
     )?.outputSchema;

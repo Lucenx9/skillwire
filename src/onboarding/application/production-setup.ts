@@ -22,6 +22,7 @@ import {
 } from "../adapters/credentials/restrictive-file.js";
 import { CodexClientAdapter } from "../adapters/clients/codex.js";
 import { ClaudeClientAdapter } from "../adapters/clients/claude.js";
+import { clientComponentIdentity } from "../adapters/clients/client-state.js";
 import { ensureServiceSecrets } from "../secrets/service-secrets.js";
 import type { ClientName } from "../cli/main.js";
 import { canonicalPreview } from "../cli/confirmation.js";
@@ -36,6 +37,12 @@ import {
   OperationJournal,
 } from "../domain/operation-journal.js";
 import {
+  createOwnershipLedger,
+  recordExternalIntegration,
+  recordOwnedAsset,
+} from "../domain/ownership.js";
+import {
+  clientConflictFinding,
   ClientProvisioningRecoveryError,
   installClientLifecycle,
 } from "./client-lifecycle.js";
@@ -124,6 +131,7 @@ interface CandidatePaths {
 }
 
 interface SetupRoots {
+  readonly home: string;
   readonly dataRoot: string;
   readonly stateRoot: string;
   readonly runtimeRoot: string;
@@ -161,6 +169,7 @@ function roots(environment: NodeJS.ProcessEnv): SetupRoots {
     );
   }
   return {
+    home,
     dataRoot: resolve(dataHome, "skillwire"),
     stateRoot: resolve(stateHome, "skillwire"),
     runtimeRoot: resolve(runtimeHome, "skillwire"),
@@ -575,6 +584,12 @@ async function runProductionSetupUnlocked(
     await persistBridgeState();
 
     const clientResults: SetupClientResult[] = [];
+    const clientOwnership: {
+      readonly client: ClientName;
+      readonly result: Awaited<ReturnType<typeof installClientLifecycle>>;
+      readonly credentialReference: string | undefined;
+      readonly marketplacePath: string;
+    }[] = [];
     for (const client of selectedClients(options.clients)) {
       const secretService = new SecretToolCredentialStore(
         "/usr/bin/secret-tool",
@@ -604,11 +619,57 @@ async function runProductionSetupUnlocked(
       );
       const result = await installClientLifecycle(client, {
         preflight: async () => {
-          if ((await adapter.preflight()).mcp !== "absent") {
-            throw new Error(
-              `Refusing to replace an existing ${client} skillwire MCP entry`,
-            );
-          }
+          const [mcpState, pluginState] = await Promise.all([
+            adapter.reconcileMcp(installed.launcherPath, installationId),
+            adapter.reconcilePlugin(marketplacePath),
+          ]);
+          const blocked = [mcpState, pluginState].find(
+            ({ classification }) =>
+              classification !== "absent" &&
+              classification !== "owned-equivalent" &&
+              classification !== "external-equivalent",
+          );
+          if (blocked !== undefined)
+            return {
+              action: "block" as const,
+              classification: blocked.classification as Exclude<
+                typeof blocked.classification,
+                "absent" | "owned-equivalent" | "external-equivalent"
+              >,
+              ...(blocked.observations[0] === undefined
+                ? {}
+                : {
+                    finding: clientConflictFinding(
+                      client,
+                      blocked === mcpState ? "mcp-entry" : "plugin",
+                      blocked.classification,
+                      {
+                        scope: blocked.observations[0].scope,
+                        identitySha256: blocked.observations[0].identitySha256,
+                      },
+                    ),
+                  }),
+            };
+          const mcp =
+            mcpState.classification === "absent"
+              ? "create"
+              : mcpState.classification === "owned-equivalent"
+                ? "reuse-owned"
+                : "reuse-external";
+          const plugin =
+            pluginState.classification === "absent"
+              ? "create"
+              : pluginState.classification === "owned-equivalent"
+                ? "reuse-owned"
+                : "reuse-external";
+          return {
+            action:
+              mcp === "reuse-external" && plugin === "reuse-external"
+                ? "reuse-external"
+                : "proceed",
+            mcp,
+            plugin,
+          };
         },
         provisionCredential: async () => {
           const key = await createClientKeyInAdminContainer({
@@ -730,14 +791,33 @@ async function runProductionSetupUnlocked(
             environment: dockerEnvironment,
           });
         },
+        profileSnapshot: {
+          client,
+          profileRoot: setupRoots.home,
+          stateRoot: dirname(setupRoots.stateRoot),
+          relativePaths:
+            client === "codex"
+              ? [".codex/config.toml"]
+              : [".claude.json", ".claude/settings.json"],
+        },
       });
       clientResults.push(result);
+      clientOwnership.push({
+        client,
+        result,
+        credentialReference: currentReference,
+        marketplacePath,
+      });
     }
     const status = clientResults.some(
       (result) => result.status === "recovery-required",
     )
       ? "recovery-required"
-      : clientResults.some((result) => result.status !== "verified")
+      : clientResults.some(
+            (result) =>
+              result.status !== "verified" &&
+              result.status !== "external-verified",
+          )
         ? "incomplete"
         : "success";
     const timestamp = new Date().toISOString();
@@ -778,6 +858,98 @@ async function runProductionSetupUnlocked(
       createdByOperation: randomUUID(),
       state: "available",
     });
+    const ownershipOperationId = randomUUID();
+    let ownership = createOwnershipLedger(installationId);
+    for (const entry of clientOwnership) {
+      if (
+        entry.result.status !== "verified" &&
+        entry.result.status !== "external-verified"
+      ) {
+        continue;
+      }
+      const mcpIdentity = clientComponentIdentity({
+        command: installed.launcherPath,
+        args: [
+          "bridge",
+          "--installation",
+          installationId,
+          "--client",
+          entry.client,
+        ],
+        scope: "user",
+      });
+      const pluginIdentity = clientComponentIdentity({
+        plugin: "skillwire-autonomous-activation@skillwire",
+        marketplacePath: entry.marketplacePath,
+      });
+      if (entry.result.components.mcp === "created") {
+        ownership = recordOwnedAsset(ownership, {
+          kind: "mcp-entry",
+          client: entry.client,
+          locator: "skillwire:user",
+          expectedIdentitySha256: mcpIdentity,
+          createdByOperation: ownershipOperationId,
+          retention: "remove-on-uninstall",
+          disposition: "present",
+        });
+      } else if (entry.result.components.mcp === "external") {
+        ownership = recordExternalIntegration(ownership, {
+          schemaVersion: "skillwire.external-integration/v1",
+          externalDependencyId: randomUUID(),
+          client: entry.client,
+          kind: "mcp-entry",
+          scope: "user",
+          observedIdentitySha256: mcpIdentity,
+          verification: "equivalent",
+          lastObservedAt: timestamp,
+        });
+      }
+      if (entry.result.components.plugin === "created") {
+        for (const kind of ["marketplace", "plugin"] as const) {
+          ownership = recordOwnedAsset(ownership, {
+            kind,
+            client: entry.client,
+            locator:
+              kind === "marketplace"
+                ? `skillwire:${entry.marketplacePath}`
+                : "skillwire-autonomous-activation@skillwire",
+            expectedIdentitySha256: pluginIdentity,
+            createdByOperation: ownershipOperationId,
+            retention: "remove-on-uninstall",
+            disposition: "present",
+          });
+        }
+      } else if (entry.result.components.plugin === "external") {
+        for (const kind of ["marketplace", "plugin"] as const) {
+          ownership = recordExternalIntegration(ownership, {
+            schemaVersion: "skillwire.external-integration/v1",
+            externalDependencyId: randomUUID(),
+            client: entry.client,
+            kind,
+            scope: "user",
+            observedIdentitySha256: pluginIdentity,
+            verification: "equivalent",
+            lastObservedAt: timestamp,
+          });
+        }
+      }
+      if (
+        entry.result.components.credential === "created" &&
+        entry.credentialReference !== undefined
+      ) {
+        ownership = recordOwnedAsset(ownership, {
+          kind: "credential",
+          client: entry.client,
+          locator: entry.credentialReference,
+          expectedIdentitySha256: clientComponentIdentity({
+            reference: entry.credentialReference,
+          }),
+          createdByOperation: ownershipOperationId,
+          retention: "remove-on-uninstall",
+          disposition: "present",
+        });
+      }
+    }
     await atomicWriteJson(
       resolve(setupRoots.stateRoot, "installation.json"),
       installation,
@@ -786,6 +958,20 @@ async function runProductionSetupUnlocked(
     await atomicWriteJson(
       resolve(setupRoots.stateRoot, "service-secret-set.json"),
       serviceSecretSet,
+      setupRoots.stateRoot,
+    );
+    await atomicWriteJson(
+      resolve(setupRoots.stateRoot, "ownership.json"),
+      ownership.record,
+      setupRoots.stateRoot,
+    );
+    await atomicWriteJson(
+      resolve(setupRoots.stateRoot, "external-integrations.json"),
+      {
+        schemaVersion: "skillwire.external-integrations/v1",
+        installationId,
+        dependencies: ownership.externalIntegrations,
+      },
       setupRoots.stateRoot,
     );
     return {

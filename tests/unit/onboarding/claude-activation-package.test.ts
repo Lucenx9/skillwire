@@ -22,6 +22,11 @@ describe("Claude instruction-only activation package", () => {
     });
     expect(skill).toContain("search_skills");
     expect(skill).toContain("fail open");
+    expect(skill).toContain("at most one minimal");
+    expect(skill).toContain("load at most one exact");
+    expect(skill).toContain("Do not retry, reformulate, poll");
+    expect(skill).toContain("expand context");
+    expect(skill).not.toMatch(/fallback to GitHub/i);
     expect(`${JSON.stringify(manifest)}\n${skill}`).not.toMatch(
       /\.mcp\.json|hooks|Bearer|swk\.|api[_-]?key/i,
     );

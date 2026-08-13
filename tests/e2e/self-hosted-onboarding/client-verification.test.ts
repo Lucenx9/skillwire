@@ -9,7 +9,10 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createApiKeyToken } from "../../../src/authentication/api-key-token.js";
 import { createTestApplication } from "../../../src/composition.js";
-import { verifyClientIntegration } from "../../../src/onboarding/application/client-verification.js";
+import {
+  combineClientVerificationEvidence,
+  verifyClientIntegration,
+} from "../../../src/onboarding/application/client-verification.js";
 import { runActivationDiagnostic } from "../../../src/onboarding/application/activation-diagnostic.js";
 import { RestrictiveFileCredentialStore } from "../../../src/onboarding/adapters/credentials/restrictive-file.js";
 import {
@@ -107,6 +110,7 @@ describe("fresh-process deterministic client verification", () => {
       },
     });
     expect(result.tools).toHaveLength(6);
+    expect(result.evidenceKind).toBe("deterministic");
     expect(result.skillId).toBe("typescript-code-review");
     expect(result.revisionSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(result.provenanceTrust).toBe("trusted");
@@ -136,5 +140,23 @@ describe("fresh-process deterministic client verification", () => {
     expect(JSON.stringify([notInvoked, failed])).not.toMatch(
       /swk\.|prompt|response|account/i,
     );
+    const deterministic = {
+      evidenceKind: "deterministic" as const,
+      client: "codex" as const,
+      tools: [],
+      skillId: "fixture",
+      revision: "1.0.0",
+      revisionSha256: "a".repeat(64),
+      advisoryStatus: "available",
+      provenanceTrust: "trusted",
+      resourceVerified: true,
+    };
+    expect(
+      combineClientVerificationEvidence(deterministic, notInvoked),
+    ).toMatchObject({
+      integrationState: "verified",
+      deterministic: { evidenceKind: "deterministic" },
+      automatic: { status: "not-invoked" },
+    });
   });
 });

@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/client";
 
 import { parseApiKeyToken } from "../authentication/api-key-token.js";
+import { BridgeFailure } from "./bridge-errors.js";
 
 export const SKILLWIRE_TOOL_NAMES = [
   "search_skills",
@@ -19,9 +20,9 @@ export const SKILLWIRE_TOOL_NAMES = [
 
 function validateEndpoint(endpoint: URL): void {
   if (endpoint.protocol !== "http:")
-    throw new Error("Bridge endpoint must use loopback HTTP");
+    throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
   if (!["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname))
-    throw new Error("Bridge endpoint must be loopback-only");
+    throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
   if (
     endpoint.pathname !== "/mcp" ||
     endpoint.username !== "" ||
@@ -29,23 +30,21 @@ function validateEndpoint(endpoint: URL): void {
     endpoint.search !== "" ||
     endpoint.hash !== ""
   ) {
-    throw new Error("Bridge endpoint identity is invalid");
+    throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
   }
 }
 
 function validateTools(result: ListToolsResult): void {
   const names = result.tools.map(({ name }) => name);
   if (JSON.stringify(names) !== JSON.stringify(SKILLWIRE_TOOL_NAMES))
-    throw new Error(
-      "Upstream does not expose the exact six-tool SkillWire contract",
-    );
+    throw new BridgeFailure("BRIDGE_CONTRACT_INVALID");
   for (const tool of result.tools) {
     if (
       tool.outputSchema === undefined ||
       tool.annotations === undefined ||
       tool.description === undefined
     ) {
-      throw new Error(`Upstream tool metadata is incomplete: ${tool.name}`);
+      throw new BridgeFailure("BRIDGE_CONTRACT_INVALID");
     }
   }
 }
@@ -70,10 +69,20 @@ export async function connectUpstream(
 ): Promise<UpstreamConnection> {
   validateEndpoint(options.endpoint);
   if (parseApiKeyToken(options.token) === undefined)
-    throw new Error("Bridge credential has an invalid shape");
+    throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");
   if (options.deadlineMilliseconds < 1 || options.deadlineMilliseconds > 10_000)
     throw new Error("Bridge deadline is invalid");
   const sourceFetch = options.fetch ?? fetch;
+  const startedAt = performance.now();
+  const deadlineSignal = AbortSignal.timeout(options.deadlineMilliseconds);
+  let initializing = true;
+  const budget = (): number => {
+    const remaining = Math.floor(
+      options.deadlineMilliseconds - (performance.now() - startedAt),
+    );
+    if (remaining < 1) throw new BridgeFailure("BRIDGE_DEADLINE_EXCEEDED");
+    return remaining;
+  };
   let requestCount = 0;
   const boundedFetch: FetchLike = async (input, init) => {
     requestCount += 1;
@@ -85,6 +94,7 @@ export async function connectUpstream(
       throw new Error("Bridge refused a non-upstream HTTP request");
     const signals = [
       options.signal,
+      ...(initializing ? [deadlineSignal] : []),
       init?.signal,
       input instanceof Request ? input.signal : undefined,
     ].filter(
@@ -97,11 +107,23 @@ export async function connectUpstream(
         : signals.length === 1
           ? signals[0]
           : undefined;
-    return sourceFetch(input, {
+    const response = await sourceFetch(input, {
       ...init,
       redirect: "error",
       ...(signal === undefined ? {} : { signal }),
     });
+    if (
+      response.ok &&
+      response.headers.get("content-type")?.includes("application/json") ===
+        true
+    ) {
+      try {
+        await response.clone().json();
+      } catch (error) {
+        throw new BridgeFailure("BRIDGE_CONTRACT_INVALID", { cause: error });
+      }
+    }
+    return response;
   };
   const client = new Client(
     { name: "skillwire-credential-bridge", version: "0.1.0" },
@@ -115,14 +137,20 @@ export async function connectUpstream(
   });
   try {
     await client.connect(transport, {
-      timeout: options.deadlineMilliseconds,
-      maxTotalTimeout: options.deadlineMilliseconds,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      timeout: budget(),
+      maxTotalTimeout: budget(),
+      signal:
+        options.signal === undefined
+          ? deadlineSignal
+          : AbortSignal.any([options.signal, deadlineSignal]),
     });
     const listed = await client.listTools(undefined, {
-      timeout: options.deadlineMilliseconds,
-      maxTotalTimeout: options.deadlineMilliseconds,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      timeout: budget(),
+      maxTotalTimeout: budget(),
+      signal:
+        options.signal === undefined
+          ? deadlineSignal
+          : AbortSignal.any([options.signal, deadlineSignal]),
       cacheMode: "bypass",
     });
     validateTools(listed);
@@ -132,9 +160,9 @@ export async function connectUpstream(
       instructions.length < 1 ||
       instructions.length > 8192
     )
-      throw new Error("Upstream instructions are missing or invalid");
-    if (requestCount < 2)
-      throw new Error("Upstream initialization was not fully validated");
+      throw new BridgeFailure("BRIDGE_CONTRACT_INVALID");
+    if (requestCount < 2) throw new BridgeFailure("BRIDGE_CONTRACT_INVALID");
+    initializing = false;
     return {
       client,
       instructions,
@@ -142,7 +170,37 @@ export async function connectUpstream(
       close: () => client.close(),
     };
   } catch (error) {
+    initializing = false;
     await client.close().catch(() => undefined);
-    throw error;
+    if (error instanceof BridgeFailure) throw error;
+    if (options.signal?.aborted === true)
+      throw new BridgeFailure("BRIDGE_CANCELLED", { cause: error });
+    if (deadlineSignal.aborted)
+      throw new BridgeFailure("BRIDGE_DEADLINE_EXCEEDED", { cause: error });
+    if (
+      error instanceof Error &&
+      /(?:timeout|timed out|aborterror|aborted)/i.test(
+        `${error.name} ${error.message}`,
+      )
+    ) {
+      throw new BridgeFailure("BRIDGE_DEADLINE_EXCEEDED", { cause: error });
+    }
+    if (
+      error instanceof Error &&
+      /(?:401|403|unauthori[sz]ed|authentication|insufficient scope)/i.test(
+        error.message,
+      )
+    ) {
+      throw new BridgeFailure("BRIDGE_AUTH_REJECTED", { cause: error });
+    }
+    if (
+      error instanceof Error &&
+      /(?:protocol|contract|tool metadata|six-tool|instructions|invalid.*(?:json|response)|parse)/i.test(
+        error.message,
+      )
+    ) {
+      throw new BridgeFailure("BRIDGE_CONTRACT_INVALID", { cause: error });
+    }
+    throw new BridgeFailure("BRIDGE_TRANSPORT_UNAVAILABLE", { cause: error });
   }
 }

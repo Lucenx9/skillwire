@@ -14,6 +14,7 @@ import {
   validateOwnedDirectory,
   validateOwnedPath,
 } from "../onboarding/adapters/filesystem/safe-paths.js";
+import { BridgeFailure } from "./bridge-errors.js";
 
 const BridgeStateSchema = z
   .object({
@@ -49,7 +50,7 @@ export class CredentialResolver {
     private readonly secretService = new SecretToolCredentialStore(),
   ) {}
 
-  async resolve(
+  private async resolveUnsafe(
     installationId: string,
     client: ClientName,
   ): Promise<ResolvedBridgeCredential> {
@@ -85,7 +86,7 @@ export class CredentialResolver {
       await handle.close();
     }
     if (state.installationId !== installationId)
-      throw new Error("Bridge state installation identity mismatch");
+      throw new BridgeFailure("BRIDGE_STATE_UNAVAILABLE");
     const entry = state.clients.find(
       (candidate) => candidate.client === client,
     );
@@ -94,21 +95,46 @@ export class CredentialResolver {
       (entry.credentialReference !== `restrictive-file:${client}` &&
         !entry.credentialReference.startsWith(`secret-service:${client}:`))
     ) {
-      throw new Error("Client credential reference is unavailable");
+      throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");
     }
-    const token = entry.credentialReference.startsWith("secret-service:")
-      ? await this.secretService.lookup(
-          installationId,
-          client,
-          entry.credentialReference,
-        )
-      : await new RestrictiveFileCredentialStore(
-          this.dataRoot,
-          this.dataRoot,
-          installationId,
-        ).lookup(entry.credentialReference as RestrictiveFileReference);
+    let token: string;
+    try {
+      token = entry.credentialReference.startsWith("secret-service:")
+        ? await this.secretService.lookup(
+            installationId,
+            client,
+            entry.credentialReference,
+          )
+        : await new RestrictiveFileCredentialStore(
+            this.dataRoot,
+            this.dataRoot,
+            installationId,
+          ).lookup(entry.credentialReference as RestrictiveFileReference);
+    } catch (error) {
+      throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE", {
+        cause: error,
+      });
+    }
     if (parseApiKeyToken(token) === undefined)
-      throw new Error("Resolved client credential is invalid");
-    return { endpoint: new URL(state.endpoint), token };
+      throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");
+    let endpoint: URL;
+    try {
+      endpoint = new URL(state.endpoint);
+    } catch (error) {
+      throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID", { cause: error });
+    }
+    return { endpoint, token };
+  }
+
+  async resolve(
+    installationId: string,
+    client: ClientName,
+  ): Promise<ResolvedBridgeCredential> {
+    try {
+      return await this.resolveUnsafe(installationId, client);
+    } catch (error) {
+      if (error instanceof BridgeFailure) throw error;
+      throw new BridgeFailure("BRIDGE_STATE_UNAVAILABLE", { cause: error });
+    }
   }
 }

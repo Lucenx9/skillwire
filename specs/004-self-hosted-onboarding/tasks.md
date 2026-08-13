@@ -138,23 +138,23 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 2 — write and observe failure first
 
-- [ ] T074 [P] [US2] Add populated-profile, unrelated-state, managed-policy, duplicate, shadow, conflict, alternate-name, concurrent-edit, and repository canary fixtures in `tests/helpers/client-profile-fixtures.ts`
-- [ ] T075 [P] [US2] Add failing Codex comment/byte preservation, same-name add prevention, real MCP readback, and plugin-dependency isolation tests in `tests/contract/clients/codex-profile-preservation.test.ts`
-- [ ] T076 [P] [US2] Add failing Claude semantic preservation, explicit user scope, managed/shadowed state, and unrelated-inventory tests in `tests/contract/clients/claude-profile-preservation.test.ts`
-- [ ] T077 [P] [US2] Add failing equivalent external integration tests proving setup/repair/upgrade/uninstall/purge create zero duplicates and perform zero mutation in `tests/e2e/self-hosted-onboarding/external-integration-reuse.test.ts`
-- [ ] T078 [P] [US2] Add failing non-equivalent/ambiguous conflict tests proving exact redacted external-resolution output, affected-client-only blocking, no adopt/rename/overwrite/disable/remove, and retained successful sibling client/service in `tests/e2e/self-hosted-onboarding/client-conflict-partial-success.test.ts`
-- [ ] T079 [P] [US2] Add failing stale-snapshot, arbitrary unrelated profile preservation, and zero repository client-file write tests in `tests/e2e/self-hosted-onboarding/profile-safety.test.ts`
+- [x] T074 [P] [US2] Add populated-profile, unrelated-state, managed-policy, duplicate, shadow, conflict, alternate-name, concurrent-edit, and repository canary fixtures in `tests/helpers/client-profile-fixtures.ts`
+- [x] T075 [P] [US2] Add failing Codex comment/byte preservation, same-name add prevention, real MCP readback, and plugin-dependency isolation tests in `tests/contract/clients/codex-profile-preservation.test.ts`
+- [x] T076 [P] [US2] Add failing Claude semantic preservation, explicit user scope, managed/shadowed state, and unrelated-inventory tests in `tests/contract/clients/claude-profile-preservation.test.ts`
+- [x] T077 [P] [US2] Add failing equivalent external integration tests proving setup/repair/upgrade/uninstall/purge create zero duplicates and perform zero mutation in `tests/e2e/self-hosted-onboarding/external-integration-reuse.test.ts`
+- [x] T078 [P] [US2] Add failing non-equivalent/ambiguous conflict tests proving exact redacted external-resolution output, affected-client-only blocking, no adopt/rename/overwrite/disable/remove, and retained successful sibling client/service in `tests/e2e/self-hosted-onboarding/client-conflict-partial-success.test.ts`
+- [x] T079 [P] [US2] Add failing stale-snapshot, arbitrary unrelated profile preservation, and zero repository client-file write tests in `tests/e2e/self-hosted-onboarding/profile-safety.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T080 [P] [US2] Implement protected profile snapshots, before/expected-post identities, and concurrency-safe restore eligibility in `src/onboarding/domain/profile-snapshot.ts`
-- [ ] T081 [P] [US2] Implement absent/owned-equivalent/external-equivalent/conflict/ambiguous/duplicate/shadowed/managed/drifted classification in `src/onboarding/adapters/clients/client-state.ts`
-- [ ] T082 [P] [US2] Add Codex effective-scope inventory, same-name preflight, preservation checks, external reuse, and exact conflict reporting in `src/onboarding/adapters/clients/codex.ts`
-- [ ] T083 [P] [US2] Add Claude precedence/managed inventory, preservation checks, external reuse, and exact conflict reporting in `src/onboarding/adapters/clients/claude.ts`
-- [ ] T084 [US2] Implement narrow vendor mutation, post-image proof, safe inverse, and stale-snapshot refusal in `src/onboarding/application/profile-transaction.ts`
-- [ ] T085 [US2] Persist only proven created assets and record equivalent pre-existing components solely as untouched external dependencies in `src/onboarding/domain/ownership.ts`
-- [ ] T086 [US2] Apply external/conflict rules across setup, repair, upgrade, verification, client removal, uninstall, and purge in `src/onboarding/application/client-lifecycle.ts`
-- [ ] T087 [US2] Preserve healthy service/sibling-client commits and emit the documented incomplete result when one selected client is blocked or compensated in `src/onboarding/application/setup.ts`
+- [x] T080 [P] [US2] Implement protected profile snapshots, before/expected-post identities, and concurrency-safe restore eligibility in `src/onboarding/domain/profile-snapshot.ts`
+- [x] T081 [P] [US2] Implement absent/owned-equivalent/external-equivalent/conflict/ambiguous/duplicate/shadowed/managed/drifted classification in `src/onboarding/adapters/clients/client-state.ts`
+- [x] T082 [P] [US2] Add Codex effective-scope inventory, same-name preflight, preservation checks, external reuse, and exact conflict reporting in `src/onboarding/adapters/clients/codex.ts`
+- [x] T083 [P] [US2] Add Claude precedence/managed inventory, preservation checks, external reuse, and exact conflict reporting in `src/onboarding/adapters/clients/claude.ts`
+- [x] T084 [US2] Implement narrow vendor mutation, post-image proof, safe inverse, and stale-snapshot refusal in `src/onboarding/application/profile-transaction.ts`
+- [x] T085 [US2] Persist only proven created assets and record equivalent pre-existing components solely as untouched external dependencies in `src/onboarding/domain/ownership.ts`
+- [x] T086 [US2] Apply external/conflict rules across setup, repair, upgrade, verification, client removal, uninstall, and purge in `src/onboarding/application/client-lifecycle.ts`
+- [x] T087 [US2] Preserve healthy service/sibling-client commits and emit the documented incomplete result when one selected client is blocked or compensated in `src/onboarding/application/setup.ts`
 
 **Checkpoint**: Existing profiles and external integrations remain user-owned and unchanged; conflicts never trigger destructive reconciliation.
 
@@ -168,18 +168,18 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 3 — write and observe failure first
 
-- [ ] T088 [P] [US3] Add failing stable bridge-code, safe stderr/MCP error, prompt-free, cancellation, and post-initialization close tests in `tests/contract/credential-bridge/failure-contract.test.ts`
-- [ ] T089 [P] [US3] Add failing ordinary Codex/Claude stopped/unreachable/401/missing/locked/timeout/incompatible/tool-mismatch startup tests in `tests/e2e/self-hosted-onboarding/fail-open-clients.test.ts`
-- [ ] T090 [P] [US3] Add failing one-attempt/no-reconnect/no-retry/no-auth-prompt traces within the 10-second budget in `tests/security/onboarding/bounded-activation.test.ts`
-- [ ] T091 [P] [US3] Add failing explicit user-requested search/exact-load tests with unchanged eligibility/provenance bounds and separate evidence in `tests/e2e/self-hosted-onboarding/explicit-skillwire-request.test.ts`
+- [x] T088 [P] [US3] Add failing stable bridge-code, safe stderr/MCP error, prompt-free, cancellation, and post-initialization close tests in `tests/contract/credential-bridge/failure-contract.test.ts`
+- [x] T089 [P] [US3] Add failing ordinary Codex/Claude stopped/unreachable/401/missing/locked/timeout/incompatible/tool-mismatch startup tests in `tests/e2e/self-hosted-onboarding/fail-open-clients.test.ts`
+- [x] T090 [P] [US3] Add failing one-attempt/no-reconnect/no-retry/no-auth-prompt traces within the 10-second budget in `tests/security/onboarding/bounded-activation.test.ts`
+- [x] T091 [P] [US3] Add failing explicit user-requested search/exact-load tests with unchanged eligibility/provenance bounds and separate evidence in `tests/e2e/self-hosted-onboarding/explicit-skillwire-request.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T092 [P] [US3] Implement stable redacted bridge error mapping for state, endpoint, credential, auth, contract, timeout, cancellation, and transport failures in `src/credential-bridge/bridge-errors.ts`
-- [ ] T093 [US3] Enforce one upstream attempt, total deadline budgeting, safe post-initialization closure, and zero reconnect in `src/credential-bridge/upstream-client.ts`
-- [ ] T094 [P] [US3] Enforce optional Codex registration without `required=true`, static headers, or secret env forwarding in `src/onboarding/adapters/clients/codex.ts`
-- [ ] T095 [P] [US3] Enforce optional Claude connection behavior and bounded no-retry activation guidance in `src/onboarding/adapters/clients/claude.ts` and `integrations/claude/skillwire-autonomous-activation/skills/autonomous-skill-activation/SKILL.md`
-- [ ] T096 [US3] Keep deterministic failures distinct from automatic `not-invoked` evidence and retain deterministically verified integrations in `src/onboarding/application/client-verification.ts`
+- [x] T092 [P] [US3] Implement stable redacted bridge error mapping for state, endpoint, credential, auth, contract, timeout, cancellation, and transport failures in `src/credential-bridge/bridge-errors.ts`
+- [x] T093 [US3] Enforce one upstream attempt, total deadline budgeting, safe post-initialization closure, and zero reconnect in `src/credential-bridge/upstream-client.ts`
+- [x] T094 [P] [US3] Enforce optional Codex registration without `required=true`, static headers, or secret env forwarding in `src/onboarding/adapters/clients/codex.ts`
+- [x] T095 [P] [US3] Enforce optional Claude connection behavior and bounded no-retry activation guidance in `src/onboarding/adapters/clients/claude.ts` and `integrations/claude/skillwire-autonomous-activation/skills/autonomous-skill-activation/SKILL.md`
+- [x] T096 [US3] Keep deterministic failures distinct from automatic `not-invoked` evidence and retain deterministically verified integrations in `src/onboarding/application/client-verification.ts`
 
 **Checkpoint**: SkillWire remains optional augmentation and cannot prevent normal client startup.
 

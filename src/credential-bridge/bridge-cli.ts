@@ -8,6 +8,11 @@ import {
 } from "./credential-resolver.js";
 import { serveStdioProxy } from "./stdio-server.js";
 import { connectUpstream, type UpstreamConnection } from "./upstream-client.js";
+import {
+  BridgeFailure,
+  bridgeFailureReport,
+  normalizeBridgeFailure,
+} from "./bridge-errors.js";
 
 export interface BridgeLifecycleOptions {
   readonly installationId: string;
@@ -81,13 +86,23 @@ export async function runBridgeLifecycle(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
+      reject(new BridgeFailure("BRIDGE_DEADLINE_EXCEEDED"));
       controller.abort();
-      reject(new Error("Credential bridge end-to-end deadline exceeded"));
     }, remaining);
+  });
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        reject(new BridgeFailure("BRIDGE_CANCELLED"));
+      },
+      { once: true },
+    );
   });
   let connection: UpstreamConnection | undefined;
   let serving: Promise<void> | undefined;
   try {
+    if (controller.signal.aborted) throw new BridgeFailure("BRIDGE_CANCELLED");
     await Promise.race([
       (async () => {
         const credential = await dependencies.resolve(
@@ -105,6 +120,8 @@ export async function runBridgeLifecycle(
           signal: controller.signal,
         });
         connection = activeConnection;
+        if (controller.signal.aborted)
+          throw new BridgeFailure("BRIDGE_CANCELLED");
         await new Promise<void>((ready, reject) => {
           serving = dependencies.serve(
             activeConnection,
@@ -115,6 +132,7 @@ export async function runBridgeLifecycle(
         });
       })(),
       deadline,
+      cancellation,
     ]);
     if (timer !== undefined) clearTimeout(timer);
     await serving;
@@ -160,9 +178,11 @@ export async function runBridgeCommand(
     );
     return 0;
   } catch (error) {
-    io.stderr(
-      `${redactText(error instanceof Error ? error.message : "Credential bridge failed")}\n`,
+    const failure = normalizeBridgeFailure(
+      error,
+      signal.aborted ? "cancellation" : "transport",
     );
+    io.stderr(`${redactText(JSON.stringify(bridgeFailureReport(failure)))}\n`);
     return 7;
   }
 }

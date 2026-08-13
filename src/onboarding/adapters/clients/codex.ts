@@ -3,22 +3,36 @@ import { z } from "zod";
 
 import { runCommand } from "../process/command-runner.js";
 import { ClientMutationNotStartedError } from "../../domain/client-mutation.js";
+import {
+  classifyClientComponent,
+  clientComponentIdentity,
+  type ClientComponentState,
+} from "./client-state.js";
+
+const CodexStdioTransportSchema = z
+  .object({
+    type: z.literal("stdio"),
+    command: z.string().min(1),
+    args: z.array(z.string()),
+    env: z.null(),
+    env_vars: z.array(z.string()).length(0),
+    cwd: z.null(),
+  })
+  .strict();
+
+const CodexInventoryRegistrationSchema = z.looseObject({
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  disabled_reason: z.string().nullable(),
+  transport: z.unknown(),
+});
 
 const CodexRegistrationSchema = z
   .object({
     name: z.string().min(1),
-    enabled: z.literal(true),
-    disabled_reason: z.null(),
-    transport: z
-      .object({
-        type: z.literal("stdio"),
-        command: z.string().min(1),
-        args: z.array(z.string()),
-        env: z.null(),
-        env_vars: z.array(z.string()).length(0),
-        cwd: z.null(),
-      })
-      .strict(),
+    enabled: z.boolean(),
+    disabled_reason: z.string().nullable(),
+    transport: CodexStdioTransportSchema,
     enabled_tools: z.unknown().optional(),
     disabled_tools: z.unknown().optional(),
     startup_timeout_sec: z.unknown().optional(),
@@ -56,6 +70,21 @@ const CodexPluginListSchema = z
   })
   .strict();
 
+const CodexMarketplaceListSchema = z
+  .object({
+    marketplaces: z.array(
+      z.looseObject({
+        name: z.string().min(1),
+        root: z.string().min(1),
+        marketplaceSource: z.looseObject({
+          sourceType: z.string().min(1),
+          source: z.string().min(1),
+        }),
+      }),
+    ),
+  })
+  .strict();
+
 export interface CodexPluginRegistration {
   readonly pluginId: "skillwire-autonomous-activation@skillwire";
   readonly marketplaceName: "skillwire";
@@ -77,7 +106,26 @@ export interface ClientRegistration {
 function cleanEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (environment["CODEX_HOME"] !== undefined)
     throw new Error("Codex onboarding must target the normal HOME profile");
-  return { ...environment, NO_COLOR: "1", TERM: "dumb" };
+  const allowed = [
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_RUNTIME_DIR",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+  ] as const;
+  return {
+    ...Object.fromEntries(
+      allowed.flatMap((key) =>
+        environment[key] === undefined ? [] : [[key, environment[key]]],
+      ),
+    ),
+    NO_COLOR: "1",
+    TERM: "dumb",
+  };
 }
 
 export class CodexClientAdapter {
@@ -97,6 +145,7 @@ export class CodexClientAdapter {
     return runCommand({
       executable: resolve(this.executable),
       args,
+      cwd: this.environment["HOME"],
       environment: cleanEnvironment(this.environment),
       acceptExitCodes,
       deadlineMilliseconds: 15_000,
@@ -111,7 +160,7 @@ export class CodexClientAdapter {
     const list = JSON.parse(
       (await this.run(["mcp", "list", "--json"])).stdout,
     ) as unknown;
-    const entries = z.array(CodexRegistrationSchema).parse(list);
+    const entries = z.array(CodexInventoryRegistrationSchema).parse(list);
     return {
       version,
       mcp: entries.some(({ name }) => name === "skillwire")
@@ -120,13 +169,129 @@ export class CodexClientAdapter {
     };
   }
 
+  async reconcileMcp(
+    launcher: string,
+    installationId: string,
+    ownedIdentitySha256?: string,
+  ): Promise<ClientComponentState> {
+    if (!isAbsolute(launcher) || !z.uuid().safeParse(installationId).success)
+      throw new Error("Codex MCP identity is invalid");
+    const versionResult = await this.run(["--version"]);
+    if (/codex-cli\s+(\S+)/.exec(versionResult.stdout)?.[1] !== "0.147.0")
+      throw new Error("Unsupported Codex version");
+    const entries = z
+      .array(CodexInventoryRegistrationSchema)
+      .parse(
+        JSON.parse(
+          (await this.run(["mcp", "list", "--json"])).stdout,
+        ) as unknown,
+      );
+    const expectedIdentitySha256 = clientComponentIdentity({
+      command: resolve(launcher),
+      args: ["bridge", "--installation", installationId, "--client", "codex"],
+      env: null,
+      envVars: [],
+      cwd: null,
+      required: false,
+    });
+    return classifyClientComponent({
+      requiredName: "skillwire",
+      expectedIdentitySha256,
+      ownedIdentitySha256,
+      observations: entries.map((entry) => {
+        const stdio = CodexStdioTransportSchema.safeParse(entry.transport);
+        return {
+          name: entry.name,
+          scope: "user" as const,
+          effective: entry.enabled,
+          managed: false,
+          disabled: !entry.enabled,
+          identitySha256: stdio.success
+            ? clientComponentIdentity({
+                command: stdio.data.command,
+                args: stdio.data.args,
+                env: stdio.data.env,
+                envVars: stdio.data.env_vars,
+                cwd: stdio.data.cwd,
+                required: false,
+              })
+            : clientComponentIdentity({ transport: entry.transport }),
+        };
+      }),
+    });
+  }
+
+  async reconcilePlugin(
+    marketplacePath: string,
+  ): Promise<ClientComponentState> {
+    if (!isAbsolute(marketplacePath))
+      throw new Error("Codex marketplace path must be absolute");
+    const expectedPath = resolve(marketplacePath);
+    const marketplaces = CodexMarketplaceListSchema.parse(
+      JSON.parse(
+        (await this.run(["plugin", "marketplace", "list", "--json"])).stdout,
+      ) as unknown,
+    ).marketplaces;
+    const namedMarketplace = marketplaces.filter(
+      ({ name }) => name === "skillwire",
+    );
+    if (namedMarketplace.length === 0)
+      return {
+        classification: "absent",
+        observations: [],
+        mutationAllowed: true,
+      };
+    const marketplace = namedMarketplace[0];
+    const marketplaceMatches =
+      namedMarketplace.length === 1 &&
+      marketplace?.marketplaceSource.sourceType === "local" &&
+      resolve(marketplace.root) === expectedPath &&
+      resolve(marketplace.marketplaceSource.source) === expectedPath;
+    let pluginMatches = false;
+    if (marketplaceMatches) {
+      try {
+        await this.readPlugin(expectedPath);
+        pluginMatches = true;
+      } catch {
+        pluginMatches = false;
+      }
+    }
+    const identitySha256 = clientComponentIdentity({
+      marketplace: marketplaceMatches ? expectedPath : "conflicting",
+      plugin: pluginMatches
+        ? "skillwire-autonomous-activation@skillwire"
+        : "unavailable",
+    });
+    return {
+      classification:
+        marketplaceMatches && pluginMatches
+          ? "external-equivalent"
+          : namedMarketplace.length > 1
+            ? "duplicate"
+            : "same-name-conflict",
+      observations: [
+        {
+          name: "skillwire",
+          scope: "plugin",
+          effective: pluginMatches,
+          managed: false,
+          identitySha256,
+        },
+      ],
+      mutationAllowed: false,
+    };
+  }
+
   async addMcp(launcher: string, installationId: string): Promise<void> {
     if (!isAbsolute(launcher) || !z.uuid().safeParse(installationId).success)
       throw new Error("Codex MCP identity is invalid");
-    if ((await this.preflight()).mcp !== "absent")
+    if (
+      (await this.reconcileMcp(launcher, installationId)).classification !==
+      "absent"
+    )
       throw new ClientMutationNotStartedError(
         "mcp",
-        "Refusing to replace an existing Codex skillwire MCP entry",
+        "Refusing to replace or duplicate an existing Codex SkillWire MCP integration",
       );
     await this.run([
       "mcp",
@@ -159,7 +324,7 @@ export class CodexClientAdapter {
     const parsed = CodexRegistrationSchema.parse(
       JSON.parse(result.stdout) as unknown,
     );
-    if (parsed.name !== "skillwire") {
+    if (parsed.name !== "skillwire" || !parsed.enabled) {
       throw new Error("Codex returned the wrong MCP registration");
     }
     return {
@@ -176,6 +341,12 @@ export class CodexClientAdapter {
   async addPlugin(marketplacePath: string): Promise<void> {
     if (!isAbsolute(marketplacePath))
       throw new Error("Codex marketplace path must be absolute");
+    const state = await this.reconcilePlugin(marketplacePath);
+    if (state.classification !== "absent")
+      throw new ClientMutationNotStartedError(
+        "plugin",
+        "Refusing to replace or duplicate an existing Codex skillwire plugin integration",
+      );
     await this.run([
       "plugin",
       "marketplace",

@@ -229,24 +229,42 @@ async function routeSetup(
           ...result.clients.map((client) => ({
             component: client.client,
             state: client.status,
-            changed: client.status === "verified",
-            owned: client.status === "verified",
-            identity: { compensated: client.compensated },
+            changed: client.status === "verified" && client.owned !== false,
+            owned: client.status === "verified" && client.owned !== false,
+            identity: {
+              compensated: client.compensated,
+              external: client.status === "external-verified",
+            },
           })),
         ],
         findings: result.clients
-          .filter((client) => client.status !== "verified")
-          .map((client) => ({
-            code: `${client.client.toUpperCase()}_INSTALLATION_INCOMPLETE`,
-            severity:
-              client.status === "recovery-required"
-                ? ("recovery-required" as const)
-                : ("error" as const),
-            component: client.client,
-            summary: `${client.client} deterministic verification did not complete`,
-            nextAction:
-              "Review the client-specific recovery summary and retry after resolution",
-          })),
+          .filter(
+            (client) =>
+              client.status !== "verified" &&
+              client.status !== "external-verified",
+          )
+          .map((client) =>
+            client.conflict === undefined
+              ? {
+                  code: `${client.client.toUpperCase()}_INSTALLATION_INCOMPLETE`,
+                  severity:
+                    client.status === "recovery-required"
+                      ? ("recovery-required" as const)
+                      : ("error" as const),
+                  component: client.client,
+                  summary: `${client.client} deterministic verification did not complete`,
+                  nextAction:
+                    "Review the client-specific recovery summary and retry after resolution",
+                }
+              : {
+                  code: client.conflict.code,
+                  severity: "error" as const,
+                  component: client.client,
+                  summary: `${client.client} ${client.conflict.component} is ${client.conflict.classification} at ${client.conflict.scope} scope (${client.conflict.identitySha256})`,
+                  nextAction:
+                    "Resolve the external client or managed-policy conflict outside SkillWire, then retry",
+                },
+          ),
         recovery: {
           rollbackBoundary:
             result.status === "success" ? "none" : "client-only",

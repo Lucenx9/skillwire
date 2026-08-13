@@ -8,6 +8,7 @@ import {
 } from "../../transport/mcp/schemas.js";
 import { SKILLWIRE_TOOL_NAMES } from "../../credential-bridge/upstream-client.js";
 import type { ClientName } from "../cli/main.js";
+import type { ActivationDiagnosticResult } from "./activation-diagnostic.js";
 
 export interface VerifiableRegistration {
   readonly command: string;
@@ -25,6 +26,7 @@ export interface ClientVerificationOptions {
 }
 
 export interface ClientVerificationResult {
+  readonly evidenceKind: "deterministic";
   readonly client: ClientName;
   readonly tools: readonly string[];
   readonly skillId: string;
@@ -33,6 +35,22 @@ export interface ClientVerificationResult {
   readonly advisoryStatus: string;
   readonly provenanceTrust: string;
   readonly resourceVerified: boolean;
+}
+
+export interface CombinedClientVerificationEvidence {
+  readonly integrationState: "verified";
+  readonly deterministic: ClientVerificationResult;
+  readonly automatic: ActivationDiagnosticResult;
+}
+
+export function combineClientVerificationEvidence(
+  deterministic: ClientVerificationResult,
+  automatic: ActivationDiagnosticResult,
+): CombinedClientVerificationEvidence {
+  if (deterministic.client !== automatic.client) {
+    throw new Error("Client verification evidence identities do not match");
+  }
+  return { integrationState: "verified", deterministic, automatic };
 }
 
 export async function verifyClientIntegration(
@@ -60,10 +78,23 @@ export async function verifyClientIntegration(
     throw new Error("Verification must use the normal client profile");
   }
   const before = JSON.stringify(await options.inventory());
+  const allowedEnvironment = [
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_RUNTIME_DIR",
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "DBUS_SESSION_BUS_ADDRESS",
+  ] as const;
   const environment = Object.fromEntries(
-    Object.entries(options.environment).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
+    allowedEnvironment.flatMap((key) => {
+      const value = options.environment[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
   );
   const client = new Client(
     { name: `skillwire-${options.client}-verification`, version: "0.1.0" },
@@ -171,6 +202,7 @@ export async function verifyClientIntegration(
     if (after !== before)
       throw new Error("Client inventory changed during read-only verification");
     return {
+      evidenceKind: "deterministic",
       client: options.client,
       tools: names,
       skillId: loaded.skillId,
