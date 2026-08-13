@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -16,7 +17,9 @@ import {
 } from "./activation-release-subset.js";
 import {
   CANONICAL_SKILLWIRE_MCP_URL,
-  validateCodexAdapterIntegrityManifest,
+  CODEX_ADAPTER_FILES,
+  CODEX_ADAPTER_SOURCE_PATH,
+  canonicalHashLines,
 } from "./codex-adapter-package.js";
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -633,21 +636,13 @@ function validatePairControls(
   }
 
   try {
-    const integrity = validateCodexAdapterIntegrityManifest(
-      JSON.parse(
-        readFileSync(
-          join(
-            projectRoot,
-            "distribution/codex-marketplace/release-integrity.json",
-          ),
-          "utf8",
-        ),
-      ) as unknown,
-      join(projectRoot, "integrations/codex/skillwire-autonomous-activation"),
+    const immutableRelease = readImmutableAdapterRelease(
+      projectRoot,
+      pair.adapter.sourceCommit,
     );
     if (
-      pair.adapter.pluginVersion !== integrity.pluginVersion ||
-      pair.adapter.packageSha256 !== integrity.packageSha256 ||
+      pair.adapter.pluginVersion !== immutableRelease.pluginVersion ||
+      pair.adapter.packageSha256 !== immutableRelease.packageSha256 ||
       pair.adapter.dependencyUrlSha256 !==
         createHash("sha256").update(CANONICAL_SKILLWIRE_MCP_URL).digest("hex")
     ) {
@@ -656,6 +651,61 @@ function validatePairControls(
   } catch {
     fatalCodes.add("ADAPTER_RELEASE_MISMATCH");
   }
+}
+
+function readImmutableAdapterRelease(
+  projectRoot: string,
+  sourceCommit: string,
+): { readonly pluginVersion: string; readonly packageSha256: string } {
+  const sourceRoot = CODEX_ADAPTER_SOURCE_PATH.replace(/^\.\//, "");
+  const files = CODEX_ADAPTER_FILES.map((path) => {
+    const result = spawnSync(
+      "git",
+      [
+        "-C",
+        projectRoot,
+        "cat-file",
+        "blob",
+        `${sourceCommit}:${sourceRoot}/${path}`,
+      ],
+      {
+        encoding: null,
+        maxBuffer: 1024 * 1024,
+        shell: false,
+        timeout: 5_000,
+        env: {
+          PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+          LANG: "C",
+          LC_ALL: "C",
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_NO_REPLACE_OBJECTS: "1",
+          GIT_OPTIONAL_LOCKS: "0",
+        },
+      },
+    );
+    if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+      throw new Error("immutable adapter source is unavailable");
+    }
+    return {
+      path,
+      bytes: result.stdout,
+      sha256: createHash("sha256").update(result.stdout).digest("hex"),
+    };
+  });
+  const manifestFile = files.find(
+    ({ path }) => path === ".codex-plugin/plugin.json",
+  );
+  if (manifestFile === undefined) {
+    throw new Error("immutable adapter manifest is unavailable");
+  }
+  const manifest = z
+    .looseObject({ version: z.string().min(1).max(64) })
+    .parse(JSON.parse(manifestFile.bytes.toString("utf8")) as unknown);
+  const packageSha256 = createHash("sha256")
+    .update(canonicalHashLines(files))
+    .digest("hex");
+  return { pluginVersion: manifest.version, packageSha256 };
 }
 
 function validateInventory(

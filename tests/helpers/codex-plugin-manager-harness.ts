@@ -76,7 +76,7 @@ export interface CodexPluginManagerHarness {
   installPlugin(): void;
   attemptInterruptedUpgrade(): boolean;
   attemptInvalidUpgrade(): boolean;
-  upgradePlugin(version: "0.1.1"): void;
+  upgradePlugin(version: string): void;
   installedVersion(): string | undefined;
   removePlugin(): void;
   removeMarketplace(): void;
@@ -313,7 +313,7 @@ class Harness implements CodexPluginManagerHarness {
     return result.status === 0;
   }
 
-  upgradePlugin(version: "0.1.1"): void {
+  upgradePlugin(version: string): void {
     const manifestPath = join(
       this.#pluginRepository,
       CODEX_ADAPTER_SOURCE_PATH.slice(2),

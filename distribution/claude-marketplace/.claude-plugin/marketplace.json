@@ -1,0 +1,16 @@
+{
+  "name": "skillwire",
+  "description": "Release-local bounded activation guidance for SkillWire.",
+  "owner": {
+    "name": "SkillWire"
+  },
+  "plugins": [
+    {
+      "name": "skillwire-autonomous-activation",
+      "description": "Bounded fail-open activation guidance for the SkillWire MCP server.",
+      "version": "0.1.0",
+      "source": "./plugins/skillwire-autonomous-activation",
+      "category": "development"
+    }
+  ]
+}

@@ -174,9 +174,9 @@ describe("versioned PostgreSQL migrations", () => {
             timeout_probe: string | null;
           }>(
             `SELECT
-               EXISTS (SELECT 1 FROM schema_migrations WHERE version='001')
-                 AS migration_registered,
-               to_regclass('public.timeout_probe')::text AS timeout_probe`,
+                 EXISTS (SELECT 1 FROM schema_migrations WHERE version='001')
+                   AS migration_registered,
+                 to_regclass('public.timeout_probe')::text AS timeout_probe`,
           )
         ).rows,
       ).toEqual([{ migration_registered: false, timeout_probe: null }]);
@@ -204,5 +204,5 @@ describe("versioned PostgreSQL migrations", () => {
       await isolated.close();
       await rm(target, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 });

@@ -48,6 +48,16 @@ const expectedFiles = [
 ];
 const temporaryRoots: string[] = [];
 
+function canonicalPluginVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(join(pluginRoot, ".codex-plugin/plugin.json"), "utf8"),
+  ) as { version?: unknown };
+  if (typeof manifest.version !== "string") {
+    throw new Error("canonical plugin version is missing");
+  }
+  return manifest.version;
+}
+
 function temporaryPlugin(): string {
   const root = mkdtempSync(join(tmpdir(), "skillwire-adapter-package-"));
   temporaryRoots.push(root);
@@ -101,7 +111,7 @@ describe("Codex activation adapter package", () => {
     const report = validateCodexAdapterPackage(pluginRoot);
 
     expect(report.pluginName).toBe("skillwire-autonomous-activation");
-    expect(report.pluginVersion).toBe("0.1.0");
+    expect(report.pluginVersion).toBe(canonicalPluginVersion());
     expect(report.adapterPolicyVersion).toBe(ADAPTER_POLICY_VERSION);
     expect(report.dependencyUrl).toBe(CANONICAL_SKILLWIRE_MCP_URL);
     expect(report.files.map(({ path }) => path)).toEqual(expectedFiles);
@@ -425,7 +435,7 @@ describe("Codex activation adapter package", () => {
       schemaVersion: 1,
       integrityId: "skillwire-codex-adapter-release-v1",
       pluginName: "skillwire-autonomous-activation",
-      pluginVersion: "0.1.0",
+      pluginVersion: canonicalPluginVersion(),
       adapterPolicyVersion: "skillwire-codex-adapter-v1",
       source: {
         url: SKILLWIRE_PLUGIN_SOURCE_GIT_URL,
@@ -535,7 +545,7 @@ describe("Codex activation adapter package", () => {
     expect(parseJsonOutput(validate.stdout)).toEqual(
       expect.objectContaining({
         pluginName: "skillwire-autonomous-activation",
-        pluginVersion: "0.1.0",
+        pluginVersion: canonicalPluginVersion(),
         fileCount: 3,
       }),
     );

@@ -9,7 +9,6 @@ import {
   validateActivationEvidence,
   validatePairedActivationEvidence,
 } from "../../../src/evaluation/activation-evidence.js";
-import { validateCodexAdapterIntegrityManifest } from "../../../src/evaluation/codex-adapter-package.js";
 import { validateActivationReleaseSubset } from "../../../src/evaluation/activation-release-subset.js";
 import {
   loadActivationFixtures,
@@ -143,7 +142,7 @@ describe("immutable autonomous-activation baseline", () => {
     }
   });
 
-  it("validates the immutable paired evidence against its byte-identical release package", () => {
+  it("validates the immutable paired evidence against its exact historical source", () => {
     const evidencePath = "evaluation/evidence/003/adapter-pair-v1.json";
     expect(sha256(evidencePath)).toBe(PAIRED_EVIDENCE_SHA256);
     const evidence = JSON.parse(
@@ -153,19 +152,6 @@ describe("immutable autonomous-activation baseline", () => {
       adapter: { sourceCommit: string; packageSha256: string };
       claimEligibility: { eligible: boolean };
     };
-    const integrity = validateCodexAdapterIntegrityManifest(
-      JSON.parse(
-        readFileSync(
-          join(
-            projectRoot,
-            "distribution/codex-marketplace/release-integrity.json",
-          ),
-          "utf8",
-        ),
-      ) as unknown,
-      join(projectRoot, "integrations/codex/skillwire-autonomous-activation"),
-    );
-
     expect(
       validatePairedActivationEvidence(evidence, projectRoot),
     ).toMatchObject({
@@ -178,10 +164,9 @@ describe("immutable autonomous-activation baseline", () => {
     expect(evidence.adapter.sourceCommit).toBe(
       "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
     );
-    expect(integrity.source.commit).toBe(
-      "8c7c297a95cff42eb13212fc7b5c4ede11c35c7d",
+    expect(evidence.adapter.packageSha256).toBe(
+      "7939fa2ca5db807365a9f54c90534538291c09bbfae56762e72f372447998830",
     );
-    expect(evidence.adapter.packageSha256).toBe(integrity.packageSha256);
     expect(evidence.claimEligibility.eligible).toBe(false);
   });
 });

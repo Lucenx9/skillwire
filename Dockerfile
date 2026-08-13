@@ -38,9 +38,11 @@ RUN groupadd --gid 10001 skillwire \
     && useradd --uid 10001 --gid skillwire --no-create-home --shell /usr/sbin/nologin skillwire
 COPY --from=production-dependencies --chown=skillwire:skillwire /app/node_modules ./node_modules
 COPY --from=build --chown=skillwire:skillwire /app/dist/src ./dist/src
+COPY --chown=root:root distribution/self-hosted/secret-entrypoint.sh /usr/local/bin/skillwire-secret-entrypoint
 COPY --chown=skillwire:skillwire package.json ./package.json
 COPY --chown=skillwire:skillwire catalog ./catalog
 COPY --chown=skillwire:skillwire migrations ./migrations
+RUN chmod -R a+rX /app && chmod 0555 /usr/local/bin/skillwire-secret-entrypoint
 USER 10001:10001
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=6 \

@@ -1,0 +1,134 @@
+name: ${SKILLWIRE_COMPOSE_PROJECT:?compose project is required}
+
+services:
+  postgres:
+    image:
+      ${SKILLWIRE_POSTGRES_IMAGE:?digest-pinned PostgreSQL image is required}
+    environment:
+      POSTGRES_DB: skillwire
+      POSTGRES_USER: skillwire
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - source: postgres_password
+        target: database_password
+        mode: 0400
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skillwire -d skillwire"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    stop_grace_period: 15s
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    security_opt: ["no-new-privileges:true"]
+
+  migrate:
+    image: ${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}
+    entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"]
+    command:
+      ["database", "node", "dist/src/persistence/postgres/migration-runner.js"]
+    user: "0:0"
+    environment:
+      SKILLWIRE_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      SKILLWIRE_DATABASE_HOST: postgres
+    secrets:
+      - source: postgres_password
+        target: database_password
+        mode: 0400
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
+  skillwire:
+    image: ${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}
+    entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"]
+    command: ["application", "node", "dist/src/main.js"]
+    user: "0:0"
+    environment:
+      SKILLWIRE_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      SKILLWIRE_DATABASE_HOST: postgres
+      SKILLWIRE_API_KEY_PEPPER_FILE: /run/secrets/application_pepper
+      SKILLWIRE_BIND_HOST: 0.0.0.0
+      SKILLWIRE_PORT: 3000
+      SKILLWIRE_ALLOWED_HOSTS: localhost,127.0.0.1
+      SKILLWIRE_CATALOG_ROOT: /app
+      SKILLWIRE_CATALOG_RELEASE: launch-catalog-v1
+      SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+    secrets:
+      - source: postgres_password
+        target: database_password
+        mode: 0400
+      - source: api_key_pepper
+        target: application_pepper
+        mode: 0400
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports: ["127.0.0.1:${SKILLWIRE_PORT:-3000}:3000"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+
+  admin:
+    profiles: ["admin"]
+    image: ${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}
+    entrypoint: ["node", "dist/src/authentication/admin-cli.js"]
+    environment:
+      SKILLWIRE_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      SKILLWIRE_DATABASE_HOST: postgres
+      SKILLWIRE_API_KEY_PEPPER_FILE: /run/secrets/application_pepper
+    secrets:
+      - source: postgres_password
+        target: database_password
+        mode: 0400
+      - source: api_key_pepper
+        target: application_pepper
+        mode: 0400
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: "none"
+    restart: "no"
+
+secrets:
+  postgres_password:
+    file:
+      ${SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE:?database password file is
+      required}
+  api_key_pepper:
+    file:
+      ${SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE:?application pepper file is
+      required}
+
+volumes:
+  postgres_data:
+    name: ${SKILLWIRE_POSTGRES_VOLUME:?owned PostgreSQL volume is required}

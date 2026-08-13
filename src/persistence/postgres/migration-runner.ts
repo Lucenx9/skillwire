@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import type { Pool, PoolClient } from "pg";
 
-import { readRequiredConfiguration } from "../../config.js";
+import { readDatabaseConfiguration } from "../../config.js";
 import { createPostgresPool } from "./client.js";
 
 const MIGRATION_PATTERN = /^(\d{3})_[a-z0-9_]+\.sql$/;
@@ -186,10 +186,7 @@ export async function runMigrations(
 }
 
 async function runFromCommandLine(): Promise<void> {
-  const connectionString = readRequiredConfiguration(
-    process.env,
-    "DATABASE_URL",
-  );
+  const connectionString = readDatabaseConfiguration(process.env);
   const pool = createPostgresPool(connectionString);
   try {
     await runMigrations(pool);
