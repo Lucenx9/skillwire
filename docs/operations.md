@@ -2,16 +2,31 @@
 
 ## Deployment sequence
 
-1. Build `Dockerfile` from a clean commit with the frozen lockfile.
-2. Run formatting, lint, typecheck, build, all six Vitest projects, catalog
-   verification, advisory verification, and Compose validation.
-3. Supply PostgreSQL URL and API-key pepper through mounted secret files.
-4. Run the migration image as a one-shot job and require successful completion.
-5. Start SkillWire with an explicit Host allowlist and read-only root
-   filesystem.
-6. Wait for `/health/ready`, which follows catalog verification, database
-   connectivity, migrations, and startup expired-audit cleanup.
-7. Bootstrap/rotate keys out of band and run the authenticated smoke journey.
+Migration 010 is a coordinated maintenance upgrade. It is not safe to run it
+while an older application or ingestion/admin writer remains active.
+
+1. Build the new `Dockerfile` from a clean commit with the frozen lockfile, and
+   run formatting, lint, typecheck, build, the required parallel Vitest suite,
+   catalog/advisory verification, and Compose validation.
+2. Stop accepting traffic, stop every SkillWire instance, and confirm that all
+   ingestion schedulers and administration writers have drained. Keep PostgreSQL
+   running.
+3. Take and validate the operator-supported pre-upgrade PostgreSQL backup.
+   Record the backup identity and the application image that can read it.
+4. Supply PostgreSQL URL and API-key pepper through mounted secret files. Run
+   migrations 001--010 with the new image as a one-shot job and require
+   successful completion.
+5. Rerun the new migrator to verify registered checksums, then run
+   `catalog:verify` and `advisory:verify` from the exact new release image.
+6. Start only the post-010 SkillWire image with an explicit Host allowlist and
+   read-only root filesystem.
+7. Wait for `/health/ready`, which follows the newer-schema guard, catalog
+   verification, database connectivity, migrations, and startup expired-audit
+   cleanup, before reopening traffic.
+8. Bootstrap/rotate keys out of band and run the authenticated smoke journey.
+
+See the [v0.1.1 upgrade note](upgrades/v0.1.1.md) for the concise release
+procedure and rollback boundary.
 
 Optional GitHub discovery is disabled unless
 `SKILLWIRE_GITHUB_INGESTION_ENABLED=true` and a token is supplied. Configure its
@@ -160,9 +175,47 @@ Migrations are forward-only and checksum protected. Run:
 docker compose run --rm migrate
 ```
 
-The runner serializes concurrent attempts with a PostgreSQL advisory lock and
-exits nonzero on checksum drift. Never edit an applied migration; add a new
-versioned migration.
+The runner serializes concurrent attempts with a PostgreSQL advisory lock, exits
+nonzero on checksum drift, and rejects a database containing a migration version
+newer than its bundled migration directory. Never edit an applied migration; add
+a new versioned migration.
+
+`SKILLWIRE_MIGRATION_LOCK_TIMEOUT_MS` defaults to 5000 and is bounded to
+1--120000. `SKILLWIRE_MIGRATION_STATEMENT_TIMEOUT_MS` defaults to 300000 and is
+bounded to 1--3600000. Both apply to the one-shot migrator and the startup
+schema check. Size a deliberate statement timeout from a rehearsal on a restored
+production-sized backup; do not use an unbounded wait.
+
+Migration 010 takes PostgreSQL `ACCESS EXCLUSIVE` locks in this order:
+
+1. `external_current_classifications` (candidate projection)
+2. `external_classification_events` (candidate history)
+3. `external_curation_decisions` (candidate decision references)
+4. `external_current_revision_classifications` (revision projection)
+
+This candidate-before-revision order matches runtime row locking. The migration
+then creates and backfills revision event history and changes the current-event
+foreign keys in one transaction. Other sessions cannot observe a half-backfilled
+schema. An active forgotten writer causes a bounded lock-timeout failure; the
+transaction and migration registration roll back, leaving schema 009 usable.
+Stop that writer and rerun the unchanged migration.
+
+### Backup, restore, and rollback for migration 010
+
+The pre-upgrade backup must include the complete PostgreSQL database and be
+restorable independently of the live volume. Follow the database platform's
+retention, encryption, access-control, and point-in-time-recovery policy, and
+perform the restore check in an isolated environment before the maintenance
+window. Do not reopen traffic merely because backup creation returned success.
+
+After migration 010 commits, an image-only rollback to any pre-010 application
+is prohibited. Those binaries do not produce typed revision events and cannot be
+relied on to reject the newer schema. A post-010-compatible image may be rolled
+back normally. A full rollback across the 010 boundary requires stopping all
+writers, restoring the recorded pre-010 database backup, starting the matching
+old image, and requiring readiness before traffic resumes. Restoring the backup
+discards all post-backup database changes and can reintroduce erased
+repository-memory data; apply the privacy and recovery policy before reopening.
 
 ## Troubleshooting
 
@@ -198,6 +251,16 @@ attempt.
 Confirm PostgreSQL connectivity and secret-file contents. A checksum drift
 requires restoring the committed migration and creating a new migration for
 corrections. Do not edit the migration table.
+
+`Database migration ... is newer than binary migration ...` means the selected
+image is too old for that database; select a compatible post-migration image. Do
+not bypass the guard. A lock or statement timeout during migration 010 means
+either a writer was not drained or the rehearsed bound is too small. Confirm
+writers are stopped before changing a bound. Because each migration and its
+registration are transactional, a failed 010 leaves schema 009 in place and is
+safe to rerun after the cause is fixed. A historical candidate-attribution
+failure is a data-integrity stop: keep traffic down, preserve evidence, and
+repair it only through a separately reviewed forward migration or restore.
 
 ### Catalog verification fails
 

@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -79,6 +86,41 @@ describe("composed service startup", () => {
       `,
     );
     expect(expired.rows[0]?.count).toBe("0");
+  });
+
+  it("refuses startup before readiness when the database is newer than the binary", async () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "skillwire-pre-010-binary-"),
+    );
+    const migrationRoot = join(projectRoot, "migrations");
+    mkdirSync(migrationRoot);
+    try {
+      for (const name of readdirSync(join(process.cwd(), "migrations")).filter(
+        (name) => /^00[1-9]_.*\.sql$/.test(name),
+      )) {
+        writeFileSync(
+          join(migrationRoot, name),
+          readFileSync(join(process.cwd(), "migrations", name)),
+        );
+      }
+      await expect(
+        createApplication(
+          {
+            host: "127.0.0.1",
+            port: 0,
+            databaseUrl: database.connectionString,
+            apiKeyPepper: pepper,
+            catalogRoot: projectRoot,
+          },
+          projectRoot,
+        ),
+      ).rejects.toThrow(
+        /database migration 010 is newer than binary migration 009/i,
+      );
+      expect(application.readiness.isReady()).toBe(true);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it("transitions through a real PostgreSQL outage and recovery cleanup", async () => {

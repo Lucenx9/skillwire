@@ -88,6 +88,12 @@ systems. Restoring an older backup can reintroduce live repository-memory rows;
 operators must reconcile restore procedures with erasure obligations before
 reopening traffic.
 
+The migration-010 maintenance procedure therefore requires an
+operator-supported, independently restorable pre-upgrade backup and an isolated
+restore check. Crossing back from schema 010 requires restoring that backup
+together with the matching old application; rolling back only the application
+image is prohibited. See [deployment and operations](operations.md#migrations).
+
 Do not represent `forget_repo_memory` as proof that operator-controlled
 historical copies have been physically destroyed.
 
