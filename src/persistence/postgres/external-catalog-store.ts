@@ -69,6 +69,143 @@ interface CandidateValidationInputRow {
   readonly input_sha256: string;
 }
 
+interface LockedCandidateClassification {
+  readonly skillDocumentPath: string;
+  readonly revisionId: string | null;
+  readonly candidateClassification: CandidateClassification;
+  readonly effectiveClassification: CandidateClassification;
+}
+
+async function lockCandidateClassification(
+  client: PoolClient,
+  candidateId: string,
+  snapshotId?: string,
+): Promise<LockedCandidateClassification> {
+  const candidate = await client.query<{
+    skill_document_path: string;
+    classification: CandidateClassification;
+    revision_id: string | null;
+  }>(
+    `SELECT c.skill_document_path,cc.classification,o.revision_id
+     FROM external_current_classifications cc
+     JOIN external_import_candidates c ON c.id=cc.candidate_id
+     LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id=c.id
+     WHERE cc.candidate_id=$1 AND ($2::uuid IS NULL OR c.snapshot_id=$2)
+     FOR UPDATE OF cc`,
+    [candidateId, snapshotId ?? null],
+  );
+  const row = candidate.rows[0];
+  if (row === undefined) throw new Error("NOT_FOUND");
+  if (row.revision_id === null) {
+    return {
+      skillDocumentPath: row.skill_document_path,
+      revisionId: null,
+      candidateClassification: row.classification,
+      effectiveClassification: row.classification,
+    };
+  }
+  const revision = await client.query<{
+    classification: CandidateClassification;
+  }>(
+    `SELECT classification
+     FROM external_current_revision_classifications
+     WHERE revision_id=$1
+     FOR UPDATE`,
+    [row.revision_id],
+  );
+  const revisionClassification = revision.rows[0]?.classification;
+  if (revisionClassification === undefined) {
+    throw new Error("PUBLICATION_CONFLICT");
+  }
+  return {
+    skillDocumentPath: row.skill_document_path,
+    revisionId: row.revision_id,
+    candidateClassification: row.classification,
+    effectiveClassification: revisionClassification,
+  };
+}
+
+function candidateTransitionIsValid(
+  current: CandidateClassification,
+  next: CandidateClassification,
+  actor: ClassificationActor,
+): boolean {
+  try {
+    applyCandidateTransition(current, next, actor);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "CLASSIFICATION_TRANSITION_INVALID"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function insertCandidateClassificationEvent(
+  client: PoolClient,
+  candidateId: string,
+  previous: CandidateClassification,
+  next: CandidateClassification,
+  actor: ClassificationActor,
+  actorId: string,
+  reasonCode: string,
+  reportId?: string,
+): Promise<string> {
+  const eventId = randomUUID();
+  await client.query(
+    `INSERT INTO external_classification_events (
+       id,candidate_id,previous_classification,next_classification,
+       actor_kind,actor_id,reason_code,report_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      eventId,
+      candidateId,
+      previous,
+      next,
+      actor,
+      actorId,
+      reasonCode,
+      reportId ?? null,
+    ],
+  );
+  return eventId;
+}
+
+async function insertRevisionClassificationEvent(
+  client: PoolClient,
+  revisionId: string,
+  initiatingCandidateId: string,
+  previous: CandidateClassification | null,
+  next: CandidateClassification,
+  actor: ClassificationActor,
+  actorId: string,
+  reasonCode: string,
+  reportId?: string,
+): Promise<string> {
+  const eventId = randomUUID();
+  await client.query(
+    `INSERT INTO external_revision_classification_events (
+       id,revision_id,initiating_candidate_id,previous_classification,
+       next_classification,actor_kind,actor_id,reason_code,report_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      eventId,
+      revisionId,
+      initiatingCandidateId,
+      previous,
+      next,
+      actor,
+      actorId,
+      reasonCode,
+      reportId ?? null,
+    ],
+  );
+  return eventId;
+}
+
 async function insertContent(
   client: PoolClient,
   sha256: string,
@@ -735,23 +872,13 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     candidateId: string,
     candidates: readonly ExternalCandidateInput[],
   ): Promise<void> {
-    const state = await client.query<{
-      skill_document_path: string;
-      classification: CandidateClassification;
-      revision_id: string | null;
-    }>(
-      `SELECT c.skill_document_path,cc.classification,o.revision_id
-       FROM external_import_candidates c
-       JOIN external_current_classifications cc ON cc.candidate_id=c.id
-       LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id=c.id
-       WHERE c.id=$1 AND c.snapshot_id=$2
-       FOR UPDATE OF cc`,
-      [candidateId, snapshotId],
+    const state = await lockCandidateClassification(
+      client,
+      candidateId,
+      snapshotId,
     );
-    const row = state.rows[0];
-    if (row === undefined) throw new Error("NOT_FOUND");
     const acquired = candidates.find(
-      ({ skillPath }) => skillPath === row.skill_document_path,
+      ({ skillPath }) => skillPath === state.skillDocumentPath,
     );
     if (acquired === undefined) throw new Error("NOT_FOUND");
 
@@ -798,31 +925,57 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     }
     if (storedReportId === undefined) throw new Error("VERIFICATION_FAILED");
     if (acquired.classification !== "verified") return;
-    if (row.revision_id === null) throw new Error("PUBLICATION_CONFLICT");
-    if (row.classification === "verified" || row.classification === "curated")
-      return;
-    applyCandidateTransition(row.classification, "verified", "verifier");
-    const eventId = randomUUID();
-    await client.query(
-      `INSERT INTO external_classification_events (
-         id,candidate_id,previous_classification,next_classification,
-         actor_kind,actor_id,reason_code,report_id
-       ) VALUES ($1,$2,$3,'verified','verifier','automatic-verifier',
-                 'AUTOMATIC_VERIFICATION_PASSED',$4)`,
-      [eventId, candidateId, row.classification, storedReportId],
-    );
-    await client.query(
-      `UPDATE external_current_classifications SET
-         classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
-       WHERE candidate_id=$1`,
-      [candidateId, eventId],
-    );
-    await client.query(
-      `UPDATE external_current_revision_classifications SET
-         classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
-       WHERE revision_id=$1`,
-      [row.revision_id, eventId],
-    );
+    if (state.revisionId === null) throw new Error("PUBLICATION_CONFLICT");
+    if (
+      state.candidateClassification !== "verified" &&
+      state.candidateClassification !== "curated"
+    ) {
+      applyCandidateTransition(
+        state.candidateClassification,
+        "verified",
+        "verifier",
+      );
+      const candidateEventId = await insertCandidateClassificationEvent(
+        client,
+        candidateId,
+        state.candidateClassification,
+        "verified",
+        "verifier",
+        "automatic-verifier",
+        "AUTOMATIC_VERIFICATION_PASSED",
+        storedReportId,
+      );
+      await client.query(
+        `UPDATE external_current_classifications SET
+           classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
+         WHERE candidate_id=$1`,
+        [candidateId, candidateEventId],
+      );
+    }
+    if (state.effectiveClassification === "quarantined") {
+      applyCandidateTransition(
+        state.effectiveClassification,
+        "verified",
+        "verifier",
+      );
+      const revisionEventId = await insertRevisionClassificationEvent(
+        client,
+        state.revisionId,
+        candidateId,
+        state.effectiveClassification,
+        "verified",
+        "verifier",
+        "automatic-verifier",
+        "AUTOMATIC_VERIFICATION_PASSED",
+        storedReportId,
+      );
+      await client.query(
+        `UPDATE external_current_revision_classifications SET
+           classification='verified',latest_event_id=$2,updated_at=statement_timestamp()
+         WHERE revision_id=$1`,
+        [state.revisionId, revisionEventId],
+      );
+    }
   }
 
   async #publishDependencies(
@@ -931,25 +1084,6 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     client: PoolClient,
     candidateId: string,
   ): Promise<"verified" | "quarantined" | "curated"> {
-    const inserted = await client.query<{
-      revision_id: string;
-      classification: "verified" | "quarantined" | "curated";
-    }>(
-      `
-        INSERT INTO external_current_revision_classifications (
-          revision_id,classification,latest_event_id
-        )
-        SELECT o.revision_id,cc.classification,cc.latest_event_id
-        FROM external_snapshot_skill_observations o
-        JOIN external_current_classifications cc ON cc.candidate_id=o.candidate_id
-        WHERE o.candidate_id=$1 AND o.revision_id IS NOT NULL
-        ON CONFLICT (revision_id) DO NOTHING
-        RETURNING revision_id,classification
-      `,
-      [candidateId],
-    );
-    const created = inserted.rows[0];
-    if (created !== undefined) return created.classification;
     const existing = await client.query<{
       classification: "verified" | "quarantined" | "curated";
     }>(
@@ -960,8 +1094,45 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       [candidateId],
     );
     const row = existing.rows[0];
-    if (row === undefined) throw new Error("PUBLICATION_CONFLICT");
-    return row.classification;
+    if (row !== undefined) return row.classification;
+
+    const subject = await client.query<{
+      revision_id: string;
+      classification: CandidateClassification;
+      report_id: string | null;
+    }>(
+      `SELECT observation.revision_id,current.classification,event.report_id
+       FROM external_snapshot_skill_observations observation
+       JOIN external_current_classifications current
+         ON current.candidate_id=observation.candidate_id
+       JOIN external_classification_events event
+         ON event.id=current.latest_event_id
+       WHERE observation.candidate_id=$1
+         AND observation.revision_id IS NOT NULL`,
+      [candidateId],
+    );
+    const initial = subject.rows[0];
+    if (initial?.classification !== "verified" || initial.report_id === null) {
+      throw new Error("PUBLICATION_CONFLICT");
+    }
+    const eventId = await insertRevisionClassificationEvent(
+      client,
+      initial.revision_id,
+      candidateId,
+      null,
+      "verified",
+      "verifier",
+      "automatic-verifier",
+      "AUTOMATIC_VERIFICATION_PASSED",
+      initial.report_id,
+    );
+    await client.query(
+      `INSERT INTO external_current_revision_classifications (
+         revision_id,classification,latest_event_id
+       ) VALUES ($1,'verified',$2)`,
+      [initial.revision_id, eventId],
+    );
+    return "verified";
   }
 
   async #restoreAvailabilityIfNeeded(
@@ -1077,6 +1248,12 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       `,
       [discoveredEventId, candidateId],
     );
+    await client.query(
+      `INSERT INTO external_current_classifications (
+         candidate_id, classification, latest_event_id
+       ) VALUES ($1,'discovered',$2)`,
+      [candidateId, discoveredEventId],
+    );
     const eventId = randomUUID();
     await client.query(
       `
@@ -1096,9 +1273,9 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       ],
     );
     await client.query(
-      `INSERT INTO external_current_classifications (
-         candidate_id, classification, latest_event_id
-       ) VALUES ($1,$2,$3)`,
+      `UPDATE external_current_classifications SET
+         classification=$2,latest_event_id=$3,updated_at=statement_timestamp()
+       WHERE candidate_id=$1`,
       [candidateId, candidate.classification, eventId],
     );
   }
@@ -1255,7 +1432,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id = c.id
           LEFT JOIN external_skill_revisions r ON r.id = o.revision_id
           LEFT JOIN external_current_revision_classifications rc ON rc.revision_id=r.id
-          WHERE ($1::text IS NULL OR cc.classification = $1)
+          WHERE ($1::text IS NULL OR COALESCE(rc.classification,cc.classification) = $1)
           GROUP BY c.id, s.source_id, cc.classification, rc.classification, r.revision
           ORDER BY c.id
           LIMIT 100
@@ -1347,62 +1524,75 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     context: OperationContext = {},
   ): Promise<ClassificationChange> {
     return requestTransaction(this.pool, context, async (client) => {
-      const state = await client.query<{
-        classification: CandidateClassification;
-        revision_id: string | null;
-      }>(
-        `SELECT cc.classification, o.revision_id
-         FROM external_current_classifications cc
-         JOIN external_import_candidates c ON c.id=cc.candidate_id
-         LEFT JOIN external_snapshot_skill_observations o ON o.candidate_id=c.id
-         WHERE cc.candidate_id=$1 FOR UPDATE OF cc`,
-        [candidateId],
-      );
-      const row = state.rows[0];
-      if (row === undefined) throw new Error("NOT_FOUND");
-      if (row.classification === next) {
+      const state = await lockCandidateClassification(client, candidateId);
+      if (next === "curated" && state.revisionId === null)
+        throw new Error("NOT_VERIFIED");
+      const revisionChanged = state.effectiveClassification !== next;
+      if (revisionChanged) {
+        applyCandidateTransition(state.effectiveClassification, next, actor);
+      }
+      const candidateChanged =
+        state.candidateClassification !== next &&
+        candidateTransitionIsValid(state.candidateClassification, next, actor);
+      if (!candidateChanged && !revisionChanged) {
         return { candidateId, classification: next, changed: false };
       }
-      if (next === "curated" && row.revision_id === null)
-        throw new Error("NOT_VERIFIED");
-      applyCandidateTransition(row.classification, next, actor);
-      const eventId = randomUUID();
-      await client.query(
-        `INSERT INTO external_classification_events (
-           id,candidate_id,previous_classification,next_classification,
-           actor_kind,actor_id,reason_code
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [
-          eventId,
+
+      let candidateEventId: string | undefined;
+      if (candidateChanged) {
+        candidateEventId = await insertCandidateClassificationEvent(
+          client,
           candidateId,
-          row.classification,
+          state.candidateClassification,
           next,
           actor,
           actorId,
           reasonCode,
-        ],
-      );
-      if (row.revision_id !== null) {
+        );
+        await client.query(
+          `UPDATE external_current_classifications SET
+             classification=$2,latest_event_id=$3,updated_at=statement_timestamp()
+           WHERE candidate_id=$1`,
+          [candidateId, next, candidateEventId],
+        );
+      }
+
+      let revisionEventId: string | undefined;
+      if (revisionChanged && state.revisionId !== null) {
+        revisionEventId = await insertRevisionClassificationEvent(
+          client,
+          state.revisionId,
+          candidateId,
+          state.effectiveClassification,
+          next,
+          actor,
+          actorId,
+          reasonCode,
+        );
         await client.query(
           `UPDATE external_current_revision_classifications SET
              classification=$2,latest_event_id=$3,updated_at=statement_timestamp()
            WHERE revision_id=$1`,
-          [row.revision_id, next, eventId],
+          [state.revisionId, next, revisionEventId],
         );
       }
-      await client.query(
-        `UPDATE external_current_classifications SET
-           classification=$2, latest_event_id=$3, updated_at=statement_timestamp()
-         WHERE candidate_id=$1`,
-        [candidateId, next, eventId],
-      );
       if (next === "curated") {
-        await client.query(
-          `INSERT INTO external_curation_decisions (
-             id,classification_event_id,administrator_id,reason_code
-           ) VALUES ($1,$2,$3,$4)`,
-          [randomUUID(), eventId, actorId, reasonCode],
-        );
+        if (candidateEventId !== undefined) {
+          await client.query(
+            `INSERT INTO external_curation_decisions (
+               id,classification_event_id,administrator_id,reason_code
+             ) VALUES ($1,$2,$3,$4)`,
+            [randomUUID(), candidateEventId, actorId, reasonCode],
+          );
+        }
+        if (revisionEventId !== undefined) {
+          await client.query(
+            `INSERT INTO external_curation_decisions (
+               id,revision_classification_event_id,administrator_id,reason_code
+             ) VALUES ($1,$2,$3,$4)`,
+            [randomUUID(), revisionEventId, actorId, reasonCode],
+          );
+        }
       }
       return { candidateId, classification: next, changed: true };
     });

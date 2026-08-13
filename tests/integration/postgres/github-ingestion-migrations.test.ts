@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -32,10 +34,17 @@ describe("GitHub ingestion migrations", () => {
       "007",
       "008",
       "009",
+      "010",
     ]);
     expect(
       versions.rows.every(({ checksum }) => /^[0-9a-f]{64}$/.test(checksum)),
     ).toBe(true);
+    const migration010 = await readFile(
+      join(process.cwd(), "migrations/010_revision_classification_events.sql"),
+    );
+    expect(
+      versions.rows.find(({ version }) => version === "010")?.checksum,
+    ).toBe(createHash("sha256").update(migration010).digest("hex"));
 
     const legacyTables = await database.pool.query<{ name: string }>(
       `
