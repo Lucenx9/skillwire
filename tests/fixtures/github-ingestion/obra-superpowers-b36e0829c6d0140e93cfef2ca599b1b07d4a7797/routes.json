@@ -1,0 +1,34 @@
+{
+  "origin": "https://api.github.com",
+  "apiVersion": "2026-03-10",
+  "commitSha": "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+  "checksums": {
+    "expected-inventory.json": "775fde789cea5a28b05dbdca0f598877fc450f2eb70d28625e57bdcfd12cd7cc",
+    "responses/recording.json.gz.b64": "10a7978f0f587fb7fd4b9da4348960d785649f498d721173b8c8c576569db9ab"
+  },
+  "routes": [
+    "/repos/obra/superpowers",
+    "/repos/obra/superpowers/git/ref/heads/main",
+    "/repos/obra/superpowers/git/commits/b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+    "/repos/obra/superpowers/git/trees/21219529a4e224bcb27baf8816b039c8bf7c6673?recursive=1",
+    "/repos/obra/superpowers/git/blobs/7e0c66154823e7258db20820e99fc0dd82e0479f",
+    "/repos/obra/superpowers/git/blobs/abf0390320aa14406af7a520b9b0739fdda9bf08",
+    "/repos/obra/superpowers/git/blobs/b56a3b5ed6ea0d6216501e0e401ecb00a1b4675f",
+    "/repos/obra/superpowers/git/blobs/3fa091b348bbe0a18eaa0e17e9092c97f7005cbe",
+    "/repos/obra/superpowers/git/blobs/b51d97d2cc4c2ecc5eabecf27e499aa8c933efac",
+    "/repos/obra/superpowers/git/blobs/fa8aecaf8813f1b19d19996f7957d1b0121f2d9c",
+    "/repos/obra/superpowers/git/blobs/950da7b74bf6dbed6b8726d12ddadd65a9f5fda7",
+    "/repos/obra/superpowers/git/blobs/fa4f2f9965591d6d8a7ef4ad47e6ba4d5ac344d0",
+    "/repos/obra/superpowers/git/blobs/aac35b91c07af15eca580a205eb0c894b86e87c8",
+    "/repos/obra/superpowers/git/blobs/095d194ac041502905f15b01d22d294fb94db8b2",
+    "/repos/obra/superpowers/git/blobs/4320d8879a639d0536c2239bb80c9d7257ad8947",
+    "/repos/obra/superpowers/git/blobs/1381dacb3516b94382dd6ec736ede21ee8ede2b3",
+    "/repos/obra/superpowers/git/blobs/7ab2eb678f649c8befb94512359ee0b6e9a9a9a4",
+    "/repos/obra/superpowers/git/blobs/7d45333cc4a49c57a80df6c1fe2fa777a207afbc",
+    "/repos/obra/superpowers/git/blobs/f74605bfa9af7a3fb7e4ad7f17750a86a9b0d728",
+    "/repos/obra/superpowers/git/blobs/f33f39f523c8a3ae2ec0eaf365a524571df8ff3d",
+    "/repos/obra/superpowers/git/blobs/b898cb982e8a368e847d31136ac106001173b1d5",
+    "/repos/obra/superpowers/git/blobs/d3c4482fd30b4f9084bb61545fe73939a7502c28"
+  ],
+  "responseFixture": "responses/recording.json.gz.b64"
+}

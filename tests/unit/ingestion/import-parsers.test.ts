@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseClaudePluginManifest } from "../../../src/ingestion/parsing/claude-plugin-manifest.js";
+import {
+  inspectClaudePluginManifest,
+  parseClaudePluginManifest,
+} from "../../../src/ingestion/parsing/claude-plugin-manifest.js";
 import { parseSkillDocument } from "../../../src/ingestion/parsing/frontmatter.js";
 import { extractTextualResourceReferences } from "../../../src/ingestion/parsing/markdown-resources.js";
 import { createGitHubIngestionFixture } from "../../helpers/github-ingestion-fixture.js";
@@ -8,6 +11,39 @@ import { createGitHubIngestionFixture } from "../../helpers/github-ingestion-fix
 const bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
 
 describe("registered-source import parsers", () => {
+  it("treats valid plugin metadata without a skills inventory as non-authoritative", () => {
+    expect(
+      inspectClaudePluginManifest(
+        bytes(
+          JSON.stringify({
+            name: "superpowers",
+            version: "6.3.0",
+            description: "Plugin metadata only.",
+            author: { name: "Jesse Vincent", email: "jesse@example.test" },
+            license: "MIT",
+            hooks: "./hooks/hooks.json",
+          }),
+        ),
+      ),
+    ).toEqual({ kind: "metadata-only" });
+  });
+
+  it("fails closed when inventory-free plugin metadata is not syntactically valid", () => {
+    expect(() =>
+      inspectClaudePluginManifest(
+        bytes(
+          JSON.stringify({
+            name: 42,
+            version: "not-semver",
+            description: "Invalid plugin metadata.",
+            author: { email: "missing-name@example.test" },
+            license: "MIT",
+          }),
+        ),
+      ),
+    ).toThrow("MANIFEST_INVALID");
+  });
+
   it("validates all 25 authoritative plugin entries", async () => {
     const fixture = await createGitHubIngestionFixture();
     const file = fixture.files.get(".claude-plugin/plugin.json");
@@ -137,6 +173,35 @@ describe("registered-source import parsers", () => {
           author: { name: "x" },
           license: "MIT",
           skills: ["./A", "./a"],
+        }),
+      ),
+    ],
+    [
+      "empty explicit inventory",
+      bytes(
+        JSON.stringify({
+          name: "x",
+          version: "1.0.0",
+          description: "x",
+          author: { name: "x" },
+          license: "MIT",
+          skills: [],
+        }),
+      ),
+    ],
+    [
+      "inventory over the candidate limit",
+      bytes(
+        JSON.stringify({
+          name: "x",
+          version: "1.0.0",
+          description: "x",
+          author: { name: "x" },
+          license: "MIT",
+          skills: Array.from(
+            { length: 257 },
+            (_, index) => `./skill-${String(index)}`,
+          ),
         }),
       ),
     ],

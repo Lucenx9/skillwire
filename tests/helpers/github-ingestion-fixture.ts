@@ -10,9 +10,13 @@ import {
   GITHUB_API_VERSION,
 } from "../../src/ingestion/github/rest-client.js";
 
-const FIXTURE_ROOT = join(
+const MATTOCOCK_FIXTURE_ROOT = join(
   process.cwd(),
   "tests/fixtures/github-ingestion/mattpocock-skills-84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+);
+const SUPERPOWERS_FIXTURE_ROOT = join(
+  process.cwd(),
+  "tests/fixtures/github-ingestion/obra-superpowers-b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
 );
 
 const skillSchema = z.object({
@@ -29,9 +33,13 @@ const inventorySchema = z.object({
   repository: z.string(),
   sourceOwner: z.string(),
   commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+  treeSha: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
   manifestVersion: z.string(),
   license: z.string(),
-  skills: z.array(skillSchema).length(25),
+  skills: z.array(skillSchema).min(1),
 });
 
 const treeEntrySchema = z.object({
@@ -57,7 +65,7 @@ const blobResponseSchema = z.object({
 
 const recordedResponseSchema = z.object({
   method: z.literal("GET"),
-  path: z.string().startsWith("/repos/mattpocock/skills"),
+  path: z.string(),
   status: z.number().int(),
   etag: z.string().nullable(),
   body: z.unknown(),
@@ -67,8 +75,8 @@ const recordingSchema = z.object({
   formatVersion: z.literal(1),
   origin: z.literal(GITHUB_API_ORIGIN),
   apiVersion: z.literal(GITHUB_API_VERSION),
-  owner: z.literal("mattpocock"),
-  repository: z.literal("skills"),
+  owner: z.string(),
+  repository: z.string(),
   commitSha: z.string().regex(/^[0-9a-f]{40}$/),
   responses: z.array(recordedResponseSchema),
 });
@@ -113,6 +121,13 @@ export interface GitHubIngestionFixtureOptions {
   readonly failBlobPath?: string | undefined;
 }
 
+interface FixtureDefinition {
+  readonly root: string;
+  readonly owner: string;
+  readonly repository: string;
+  readonly skillCount: number;
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -134,16 +149,17 @@ function response(
   return new Response(encoded, { status, headers });
 }
 
-export async function createGitHubIngestionFixture(
+async function createRecordedGitHubIngestionFixture(
+  definition: FixtureDefinition,
   options: GitHubIngestionFixtureOptions = {},
 ): Promise<GitHubIngestionFixture> {
   const routesSource = await readFile(
-    join(FIXTURE_ROOT, "routes.json"),
+    join(definition.root, "routes.json"),
     "utf8",
   );
   const routes = routeSchema.parse(JSON.parse(routesSource) as unknown);
   const inventorySource = await readFile(
-    join(FIXTURE_ROOT, "expected-inventory.json"),
+    join(definition.root, "expected-inventory.json"),
     "utf8",
   );
   if (
@@ -155,8 +171,15 @@ export async function createGitHubIngestionFixture(
   const inventory = inventorySchema.parse(
     JSON.parse(inventorySource) as unknown,
   );
+  if (
+    inventory.owner !== definition.owner ||
+    inventory.repository !== definition.repository ||
+    inventory.skills.length !== definition.skillCount
+  ) {
+    throw new Error("FIXTURE_INVENTORY_MISMATCH");
+  }
   const recordingEncoded = await readFile(
-    join(FIXTURE_ROOT, routes.responseFixture),
+    join(definition.root, routes.responseFixture),
     "utf8",
   );
   if (
@@ -174,7 +197,13 @@ export async function createGitHubIngestionFixture(
   );
   if (
     inventory.commitSha !== routes.commitSha ||
-    inventory.commitSha !== recording.commitSha
+    inventory.commitSha !== recording.commitSha ||
+    recording.owner !== definition.owner ||
+    recording.repository !== definition.repository ||
+    recording.responses.some(
+      ({ path }) =>
+        !path.startsWith(`/repos/${definition.owner}/${definition.repository}`),
+    )
   ) {
     throw new Error("FIXTURE_INVENTORY_MISMATCH");
   }
@@ -190,6 +219,9 @@ export async function createGitHubIngestionFixture(
   );
   if (treeRecorded === undefined) throw new Error("FIXTURE_TREE_MISSING");
   const tree = treeResponseSchema.parse(treeRecorded.body);
+  if (inventory.treeSha !== undefined && inventory.treeSha !== tree.sha) {
+    throw new Error("FIXTURE_TREE_MISMATCH");
+  }
   const pathsBySha = new Map<string, string[]>();
   for (const entry of tree.tree) {
     const paths = pathsBySha.get(entry.sha) ?? [];
@@ -273,4 +305,32 @@ export async function createGitHubIngestionFixture(
     treeSha: tree.sha,
     treeEntryCount: tree.tree.length,
   };
+}
+
+export function createGitHubIngestionFixture(
+  options: GitHubIngestionFixtureOptions = {},
+): Promise<GitHubIngestionFixture> {
+  return createRecordedGitHubIngestionFixture(
+    {
+      root: MATTOCOCK_FIXTURE_ROOT,
+      owner: "mattpocock",
+      repository: "skills",
+      skillCount: 25,
+    },
+    options,
+  );
+}
+
+export function createSuperpowersIngestionFixture(
+  options: GitHubIngestionFixtureOptions = {},
+): Promise<GitHubIngestionFixture> {
+  return createRecordedGitHubIngestionFixture(
+    {
+      root: SUPERPOWERS_FIXTURE_ROOT,
+      owner: "obra",
+      repository: "superpowers",
+      skillCount: 14,
+    },
+    options,
+  );
 }

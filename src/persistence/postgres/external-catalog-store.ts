@@ -64,6 +64,11 @@ interface CandidateTraceRow {
   readonly result: "published" | "reused" | "quarantined";
 }
 
+interface CandidateValidationInputRow {
+  readonly skill_path: string;
+  readonly input_sha256: string;
+}
+
 async function insertContent(
   client: PoolClient,
   sha256: string,
@@ -159,6 +164,35 @@ async function existingCandidateTraces(
   }));
 }
 
+async function snapshotMatchesCandidateInputs(
+  client: PoolClient,
+  snapshotId: string,
+  candidates: readonly ExternalCandidateInput[],
+): Promise<boolean> {
+  const result = await client.query<CandidateValidationInputRow>(
+    `SELECT c.skill_document_path AS skill_path,vr.input_sha256
+     FROM external_import_candidates c
+     JOIN external_verification_reports vr ON vr.candidate_id=c.id
+     WHERE c.snapshot_id=$1
+     ORDER BY c.skill_document_path,vr.input_sha256`,
+    [snapshotId],
+  );
+  const inputsByPath = new Map<string, Set<string>>();
+  for (const row of result.rows) {
+    const inputs = inputsByPath.get(row.skill_path) ?? new Set<string>();
+    inputs.add(row.input_sha256);
+    inputsByPath.set(row.skill_path, inputs);
+  }
+  return (
+    inputsByPath.size === candidates.length &&
+    candidates.every((candidate) =>
+      inputsByPath
+        .get(candidate.skillPath)
+        ?.has(candidateValidationInputSha256(candidate)),
+    )
+  );
+}
+
 export class PostgresExternalCatalogStore implements ExternalCatalogStore {
   readonly #sources: PostgresGitHubSourceStore;
 
@@ -195,6 +229,14 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     if (candidates.length === 0 || candidates.length > 512) {
       throw new Error("INVALID_CANDIDATE_BATCH");
     }
+    const legacyValidationInputSha256 = snapshotValidationInputSha256(
+      input,
+      candidates,
+      false,
+    );
+    const validationInputSha256 =
+      input.validationInputSha256 ??
+      snapshotValidationInputSha256(input, candidates, true);
     return requestTransaction(this.pool, context, async (client) => {
       if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
       const advisoryHead = await client.query<{ last_event_sha256: string }>(
@@ -216,15 +258,64 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           input.observedMetadataCache,
         );
       }
-      const duplicate = await client.query<ExistingSnapshotRow>(
+      const priorTrees = await client.query<{ tree_sha: string }>(
+        `SELECT DISTINCT tree_sha
+         FROM external_source_snapshots
+         WHERE source_id = $1 AND commit_sha = $2`,
+        [input.sourceId, input.commitSha],
+      );
+      if (priorTrees.rows.some(({ tree_sha }) => tree_sha !== input.treeSha)) {
+        throw new Error("PUBLICATION_CONFLICT");
+      }
+      let duplicate = await client.query<ExistingSnapshotRow>(
         `
           SELECT id, tree_sha, manifest_version, revision_count, adapter_kind,
                  resource_count
           FROM external_source_snapshots
           WHERE source_id = $1 AND commit_sha = $2
+            AND validation_input_sha256 = $3
         `,
-        [input.sourceId, input.commitSha],
+        [input.sourceId, input.commitSha, validationInputSha256],
       );
+      if (
+        duplicate.rows.length === 0 &&
+        input.validationInputSha256 === undefined &&
+        legacyValidationInputSha256 !== validationInputSha256
+      ) {
+        const legacy = await client.query<ExistingSnapshotRow>(
+          `SELECT id,tree_sha,manifest_version,revision_count,adapter_kind,
+                  resource_count
+           FROM external_source_snapshots
+           WHERE source_id=$1 AND commit_sha=$2
+             AND validation_input_sha256=$3`,
+          [input.sourceId, input.commitSha, legacyValidationInputSha256],
+        );
+        const legacySnapshot = legacy.rows[0];
+        if (
+          legacySnapshot !== undefined &&
+          (await snapshotMatchesCandidateInputs(
+            client,
+            legacySnapshot.id,
+            candidates,
+          ))
+        ) {
+          duplicate = legacy;
+        }
+      }
+      if (duplicate.rows.length === 0) {
+        duplicate = await client.query<ExistingSnapshotRow>(
+          `SELECT s.id,s.tree_sha,s.manifest_version,s.revision_count,
+                  s.adapter_kind,s.resource_count
+           FROM external_source_snapshots s
+           WHERE s.source_id=$1 AND s.commit_sha=$2
+             AND s.validation_input_sha256 IS NULL
+             AND EXISTS (
+               SELECT 1 FROM external_snapshot_skill_observations o
+               WHERE o.snapshot_id=s.id AND o.revision_id IS NOT NULL
+             )`,
+          [input.sourceId, input.commitSha],
+        );
+      }
       const existing = duplicate.rows[0];
       if (existing !== undefined) {
         const priorCandidateTraces = await existingCandidateTraces(
@@ -291,6 +382,18 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           created: false,
         };
       }
+      const priorPublished = await client.query<{ published: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM external_source_snapshots s
+           JOIN external_snapshot_skill_observations o ON o.snapshot_id=s.id
+           WHERE s.source_id=$1 AND s.commit_sha=$2
+         ) AS published`,
+        [input.sourceId, input.commitSha],
+      );
+      if (priorPublished.rows[0]?.published === true) {
+        throw new Error("PUBLICATION_CONFLICT");
+      }
 
       const snapshotId = randomUUID();
       await client.query(
@@ -335,23 +438,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
               ),
             0,
           ),
-          input.validationInputSha256 ??
-            sha256Hex(
-              canonicalJson({
-                sourceId: input.sourceId,
-                commitSha: input.commitSha,
-                treeSha: input.treeSha,
-                candidates: candidates.map(
-                  ({ skillPath, name, classification, revision }) => ({
-                    skillPath,
-                    name,
-                    classification,
-                    contentIdentitySha256:
-                      revision?.contentIdentitySha256 ?? null,
-                  }),
-                ),
-              }),
-            ),
+          validationInputSha256,
           null,
           input.observedRepository?.repositoryId ??
             input.revisions[0]?.provenance.repositoryId,
@@ -668,16 +755,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     );
     if (acquired === undefined) throw new Error("NOT_FOUND");
 
-    const inputSha256 = sha256Hex(
-      canonicalJson({
-        skillPath: acquired.skillPath,
-        name: acquired.name,
-        description: acquired.description,
-        classification: acquired.classification,
-        findings: acquired.findings,
-        revision: acquired.revision?.contentIdentitySha256 ?? null,
-      }),
-    );
+    const inputSha256 = candidateValidationInputSha256(acquired);
     const orderedFindings = [...acquired.findings].toSorted((left, right) => {
       const code = left.code.localeCompare(right.code, "en-US");
       return code === 0
@@ -939,16 +1017,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
         sha256Hex(candidate.skillPath),
       ],
     );
-    const inputSha256 = sha256Hex(
-      canonicalJson({
-        skillPath: candidate.skillPath,
-        name: candidate.name,
-        description: candidate.description,
-        classification: candidate.classification,
-        findings: candidate.findings,
-        revision: candidate.revision?.contentIdentitySha256 ?? null,
-      }),
-    );
+    const inputSha256 = candidateValidationInputSha256(candidate);
     const reportId = randomUUID();
     const orderedFindings = [...candidate.findings].toSorted((left, right) => {
       const code = left.code.localeCompare(right.code, "en-US");
@@ -1444,6 +1513,46 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
       return head;
     });
   }
+}
+
+function candidateValidationInputSha256(
+  candidate: ExternalCandidateInput,
+): string {
+  return sha256Hex(
+    canonicalJson({
+      skillPath: candidate.skillPath,
+      name: candidate.name,
+      description: candidate.description,
+      classification: candidate.classification,
+      findings: stableFindings(candidate.findings),
+      revision: candidate.revision?.contentIdentitySha256 ?? null,
+    }),
+  );
+}
+
+function snapshotValidationInputSha256(
+  input: PublishExternalSnapshotInput,
+  candidates: readonly ExternalCandidateInput[],
+  includeFindings: boolean,
+): string {
+  return sha256Hex(
+    canonicalJson({
+      sourceId: input.sourceId,
+      commitSha: input.commitSha,
+      treeSha: input.treeSha,
+      candidates: candidates.map(
+        ({ skillPath, name, classification, findings, revision }) => ({
+          skillPath,
+          name,
+          classification,
+          contentIdentitySha256: revision?.contentIdentitySha256 ?? null,
+          ...(includeFindings && findings.length > 0
+            ? { findings: stableFindings(findings) }
+            : {}),
+        }),
+      ),
+    }),
+  );
 }
 
 function normalizedCandidates(
