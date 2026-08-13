@@ -195,6 +195,23 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     if (candidates.length === 0 || candidates.length > 512) {
       throw new Error("INVALID_CANDIDATE_BATCH");
     }
+    const validationInputSha256 =
+      input.validationInputSha256 ??
+      sha256Hex(
+        canonicalJson({
+          sourceId: input.sourceId,
+          commitSha: input.commitSha,
+          treeSha: input.treeSha,
+          candidates: candidates.map(
+            ({ skillPath, name, classification, revision }) => ({
+              skillPath,
+              name,
+              classification,
+              contentIdentitySha256: revision?.contentIdentitySha256 ?? null,
+            }),
+          ),
+        }),
+      );
     return requestTransaction(this.pool, context, async (client) => {
       if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
       const advisoryHead = await client.query<{ last_event_sha256: string }>(
@@ -216,14 +233,24 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           input.observedMetadataCache,
         );
       }
+      const priorTrees = await client.query<{ tree_sha: string }>(
+        `SELECT DISTINCT tree_sha
+         FROM external_source_snapshots
+         WHERE source_id = $1 AND commit_sha = $2`,
+        [input.sourceId, input.commitSha],
+      );
+      if (priorTrees.rows.some(({ tree_sha }) => tree_sha !== input.treeSha)) {
+        throw new Error("PUBLICATION_CONFLICT");
+      }
       const duplicate = await client.query<ExistingSnapshotRow>(
         `
           SELECT id, tree_sha, manifest_version, revision_count, adapter_kind,
                  resource_count
           FROM external_source_snapshots
           WHERE source_id = $1 AND commit_sha = $2
+            AND validation_input_sha256 = $3
         `,
-        [input.sourceId, input.commitSha],
+        [input.sourceId, input.commitSha, validationInputSha256],
       );
       const existing = duplicate.rows[0];
       if (existing !== undefined) {
@@ -291,6 +318,18 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           created: false,
         };
       }
+      const priorPublished = await client.query<{ published: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM external_source_snapshots s
+           JOIN external_snapshot_skill_observations o ON o.snapshot_id=s.id
+           WHERE s.source_id=$1 AND s.commit_sha=$2
+         ) AS published`,
+        [input.sourceId, input.commitSha],
+      );
+      if (priorPublished.rows[0]?.published === true) {
+        throw new Error("PUBLICATION_CONFLICT");
+      }
 
       const snapshotId = randomUUID();
       await client.query(
@@ -335,23 +374,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
               ),
             0,
           ),
-          input.validationInputSha256 ??
-            sha256Hex(
-              canonicalJson({
-                sourceId: input.sourceId,
-                commitSha: input.commitSha,
-                treeSha: input.treeSha,
-                candidates: candidates.map(
-                  ({ skillPath, name, classification, revision }) => ({
-                    skillPath,
-                    name,
-                    classification,
-                    contentIdentitySha256:
-                      revision?.contentIdentitySha256 ?? null,
-                  }),
-                ),
-              }),
-            ),
+          validationInputSha256,
           null,
           input.observedRepository?.repositoryId ??
             input.revisions[0]?.provenance.repositoryId,

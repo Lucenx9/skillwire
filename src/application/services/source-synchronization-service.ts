@@ -35,7 +35,7 @@ import {
   type IngestionBudgets,
 } from "../../domain/external-catalog/types.js";
 import { ExternalRevisionPublisher } from "../../ingestion/external-revision-publisher.js";
-import { parseClaudePluginManifest } from "../../ingestion/parsing/claude-plugin-manifest.js";
+import { inspectClaudePluginManifest } from "../../ingestion/parsing/claude-plugin-manifest.js";
 import {
   parseSkillDocument,
   type ParsedSkillDocument,
@@ -351,11 +351,12 @@ export class SourceSynchronizationService {
     const manifestTreeEntry = snapshot.tree.find(
       ({ path }) => path === ".claude-plugin/plugin.json",
     );
-    let adapterKind: "claude-plugin" | "nested-skill";
-    let manifestVersion: string;
+    let adapterKind: "claude-plugin" | "nested-skill" = "nested-skill";
+    let manifestVersion = "nested-v1";
     let declaredLicense: string | undefined;
     let declaredAttribution: string | undefined;
-    let skillDeclarations: readonly SkillDeclaration[];
+    let skillDeclarations: readonly SkillDeclaration[] = [];
+    let useNestedLayout = manifestTreeEntry === undefined;
     if (manifestTreeEntry !== undefined) {
       adapterKind = "claude-plugin";
       try {
@@ -364,7 +365,7 @@ export class SourceSynchronizationService {
           manifestTreeEntry.path,
           this.budgets.maximumTextBytes,
         );
-        const manifest = parseClaudePluginManifest(
+        const inspected = inspectClaudePluginManifest(
           await this.provider.readBlob(
             source.repository,
             manifestEntry.sha,
@@ -373,30 +374,35 @@ export class SourceSynchronizationService {
           ),
           context.signal,
         );
-        manifestVersion = manifest.version;
-        declaredLicense = manifest.license;
-        declaredAttribution = manifest.author;
-        skillDeclarations = manifest.skillRoots.map((root) => {
-          const skillPath = posix.join(root, "SKILL.md");
-          try {
-            return {
-              root,
-              skillPath,
-              entry: requiredBlob(
-                snapshot.tree,
+        if (inspected.kind === "metadata-only") {
+          useNestedLayout = true;
+        } else {
+          const { manifest } = inspected;
+          manifestVersion = manifest.version;
+          declaredLicense = manifest.license;
+          declaredAttribution = manifest.author;
+          skillDeclarations = manifest.skillRoots.map((root) => {
+            const skillPath = posix.join(root, "SKILL.md");
+            try {
+              return {
+                root,
                 skillPath,
-                this.budgets.maximumTextBytes,
-              ),
-              findings: [],
-            };
-          } catch (error) {
-            return {
-              root,
-              skillPath,
-              findings: [findingFromError(error, skillPath, "candidate")],
-            };
-          }
-        });
+                entry: requiredBlob(
+                  snapshot.tree,
+                  skillPath,
+                  this.budgets.maximumTextBytes,
+                ),
+                findings: [],
+              };
+            } catch (error) {
+              return {
+                root,
+                skillPath,
+                findings: [findingFromError(error, skillPath, "candidate")],
+              };
+            }
+          });
+        }
       } catch (error) {
         rethrowCancellation(error, context);
         const finding = findingFromError(error, "manifest", "snapshot");
@@ -437,7 +443,8 @@ export class SourceSynchronizationService {
           context,
         );
       }
-    } else {
+    }
+    if (useNestedLayout) {
       adapterKind = "nested-skill";
       manifestVersion = "nested-v1";
       try {

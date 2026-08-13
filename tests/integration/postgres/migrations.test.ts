@@ -38,6 +38,7 @@ describe("versioned PostgreSQL migrations", () => {
       "006",
       "007",
       "008",
+      "009",
     ]);
   });
 

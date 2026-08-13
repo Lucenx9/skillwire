@@ -4,6 +4,24 @@ import { z } from "zod";
 
 import { decodeInertText } from "./text-content.js";
 
+const metadataOnlyManifestSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    description: z.string().min(1).max(2048),
+    author: z
+      .object({
+        name: z.string().min(1).max(200),
+        url: z.url().optional(),
+      })
+      .loose(),
+    homepage: z.url().optional(),
+    repository: z.url().optional(),
+    license: z.string().min(1).max(64),
+    keywords: z.array(z.string().min(1).max(80)).max(64).optional(),
+  })
+  .loose();
+
 const manifestSchema = z
   .object({
     name: z.string().min(1).max(120),
@@ -31,19 +49,27 @@ export interface ClaudePluginManifest {
   readonly skillRoots: readonly string[];
 }
 
-export function parseClaudePluginManifest(
-  bytes: Uint8Array,
-  signal?: AbortSignal,
-): ClaudePluginManifest {
-  signal?.throwIfAborted();
+export type InspectedClaudePluginManifest =
+  | { readonly kind: "metadata-only" }
+  | {
+      readonly kind: "authoritative";
+      readonly manifest: ClaudePluginManifest;
+    };
+
+function decodeManifest(bytes: Uint8Array): unknown {
   if (bytes.byteLength > 256 * 1024) throw new Error("MANIFEST_OVERSIZED");
   const source = decodeInertText(bytes, "MANIFEST_INVALID");
-  let decoded: unknown;
   try {
-    decoded = JSON.parse(source) as unknown;
+    return JSON.parse(source) as unknown;
   } catch {
     throw new Error("MANIFEST_INVALID");
   }
+}
+
+function parseAuthoritativeManifest(
+  decoded: unknown,
+  signal?: AbortSignal,
+): ClaudePluginManifest {
   const parsed = manifestSchema.safeParse(decoded);
   if (!parsed.success) throw new Error("MANIFEST_INVALID");
   const value = parsed.data;
@@ -74,7 +100,6 @@ export function parseClaudePluginManifest(
     }
     return normalized;
   });
-  signal?.throwIfAborted();
   const foldedRoots = roots.map((root) =>
     root.normalize("NFKC").toLocaleLowerCase("en-US"),
   );
@@ -100,4 +125,39 @@ export function parseClaudePluginManifest(
     license: value.license,
     skillRoots: roots,
   };
+}
+
+export function inspectClaudePluginManifest(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+): InspectedClaudePluginManifest {
+  signal?.throwIfAborted();
+  const decoded = decodeManifest(bytes);
+  if (
+    typeof decoded !== "object" ||
+    decoded === null ||
+    Array.isArray(decoded)
+  ) {
+    throw new Error("MANIFEST_INVALID");
+  }
+  if (!Object.hasOwn(decoded, "skills")) {
+    if (!metadataOnlyManifestSchema.safeParse(decoded).success) {
+      throw new Error("MANIFEST_INVALID");
+    }
+    return { kind: "metadata-only" };
+  }
+  const manifest = parseAuthoritativeManifest(decoded, signal);
+  signal?.throwIfAborted();
+  return { kind: "authoritative", manifest };
+}
+
+export function parseClaudePluginManifest(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+): ClaudePluginManifest {
+  const inspected = inspectClaudePluginManifest(bytes, signal);
+  if (inspected.kind !== "authoritative") {
+    throw new Error("MANIFEST_INVALID");
+  }
+  return inspected.manifest;
 }
