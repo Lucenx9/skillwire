@@ -8,6 +8,10 @@ import type {
 } from "../../../src/application/ports/github-source-provider.js";
 import { SourceRegistrationService } from "../../../src/application/services/source-registration-service.js";
 import { SourceSynchronizationService } from "../../../src/application/services/source-synchronization-service.js";
+import {
+  canonicalJson,
+  sha256Hex,
+} from "../../../src/domain/catalog/canonical-revision.js";
 import type {
   GitHubRepositoryCoordinate,
   GitHubRepositoryIdentity,
@@ -111,6 +115,111 @@ describe("traceable deterministic quarantine", () => {
   }, 120_000);
 
   afterAll(async () => database.close());
+
+  it("keeps distinct append-only generations when stable findings change", async () => {
+    const provider = new StaticRepositoryProvider(
+      {
+        repositoryId: 70_999,
+        owner: "fixture-owner",
+        repository: "validation-generations",
+        defaultBranch: "main",
+      },
+      "5".repeat(40),
+      { LICENSE },
+    );
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(provider.repository, "fixture-admin");
+    const candidate = {
+      skillPath: "_invalid/generation/SKILL.md",
+      name: "invalid-generation",
+      description: "A deterministic validation failure.",
+      adapterKind: "claude-plugin" as const,
+      classification: "quarantined" as const,
+    };
+    const base = {
+      sourceId: registration.sourceId,
+      commitSha: "5".repeat(40),
+      treeSha: "6".repeat(40),
+      manifestVersion: "invalid-v1",
+      adapterKind: "claude-plugin" as const,
+      revisions: [],
+      observedRepository: registration.repository,
+    };
+    const initialCandidates = [
+      {
+        ...candidate,
+        findings: [
+          {
+            code: "MANIFEST_INVALID" as const,
+            severity: "error" as const,
+            subjectKind: "snapshot" as const,
+            subjectId: "manifest",
+          },
+        ],
+      },
+    ];
+    const first = await store.publishSnapshot({
+      ...base,
+      candidates: initialCandidates,
+      validationInputSha256: sha256Hex(
+        canonicalJson({
+          sourceId: registration.sourceId,
+          commitSha: base.commitSha,
+          treeSha: base.treeSha,
+          candidates: [
+            {
+              skillPath: candidate.skillPath,
+              name: candidate.name,
+              classification: candidate.classification,
+              contentIdentitySha256: null,
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(
+      store.publishSnapshot({ ...base, candidates: initialCandidates }),
+    ).resolves.toMatchObject({
+      created: false,
+      snapshotId: first.snapshotId,
+    });
+    const correctedInput = {
+      ...base,
+      candidates: [
+        {
+          ...candidate,
+          findings: [
+            {
+              code: "PATH_UNSAFE" as const,
+              severity: "error" as const,
+              subjectKind: "candidate" as const,
+              subjectId: "skills/../escape",
+            },
+          ],
+        },
+      ],
+    };
+    const corrected = await store.publishSnapshot(correctedInput);
+
+    expect(first.created).toBe(true);
+    expect(corrected).toMatchObject({
+      created: true,
+      candidateTraces: [
+        {
+          classification: "quarantined",
+          reasonCodes: ["PATH_UNSAFE"],
+        },
+      ],
+    });
+    expect(corrected.snapshotId).not.toBe(first.snapshotId);
+    await expect(store.publishSnapshot(correctedInput)).resolves.toMatchObject({
+      created: false,
+      snapshotId: corrected.snapshotId,
+    });
+  });
 
   it("falls back to independent nested skills for plugin-only metadata", async () => {
     const provider = new StaticRepositoryProvider(
