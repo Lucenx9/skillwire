@@ -146,15 +146,28 @@ export class OperationJournal {
     detail: JournalEntry["detail"],
   ): Promise<void> {
     const last = this.entries.at(-1);
-    if (last?.phase === "commit" || last?.phase === "cancel") {
+    const resumingRecoveryRequiredCancellation =
+      last?.phase === "cancel" &&
+      last.detail["status"] === "recovery-required" &&
+      phase === "compensate";
+    if (
+      last?.phase === "commit" ||
+      (last?.phase === "cancel" && !resumingRecoveryRequiredCancellation)
+    ) {
       throw new Error("Operation journal is already terminal");
     }
     if (phase === "effect" && (last?.phase !== "intent" || last.step !== step))
       throw new Error("Effect must follow matching durable intent");
     if (phase === "verify" && (last?.phase !== "effect" || last.step !== step))
       throw new Error("Verification must follow matching effect");
+    const recoveredCommit =
+      phase === "commit" &&
+      detail["status"] === "recovered" &&
+      last?.phase === "compensate" &&
+      last.detail["completion"] !== "unproven";
     if (
       phase === "commit" &&
+      !recoveredCommit &&
       !this.entries.some(({ phase: entryPhase }) => entryPhase === "verify")
     )
       throw new Error("Cannot report success without verification");
@@ -243,14 +256,12 @@ export class OperationJournal {
   }
 
   hasUnprovenEffect(): boolean {
-    const unproven = new Set(
-      this.entries
-        .filter(
-          ({ phase, detail }) =>
-            phase === "compensate" && detail["completion"] === "unproven",
-        )
-        .map(({ step }) => step),
-    );
+    const unproven = new Set<string>();
+    for (const entry of this.entries) {
+      if (entry.phase !== "compensate") continue;
+      if (entry.detail["completion"] === "unproven") unproven.add(entry.step);
+      else unproven.delete(entry.step);
+    }
     return unproven.size > 0;
   }
 }

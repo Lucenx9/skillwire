@@ -38,8 +38,9 @@ const BridgeStateSchema = z
             credentialReference: z
               .string()
               .regex(
-                /^(?:restrictive-file:(?:codex|claude)|secret-service:(?:codex|claude):[0-9a-f-]{36})$/,
+                /^(?:restrictive-file:(?:codex|claude)(?::[0-9a-f-]{36})?|secret-service:(?:codex|claude):[0-9a-f-]{36})$/,
               ),
+            keyId: z.uuid().optional(),
           })
           .strict(),
       )
@@ -106,7 +107,7 @@ export class CredentialResolver {
     );
     if (
       entry === undefined ||
-      (entry.credentialReference !== `restrictive-file:${client}` &&
+      (!entry.credentialReference.startsWith(`restrictive-file:${client}`) &&
         !entry.credentialReference.startsWith(`secret-service:${client}:`))
     ) {
       throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");

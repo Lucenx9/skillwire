@@ -13,6 +13,7 @@ import {
 import { join, relative, resolve, sep } from "node:path";
 
 import type { ReleaseManifest } from "../../domain/release-manifest.js";
+import type { OperationJournal } from "../../domain/operation-journal.js";
 import { OwnershipProofSchema } from "../../domain/ownership.js";
 import { atomicWriteJson } from "./atomic-state.js";
 import { validateOwnedDirectory, validateOwnedPath } from "./safe-paths.js";
@@ -29,6 +30,7 @@ export interface InstallReleaseOptions {
   readonly manifestSha256: string;
   readonly trustPolicyPath: string;
   readonly tarExecutable?: string | undefined;
+  readonly activate?: boolean | undefined;
 }
 
 export interface InstalledReleasePaths {
@@ -120,6 +122,13 @@ async function extractedInventory(
   }
   await visit(root);
   return result;
+}
+
+export async function releaseDirectoryIdentity(root: string): Promise<string> {
+  return createHash("sha256")
+    .update("skillwire-release-directory-v1\0")
+    .update(JSON.stringify(await extractedInventory(resolve(root))))
+    .digest("hex");
 }
 
 async function persistTrustPolicy(
@@ -463,20 +472,21 @@ export async function installVerifiedRelease(
     await rename(launcherStage, launcherPath);
     await chmod(launcherPath, 0o700);
   }
-  await atomicWriteJson(
-    resolve(stateRoot, "active-release.json"),
-    {
-      schemaVersion: "skillwire.active-release/v1",
-      releaseVersion: options.manifest.releaseVersion,
-      releaseSequence: options.manifest.releaseSequence,
-      trustPolicySequence: options.manifest.trustPolicySequence,
-      architecture: options.manifest.architecture,
-      manifestSha256: options.manifestSha256,
-      archiveSha256: options.manifest.archive.sha256,
-      trustPolicyPath,
-    },
-    stateRoot,
-  );
+  if (options.activate !== false)
+    await atomicWriteJson(
+      resolve(stateRoot, "active-release.json"),
+      {
+        schemaVersion: "skillwire.active-release/v1",
+        releaseVersion: options.manifest.releaseVersion,
+        releaseSequence: options.manifest.releaseSequence,
+        trustPolicySequence: options.manifest.trustPolicySequence,
+        architecture: options.manifest.architecture,
+        manifestSha256: options.manifestSha256,
+        archiveSha256: options.manifest.archive.sha256,
+        trustPolicyPath,
+      },
+      stateRoot,
+    );
   await atomicWriteJson(
     ownershipPath,
     OwnershipProofSchema.parse({
@@ -495,4 +505,42 @@ export async function installVerifiedRelease(
     launcherPath,
     ownershipPath,
   };
+}
+
+export interface ActiveReleaseSelection {
+  readonly schemaVersion: "skillwire.active-release/v1";
+  readonly releaseVersion: string;
+  readonly releaseSequence: number;
+  readonly trustPolicySequence: number;
+  readonly architecture: "amd64" | "arm64";
+  readonly manifestSha256: string;
+  readonly archiveSha256: string;
+  readonly trustPolicyPath: string;
+}
+
+export async function commitActiveReleaseSelection(options: {
+  readonly stateRoot: string;
+  readonly selection: ActiveReleaseSelection;
+  readonly journal: OperationJournal;
+  readonly signal: AbortSignal;
+}): Promise<void> {
+  await options.journal.runEffect({
+    step: "active-release-selection",
+    intent: {
+      releaseSequence: options.selection.releaseSequence,
+      trustPolicySequence: options.selection.trustPolicySequence,
+      manifestSha256: options.selection.manifestSha256,
+    },
+    signal: options.signal,
+    action: () =>
+      atomicWriteJson(
+        resolve(options.stateRoot, "active-release.json"),
+        options.selection,
+        options.stateRoot,
+      ),
+    verification: () => ({
+      releaseSequence: options.selection.releaseSequence,
+      selected: true,
+    }),
+  });
 }

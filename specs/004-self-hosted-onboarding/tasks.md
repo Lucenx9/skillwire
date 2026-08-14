@@ -193,26 +193,26 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 4 — write and observe failure first
 
-- [ ] T097 [P] [US4] Add failing `status`, `doctor`, `repair`, `clients rotate-key`, and `maintenance rotate-service-secret` JSON/exit/output tests in `tests/contract/cli/lifecycle-operations.test.ts`
-- [ ] T098 [P] [US4] Add failing FR-061 fixture classification plus release/trust/service-secret/dispatcher/ownership/concurrency/backup/recovery findings in `tests/integration/onboarding/doctor-classification.test.ts`
-- [ ] T099 [P] [US4] Add failing ten-run account/key/volume/service-secret/source/plugin/MCP identity and zero unchanged-write tests in `tests/e2e/self-hosted-onboarding/repeated-setup.test.ts`
-- [ ] T100 [P] [US4] Add failing drifted-owned, ambiguous, external, data-preserving, and no-implicit-secret-rotation repair tests in `tests/integration/onboarding/repair.test.ts`
-- [ ] T101 [P] [US4] Add failing process termination after every journal intent/effect/verify/compensate/commit boundary in `tests/integration/onboarding/interruption-recovery.test.ts`
-- [ ] T102 [P] [US4] Add failing live-lock, proven-stale-lock, and exactly-one-mutator tests in `tests/integration/onboarding/concurrent-mutator.test.ts`
-- [ ] T103 [P] [US4] Add failing replacement client-key verification, old-key retention on failure, and sibling-key isolation tests in `tests/security/onboarding/key-rotation.test.ts`
-- [ ] T104 [P] [US4] Add failing database/application rotation tests for explicit preview, independent new value, retained old file, readiness commit, rollback at every boundary, and zero disclosure in `tests/integration/onboarding/service-secret-rotation.test.ts`
+- [x] T097 [P] [US4] Add failing `status`, `doctor`, `repair`, `clients rotate-key`, and `maintenance rotate-service-secret` JSON/exit/output tests in `tests/contract/cli/lifecycle-operations.test.ts`
+- [x] T098 [P] [US4] Add failing FR-061 fixture classification plus release/trust/service-secret/dispatcher/ownership/concurrency/backup/recovery findings in `tests/integration/onboarding/doctor-classification.test.ts`
+- [x] T099 [P] [US4] Add failing ten-run account/key/volume/service-secret/source/plugin/MCP identity and zero unchanged-write tests in `tests/e2e/self-hosted-onboarding/repeated-setup.test.ts`
+- [x] T100 [P] [US4] Add failing drifted-owned, ambiguous, external, data-preserving, and no-implicit-secret-rotation repair tests in `tests/integration/onboarding/repair.test.ts`
+- [x] T101 [P] [US4] Add failing process termination after every journal intent/effect/verify/compensate/commit boundary in `tests/integration/onboarding/interruption-recovery.test.ts`
+- [x] T102 [P] [US4] Add failing live-lock, proven-stale-lock, and exactly-one-mutator tests in `tests/integration/onboarding/concurrent-mutator.test.ts`
+- [x] T103 [P] [US4] Add failing replacement client-key verification, old-key retention on failure, and sibling-key isolation tests in `tests/security/onboarding/key-rotation.test.ts`
+- [x] T104 [P] [US4] Add failing database/application rotation tests for explicit preview, independent new value, retained old file, readiness commit, rollback at every boundary, and zero disclosure in `tests/integration/onboarding/service-secret-rotation.test.ts`
 
 ### Implementation for User Story 4
 
-- [ ] T105 [P] [US4] Implement bounded installed/live state inspection without credential retrieval or mutation in `src/onboarding/application/status.ts`
-- [ ] T106 [P] [US4] Implement layered release/trust/filesystem/Docker/PostgreSQL/migration/catalog/service-secret/credential/bridge/client/source/backup/journal probes in `src/onboarding/application/diagnostic-probes.ts`
-- [ ] T107 [US4] Aggregate stable redacted findings and exact safe next actions for `doctor` in `src/onboarding/application/doctor.ts`
-- [ ] T108 [US4] Implement observation-based journal recovery and narrow compensation at the last validated boundary in `src/onboarding/application/recovery.ts`
-- [ ] T109 [US4] Implement preview-first, ownership-proven, data-preserving repair with no implicit key/service-secret rotation in `src/onboarding/application/repair.ts`
-- [ ] T110 [US4] Implement persist-and-verify-before-revoke client-key rotation in `src/onboarding/application/client-credentials.ts`
-- [ ] T111 [US4] Implement explicit database/application secret rotation with old-value retention, readiness, commit, and application/config rollback in `src/onboarding/application/service-secret-rotation.ts`
-- [ ] T112 [US4] Make unchanged setup a byte-for-byte no-op across secrets, state, clients, sources, catalog, volume, and account in `src/onboarding/application/setup.ts`
-- [ ] T113 [US4] Wire status/doctor/repair/client-key/service-secret maintenance routes and final summaries in `src/onboarding/cli/command-router.ts`
+- [x] T105 [P] [US4] Implement bounded installed/live state inspection without credential retrieval or mutation in `src/onboarding/application/status.ts`
+- [x] T106 [P] [US4] Implement layered release/trust/filesystem/Docker/PostgreSQL/migration/catalog/service-secret/credential/bridge/client/source/backup/journal probes in `src/onboarding/application/diagnostic-probes.ts`
+- [x] T107 [US4] Aggregate stable redacted findings and exact safe next actions for `doctor` in `src/onboarding/application/doctor.ts`
+- [x] T108 [US4] Implement observation-based journal recovery and narrow compensation at the last validated boundary in `src/onboarding/application/recovery.ts`
+- [x] T109 [US4] Implement preview-first, ownership-proven, data-preserving repair with no implicit key/service-secret rotation in `src/onboarding/application/repair.ts`
+- [x] T110 [US4] Implement persist-and-verify-before-revoke client-key rotation in `src/onboarding/application/client-credentials.ts`
+- [x] T111 [US4] Implement explicit database/application secret rotation with old-value retention, readiness, commit, and application/config rollback in `src/onboarding/application/service-secret-rotation.ts`
+- [x] T112 [US4] Make unchanged setup a byte-for-byte no-op across secrets, state, clients, sources, catalog, volume, and account in `src/onboarding/application/setup.ts`
+- [x] T113 [US4] Wire status/doctor/repair/client-key/service-secret maintenance routes and final summaries in `src/onboarding/cli/command-router.ts`
 
 **Checkpoint**: Operations are idempotent and recoverable; rotation is always explicit and narrowly reversible.
 
@@ -226,23 +226,23 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 5 — write and observe failure first
 
-- [ ] T114 [P] [US5] Add failing custom-format dump, checksum, isolated restore/readiness, invalid archive, service-secret-reference-only, and no-raw-secret tests in `tests/integration/onboarding/backup-restore-validation.test.ts`
-- [ ] T115 [P] [US5] Add failing no-schema-change upgrade and automatic application/config rollback tests in `tests/integration/onboarding/upgrade-compatible.test.ts`
-- [ ] T116 [P] [US5] Add failing migration-010 drain, validated-backup-before-migration, live-schema readback, and unsafe pre-010 rollback refusal tests in `tests/integration/onboarding/upgrade-forward-only-010.test.ts`
-- [ ] T117 [P] [US5] Add failing interruption injection for release verification, backup, drain, migration, readiness, clients, and release commit in `tests/integration/onboarding/upgrade-interruption.test.ts`
-- [ ] T118 [P] [US5] Add failing repository-memory, client/service-secret, ownership, volume, backup, source, and unrelated-profile preservation tests in `tests/e2e/self-hosted-onboarding/upgrade-preservation.test.ts`
-- [ ] T119 [P] [US5] Add failing upgrade rejection tests for lower release/policy sequence, stale policy, bad overlap, denied signer/material, and incompatible restored executable trust in `tests/security/onboarding/upgrade-trust-downgrade.test.ts`
+- [x] T114 [P] [US5] Add failing custom-format dump, checksum, isolated restore/readiness, invalid archive, service-secret-reference-only, and no-raw-secret tests in `tests/integration/onboarding/backup-restore-validation.test.ts`
+- [x] T115 [P] [US5] Add failing no-schema-change upgrade and automatic application/config rollback tests in `tests/integration/onboarding/upgrade-compatible.test.ts`
+- [x] T116 [P] [US5] Add failing migration-010 drain, validated-backup-before-migration, live-schema readback, and unsafe pre-010 rollback refusal tests in `tests/integration/onboarding/upgrade-forward-only-010.test.ts`
+- [x] T117 [P] [US5] Add failing interruption injection for release verification, backup, drain, migration, readiness, clients, and release commit in `tests/integration/onboarding/upgrade-interruption.test.ts`
+- [x] T118 [P] [US5] Add failing repository-memory, client/service-secret, ownership, volume, backup, source, and unrelated-profile preservation tests in `tests/e2e/self-hosted-onboarding/upgrade-preservation.test.ts`
+- [x] T119 [P] [US5] Add failing upgrade rejection tests for lower release/policy sequence, stale policy, bad overlap, denied signer/material, and incompatible restored executable trust in `tests/security/onboarding/upgrade-trust-downgrade.test.ts`
 
 ### Implementation for User Story 5
 
-- [ ] T120 [P] [US5] Implement `pg_dump -Fc`, isolated PostgreSQL 17.10 restore, safe `pg_restore`, checksums, invariants, readiness, and validation cleanup in `src/onboarding/adapters/postgres/backup.ts`
-- [ ] T121 [US5] Implement protected backup-set state and recovery manifests containing only non-secret service/client credential references in `src/onboarding/application/backup.ts`
-- [ ] T122 [P] [US5] Implement manifest/live-schema compatibility and forward-only rollback decisions in `src/onboarding/adapters/postgres/schema-compatibility.ts`
-- [ ] T123 [P] [US5] Implement application, ingestion, and administration writer draining/restart controls in `src/onboarding/adapters/docker/writer-drain.ts`
-- [ ] T124 [US5] Implement target trust/release verification, anti-downgrade, backup, confirmation, migration, readiness, client verification, and active-policy/release commit in `src/onboarding/application/upgrade.ts`
-- [ ] T125 [US5] Implement compatible application/config rollback and restore-required guidance with backup identity, release, data-loss boundary, and erased-memory warning in `src/onboarding/application/upgrade-recovery.ts`
-- [ ] T126 [US5] Integrate upgrade journal boundaries and atomic active release/trust-policy selection in `src/onboarding/adapters/filesystem/release-installer.ts`
-- [ ] T127 [US5] Wire `backup` and `upgrade --release` previews, exit classes, backup IDs, rollback boundaries, and recovery summaries in `src/onboarding/cli/command-router.ts`
+- [x] T120 [P] [US5] Implement `pg_dump -Fc`, isolated PostgreSQL 17.10 restore, safe `pg_restore`, checksums, invariants, readiness, and validation cleanup in `src/onboarding/adapters/postgres/backup.ts`
+- [x] T121 [US5] Implement protected backup-set state and recovery manifests containing only non-secret service/client credential references in `src/onboarding/application/backup.ts`
+- [x] T122 [P] [US5] Implement manifest/live-schema compatibility and forward-only rollback decisions in `src/onboarding/adapters/postgres/schema-compatibility.ts`
+- [x] T123 [P] [US5] Implement application, ingestion, and administration writer draining/restart controls in `src/onboarding/adapters/docker/writer-drain.ts`
+- [x] T124 [US5] Implement target trust/release verification, anti-downgrade, backup, confirmation, migration, readiness, client verification, and active-policy/release commit in `src/onboarding/application/upgrade.ts`
+- [x] T125 [US5] Implement compatible application/config rollback and restore-required guidance with backup identity, release, data-loss boundary, and erased-memory warning in `src/onboarding/application/upgrade-recovery.ts`
+- [x] T126 [US5] Integrate upgrade journal boundaries and atomic active release/trust-policy selection in `src/onboarding/adapters/filesystem/release-installer.ts`
+- [x] T127 [US5] Wire `backup` and `upgrade --release` previews, exit classes, backup IDs, rollback boundaries, and recovery summaries in `src/onboarding/cli/command-router.ts`
 
 **Checkpoint**: Upgrades are signed, restore-backed, schema-aware, anti-downgrade, and interruption-safe.
 
@@ -256,20 +256,20 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 6 — write and observe failure first
 
-- [ ] T128 [P] [US6] Add failing owned-only client removal, container stop, retained volume/backups/client and service secrets/releases/trust/ownership, and unrelated-state tests in `tests/e2e/self-hosted-onboarding/default-uninstall.test.ts`
-- [ ] T129 [P] [US6] Add failing retained installation/data/secret reuse and duplicate-free account/key/MCP/plugin reinstall tests in `tests/e2e/self-hosted-onboarding/reinstall-retained-data.test.ts`
-- [ ] T130 [P] [US6] Add failing separate purge preview/hash/installation-ID confirmation and exact named deletion tests in `tests/e2e/self-hosted-onboarding/permanent-removal.test.ts`
-- [ ] T131 [P] [US6] Add failing external/ambiguous/drifted/concurrent/symlinked/interrupted removal tests proving zero mutation outside current ownership in `tests/security/onboarding/removal-boundaries.test.ts`
+- [x] T128 [P] [US6] Add failing owned-only client removal, container stop, retained volume/backups/client and service secrets/releases/trust/ownership, and unrelated-state tests in `tests/e2e/self-hosted-onboarding/default-uninstall.test.ts`
+- [x] T129 [P] [US6] Add failing retained installation/data/secret reuse and duplicate-free account/key/MCP/plugin reinstall tests in `tests/e2e/self-hosted-onboarding/reinstall-retained-data.test.ts`
+- [x] T130 [P] [US6] Add failing separate purge preview/hash/installation-ID confirmation and exact named deletion tests in `tests/e2e/self-hosted-onboarding/permanent-removal.test.ts`
+- [x] T131 [P] [US6] Add failing external/ambiguous/drifted/concurrent/symlinked/interrupted removal tests proving zero mutation outside current ownership in `tests/security/onboarding/removal-boundaries.test.ts`
 
 ### Implementation for User Story 6
 
-- [ ] T132 [US6] Implement matching-owned-only Codex/Claude MCP/plugin/marketplace/credential/key inverse operations in `src/onboarding/application/client-lifecycle.ts`
-- [ ] T133 [US6] Implement data/service-secret/trust/release-preserving default uninstall and retained-state transitions in `src/onboarding/application/uninstall.ts`
-- [ ] T134 [P] [US6] Implement exact owned-asset purge planning, separate confirmation scope, safe deletion, and unrecoverable inventory in `src/onboarding/application/purge.ts`
-- [ ] T135 [US6] Enforce retain-by-default/remove-only-on-purge dispositions and current identity proof in `src/onboarding/domain/ownership.ts`
-- [ ] T136 [US6] Implement interrupted uninstall convergence and ambiguity-safe recovery in `src/onboarding/application/recovery.ts`
-- [ ] T137 [US6] Wire `clients uninstall`, `uninstall`, and `purge` previews, confirmations, and stable results in `src/onboarding/cli/command-router.ts`
-- [ ] T138 [US6] Add retained installation discovery and duplicate-free reactivation to `src/onboarding/application/setup.ts`
+- [x] T132 [US6] Implement matching-owned-only Codex/Claude MCP/plugin/marketplace/credential/key inverse operations in `src/onboarding/application/client-lifecycle.ts`
+- [x] T133 [US6] Implement data/service-secret/trust/release-preserving default uninstall and retained-state transitions in `src/onboarding/application/uninstall.ts`
+- [x] T134 [P] [US6] Implement exact owned-asset purge planning, separate confirmation scope, safe deletion, and unrecoverable inventory in `src/onboarding/application/purge.ts`
+- [x] T135 [US6] Enforce retain-by-default/remove-only-on-purge dispositions and current identity proof in `src/onboarding/domain/ownership.ts`
+- [x] T136 [US6] Implement interrupted uninstall convergence and ambiguity-safe recovery in `src/onboarding/application/recovery.ts`
+- [x] T137 [US6] Wire `clients uninstall`, `uninstall`, and `purge` previews, confirmations, and stable results in `src/onboarding/cli/command-router.ts`
+- [x] T138 [US6] Add retained installation discovery and duplicate-free reactivation to `src/onboarding/application/setup.ts`
 
 **Checkpoint**: Default removal is reversible; purge cannot reuse uninstall confirmation or delete external/ambiguous state.
 

@@ -9,7 +9,8 @@ import {
   validateOwnedPath,
 } from "../filesystem/safe-paths.js";
 
-export type RestrictiveFileReference = `restrictive-file:${ClientName}`;
+export type RestrictiveFileReference =
+  `restrictive-file:${ClientName}` | `restrictive-file:${ClientName}:${string}`;
 
 export class RestrictiveFileCredentialStore {
   public constructor(
@@ -52,6 +53,18 @@ export class RestrictiveFileCredentialStore {
     return root;
   }
 
+  private async syncDirectory(path: string): Promise<void> {
+    const handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  }
+
   async store(
     client: ClientName,
     token: string,
@@ -79,16 +92,67 @@ export class RestrictiveFileCredentialStore {
     } finally {
       await handle.close();
     }
+    await this.syncDirectory(root);
     return `restrictive-file:${client}`;
   }
 
+  async storeReplacement(
+    client: ClientName,
+    token: string,
+    referenceId: string,
+  ): Promise<RestrictiveFileReference> {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        referenceId,
+      )
+    )
+      throw new Error("Replacement credential identity is invalid");
+    if (parseApiKeyToken(token) === undefined)
+      throw new Error("Client credential has an invalid shape");
+    const root = await this.credentialRoot();
+    const path = resolve(root, `${client}.${referenceId}.key`);
+    const handle = await open(
+      path,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      await handle.writeFile(token, "ascii");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await this.syncDirectory(root);
+    return `restrictive-file:${client}:${referenceId}`;
+  }
+
+  private referencePath(reference: RestrictiveFileReference): {
+    readonly client: ClientName;
+    readonly name: string;
+  } {
+    const match = /^restrictive-file:(codex|claude)(?::([0-9a-f-]{36}))?$/.exec(
+      reference,
+    );
+    if (match === null) throw new Error("Credential reference is invalid");
+    const client = match[1] as ClientName;
+    const generation = match[2];
+    return {
+      client,
+      name:
+        generation === undefined
+          ? `${client}.key`
+          : `${client}.${generation}.key`,
+    };
+  }
+
   async lookup(reference: RestrictiveFileReference): Promise<string> {
-    const client = reference.slice("restrictive-file:".length);
-    if (client !== "codex" && client !== "claude")
-      throw new Error("Credential reference is invalid");
+    const { name } = this.referencePath(reference);
     const root = await this.credentialRoot();
     const handle = await open(
-      resolve(root, `${client}.key`),
+      resolve(root, name),
       constants.O_RDONLY | constants.O_NOFOLLOW,
     );
     try {
@@ -116,17 +180,16 @@ export class RestrictiveFileCredentialStore {
   }
 
   async remove(reference: RestrictiveFileReference): Promise<void> {
-    const client = reference.slice("restrictive-file:".length);
-    if (client !== "codex" && client !== "claude")
-      throw new Error("Credential reference is invalid");
+    const { name } = this.referencePath(reference);
     const root = await this.credentialRoot();
-    const path = await validateOwnedPath(resolve(root, `${client}.key`), root);
+    const path = await validateOwnedPath(resolve(root, name), root);
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const stats = await handle.stat();
       if (
         !stats.isFile() ||
         stats.nlink !== 1 ||
+        stats.uid !== process.getuid?.() ||
         (stats.mode & 0o777) !== 0o600
       )
         throw new Error("Credential ownership is ambiguous");
@@ -134,5 +197,6 @@ export class RestrictiveFileCredentialStore {
       await handle.close();
     }
     await unlink(path);
+    await this.syncDirectory(root);
   }
 }

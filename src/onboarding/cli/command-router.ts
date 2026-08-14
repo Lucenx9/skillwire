@@ -12,6 +12,7 @@ import {
   previewProductionSetup,
   runProductionSetup,
 } from "../application/production-setup.js";
+import { inspectInstalledStatus } from "../application/status.js";
 import type { AdminResult, ExitClass } from "./output.js";
 
 function emit(
@@ -24,6 +25,15 @@ function emit(
   else io.stderr(rendered);
   return exitCodeForClass(result.exitClass);
 }
+
+export type AdministrativeOperation = (
+  command: ParsedCommand,
+  signal: AbortSignal,
+) => Promise<AdminResult>;
+
+export type AdministrativeOperations = Partial<
+  Readonly<Record<ParsedCommand["route"], AdministrativeOperation>>
+>;
 
 function failureClass(error: unknown): ExitClass {
   const message = error instanceof Error ? error.message : "";
@@ -47,6 +57,18 @@ function failureClass(error: unknown): ExitClass {
     return "client-contract-failure";
   }
   return "internal-failure";
+}
+
+function signalIsAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
+function installationStateIsAbsent(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (("code" in error && error.code === "ENOENT") ||
+      error.message.includes("ENOENT"))
+  );
 }
 
 export function setupFailureEnvelope(options: {
@@ -219,7 +241,7 @@ async function routeSetup(
         status: result.status,
         exitClass,
         previewHash: preview.hash,
-        changed: true,
+        changed: result.changed !== false,
         summary:
           selection === "none" && result.status === "success"
             ? "Self-hosted service is ready; client integration remains pending"
@@ -228,7 +250,7 @@ async function routeSetup(
           {
             component: "service",
             state: result.serviceReady ? "ready" : "failed",
-            changed: true,
+            changed: result.changed !== false,
             owned: true,
             identity: { installationId: result.installationId },
           },
@@ -299,6 +321,7 @@ export async function routeAdministrativeCommand(
   command: ParsedCommand,
   io: DispatcherIo,
   signal: AbortSignal,
+  operations: AdministrativeOperations = {},
 ): Promise<number> {
   if (signal.aborted) return 11;
   if (
@@ -309,6 +332,177 @@ export async function routeAdministrativeCommand(
     return 2;
   }
   if (command.route === "setup") return routeSetup(command, io, signal);
+  if (command.route === "status" && operations.status !== undefined) {
+    try {
+      return emit(await operations.status(command, signal), command, io);
+    } catch (error) {
+      const absent = installationStateIsAbsent(error);
+      return emit(
+        AdminResultSchema.parse({
+          schemaVersion: "skillwire.admin-result/v1",
+          command: "status",
+          operationId: randomUUID(),
+          status: signalIsAborted(signal) ? "cancelled" : "failure",
+          exitClass: signalIsAborted(signal)
+            ? "user-cancellation"
+            : absent
+              ? "unsupported-prerequisite"
+              : "degraded-or-incomplete",
+          previewHash: null,
+          changed: false,
+          summary: "Installed and live state could not be inspected safely",
+          components: [],
+          findings: [
+            {
+              code: "STATUS_STATE_UNAVAILABLE",
+              severity: "error",
+              component: "installation",
+              summary: absent
+                ? "No SkillWire installation state exists in this profile"
+                : error instanceof Error
+                  ? error.message.slice(0, 512)
+                  : "Installed state is unavailable",
+              nextAction: absent
+                ? "Run setup to create a verified self-hosted installation"
+                : "Run doctor to classify the installed-state failure",
+            },
+          ],
+          recovery: {
+            rollbackBoundary: "none",
+            backupId: null,
+            instructions: [],
+          },
+        }),
+        command,
+        io,
+      );
+    }
+  }
+  if (command.route === "status") {
+    const stateHome =
+      process.env["XDG_STATE_HOME"] ??
+      `${process.env["HOME"] ?? ""}/.local/state`;
+    const stateRoot = command.stateRoot ?? `${stateHome}/skillwire`;
+    try {
+      const status = await inspectInstalledStatus({ stateRoot, signal });
+      return emit(
+        AdminResultSchema.parse({
+          schemaVersion: "skillwire.admin-result/v1",
+          command: "status",
+          operationId: randomUUID(),
+          status: "success",
+          exitClass: "success",
+          previewHash: null,
+          changed: false,
+          summary: `Installation state is ${status.installation.status}`,
+          components: [
+            {
+              component: "installation",
+              state: status.installation.status,
+              changed: false,
+              owned: true,
+              identity: {
+                installationId: status.installation.installationId,
+                release: status.installation.activeReleaseId,
+              },
+            },
+            ...status.live.map((component) => ({
+              component: component.component,
+              state: component.state,
+              changed: false,
+              owned: true,
+              identity: component.identity ?? {},
+            })),
+          ],
+          findings: [],
+          recovery: {
+            rollbackBoundary: "none",
+            backupId: null,
+            instructions: [],
+          },
+        }),
+        command,
+        io,
+      );
+    } catch (error) {
+      return emit(
+        AdminResultSchema.parse({
+          schemaVersion: "skillwire.admin-result/v1",
+          command: "status",
+          operationId: randomUUID(),
+          status: signalIsAborted(signal) ? "cancelled" : "failure",
+          exitClass: signalIsAborted(signal)
+            ? "user-cancellation"
+            : "degraded-or-incomplete",
+          previewHash: null,
+          changed: false,
+          summary: "Installed state could not be inspected safely",
+          components: [],
+          findings: [
+            {
+              code: "STATUS_STATE_UNAVAILABLE",
+              severity: "error",
+              component: "installation",
+              summary:
+                error instanceof Error
+                  ? error.message.slice(0, 512)
+                  : "Installed state is unavailable",
+              nextAction: "Run doctor to classify the installed-state failure",
+            },
+          ],
+          recovery: {
+            rollbackBoundary: "none",
+            backupId: null,
+            instructions: [],
+          },
+        }),
+        command,
+        io,
+      );
+    }
+  }
+  const operation = operations[command.route];
+  if (operation !== undefined) {
+    try {
+      return emit(await operation(command, signal), command, io);
+    } catch (error) {
+      return emit(
+        AdminResultSchema.parse({
+          schemaVersion: "skillwire.admin-result/v1",
+          command: command.route,
+          operationId: randomUUID(),
+          status: signalIsAborted(signal) ? "cancelled" : "failure",
+          exitClass: signalIsAborted(signal)
+            ? "user-cancellation"
+            : failureClass(error),
+          previewHash: null,
+          changed: false,
+          summary: `${command.route} stopped before successful completion`,
+          components: [],
+          findings: [
+            {
+              code: "LIFECYCLE_OPERATION_FAILED",
+              severity: "error",
+              component: command.route,
+              summary:
+                error instanceof Error
+                  ? error.message.slice(0, 512)
+                  : "Lifecycle operation failed",
+              nextAction:
+                "Resolve the reported condition and generate a fresh preview",
+            },
+          ],
+          recovery: {
+            rollbackBoundary: "none",
+            backupId: null,
+            instructions: [],
+          },
+        }),
+        command,
+        io,
+      );
+    }
+  }
   const result = AdminResultSchema.parse({
     schemaVersion: "skillwire.admin-result/v1",
     command: command.route,

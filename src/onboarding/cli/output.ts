@@ -78,6 +78,20 @@ const SetupPreviewScopeSchema = z
   })
   .strict();
 
+const LifecyclePreviewScopeSchema = z
+  .record(z.string().min(1).max(64), z.json())
+  .refine(
+    (value) => JSON.stringify(value).length <= 64 * 1024,
+    "preview scope is too large",
+  )
+  .refine(
+    (value) =>
+      !/(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|password\s*[=:]\s*\S+|pepper\s*[=:]\s*\S+)/i.test(
+        JSON.stringify(value),
+      ),
+    "preview scope contains secret material",
+  );
+
 export const AdminResultSchema = z
   .object({
     schemaVersion: z.literal("skillwire.admin-result/v1"),
@@ -96,7 +110,9 @@ export const AdminResultSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .nullable(),
-    previewScope: SetupPreviewScopeSchema.optional(),
+    previewScope: z
+      .union([SetupPreviewScopeSchema, LifecyclePreviewScopeSchema])
+      .optional(),
     changed: z.boolean(),
     summary: z.string().min(1).max(512),
     components: z.array(ComponentSchema).max(64),

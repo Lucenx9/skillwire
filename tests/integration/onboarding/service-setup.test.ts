@@ -257,6 +257,39 @@ describe("service-only deployment boundary", () => {
     );
     expect(run).not.toHaveBeenCalled();
   });
+
+  it("observes one owned Compose service without inserting a second compose subcommand", async () => {
+    const calls: CommandOptions[] = [];
+    const run = vi.fn((options: CommandOptions) => {
+      calls.push(options);
+      return Promise.resolve(
+        options.args.includes("ps")
+          ? result("container-id\n")
+          : result(
+              `skillwire-test-0123456789abcdef|skillwire|localhost:5000/skillwire@sha256:${"1".repeat(64)}\n`,
+            ),
+      );
+    });
+
+    await expect(
+      deployment(run).observeOwnedService(
+        "skillwire",
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(true);
+    expect(calls[0]?.args).toEqual([
+      "compose",
+      "--project-name",
+      "skillwire-test-0123456789abcdef",
+      "--file",
+      "/tmp/disposable/compose.yaml",
+      "ps",
+      "--all",
+      "--quiet",
+      "skillwire",
+    ]);
+    expect(calls[0]?.args.filter((arg) => arg === "compose")).toHaveLength(1);
+  });
 });
 
 function result(stdout: string): CommandResult {

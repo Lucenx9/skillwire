@@ -10,7 +10,10 @@ import { dirname, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildSelfHostedRelease } from "../../../scripts/build-self-hosted-release.js";
-import { installVerifiedRelease } from "../../../src/onboarding/adapters/filesystem/release-installer.js";
+import {
+  installVerifiedRelease,
+  releaseDirectoryIdentity,
+} from "../../../src/onboarding/adapters/filesystem/release-installer.js";
 import {
   createOnboardingEnvironment,
   type OnboardingEnvironment,
@@ -122,6 +125,13 @@ describe("immutable self-hosted release installer", () => {
       trustPolicyPath,
     });
     expect(repeated.changed).toBe(false);
+    const installedIdentity = await releaseDirectoryIdentity(
+      result.releaseRoot,
+    );
+    await appendFile(resolve(result.releaseRoot, "app/skillwire.mjs"), "drift");
+    await expect(
+      releaseDirectoryIdentity(result.releaseRoot),
+    ).resolves.not.toBe(installedIdentity);
   });
 });
 import { createHash } from "node:crypto";
