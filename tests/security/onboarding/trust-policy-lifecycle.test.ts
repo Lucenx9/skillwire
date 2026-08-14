@@ -416,7 +416,7 @@ describe("offline release trust lifecycle", () => {
     ).rejects.toThrow(/overlap|bundle/i);
   });
 
-  it("requires the complete active two-signer quorum before replacing one signer", async () => {
+  it("requires the complete active quorum and proposed signer proof before replacement", async () => {
     let files = await releaseFiles();
     const activePolicy = JSON.parse(
       await readFile(files.policyPath, "utf8"),
@@ -503,7 +503,7 @@ describe("offline release trust lifecycle", () => {
         currentPolicyPath: activePolicyPath,
         currentPolicyRoot: files.root,
       }),
-    ).resolves.toMatchObject({ trustPolicySequence: 3 });
+    ).rejects.toThrow(/proposed.*signer|new.*signer/i);
   });
 
   it("requires a protected, currently valid authorizing policy whose release floor is preserved", async () => {

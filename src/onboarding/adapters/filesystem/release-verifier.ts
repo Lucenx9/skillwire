@@ -375,6 +375,7 @@ export async function verifySignedReleaseEnvelope(
       !policy.deniedSigners.includes(signerIdentity(signer)),
   );
   let requiredSignerCount = policy.overlap.requiredSignerCount;
+  let hasCompleteProposedSignerProof = true;
   if (options.currentTrustSequence === 0) {
     const pinned =
       options.pinnedInitialPolicySha256 ?? PINNED_INITIAL_TRUST_POLICY_SHA256;
@@ -478,6 +479,18 @@ export async function verifySignedReleaseEnvelope(
           "Trust policy rotation requires the complete current active signer quorum",
         );
       }
+      const activeIdentities = new Set(activeSigners.map(signerIdentity));
+      const verifiedIdentities = new Set(
+        verificationSigners.map(signerIdentity),
+      );
+      hasCompleteProposedSignerProof = !candidateSigners.some(
+        (candidateSigner) => {
+          const identity = signerIdentity(candidateSigner);
+          return (
+            !activeIdentities.has(identity) && !verifiedIdentities.has(identity)
+          );
+        },
+      );
       requiredSignerCount = Math.max(
         currentPolicy.overlap.requiredSignerCount,
         policy.overlap.requiredSignerCount,
@@ -502,6 +515,11 @@ export async function verifySignedReleaseEnvelope(
   const manifestSha256 = sha256(manifestBytes);
   if (authorizingPolicy.deniedManifestDigests.includes(manifestSha256))
     throw new Error("Release manifest digest is revoked");
+  if (!hasCompleteProposedSignerProof) {
+    throw new Error(
+      "Trust policy rotation requires proof from every proposed signer",
+    );
+  }
   const survivingSigners = policy.signers.filter(
     (signer) =>
       !policy.deniedSigners.includes(signer.signerId) &&
