@@ -189,7 +189,6 @@ export async function createApplication(
       allowedHosts: config.allowedHosts ?? [config.host],
       authenticator,
       readiness,
-      checkReadiness: () => scheduler.checkReadiness(),
       useCases: assembleUseCases(
         catalogRoot,
         catalogRelease,
