@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
+import { request as httpRequest } from "node:http";
 import {
   access,
   chmod,
@@ -12,10 +13,19 @@ import {
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
+import { CredentialResolver } from "../../credential-bridge/credential-resolver.js";
 import { atomicWriteJson } from "../adapters/filesystem/atomic-state.js";
-import { installVerifiedRelease } from "../adapters/filesystem/release-installer.js";
+import {
+  installVerifiedRelease,
+  releaseDirectoryIdentity,
+} from "../adapters/filesystem/release-installer.js";
 import { verifySelfHostedRelease } from "../adapters/filesystem/release-verifier.js";
 import { DeploymentAdapter } from "../adapters/docker/deployment.js";
+import {
+  assertLocalDockerContext,
+  dockerProcessEnvironment,
+  pinLocalDockerEndpoint,
+} from "../adapters/docker/environment.js";
 import { ServiceDatabase } from "../adapters/postgres/service-database.js";
 import {
   ClientKeyHandoffRecoveryError,
@@ -37,6 +47,8 @@ import { canonicalPreview } from "../cli/confirmation.js";
 import { ClientMutationNotStartedError } from "../domain/client-mutation.js";
 import type { ReleaseManifest } from "../domain/release-manifest.js";
 import {
+  ClientIntegrationSchema,
+  CredentialReferenceSchema,
   InstallationSchema,
   ServiceSecretSetSchema,
 } from "../domain/installation.js";
@@ -47,8 +59,10 @@ import {
 } from "../domain/operation-journal.js";
 import {
   createOwnershipLedger,
+  ExternalIntegrationDependencySchema,
   recordExternalIntegration,
   recordOwnedAsset,
+  verifyOwnershipRecord,
 } from "../domain/ownership.js";
 import {
   clientConflictFinding,
@@ -56,6 +70,8 @@ import {
   installClientLifecycle,
 } from "./client-lifecycle.js";
 import { verifyClientIntegration } from "./client-verification.js";
+import { inspectInstalledStatus } from "./status.js";
+import { continueProductionSetup } from "./production-continuation.js";
 import type {
   GuidedSetupOptions,
   GuidedSetupResult,
@@ -93,6 +109,408 @@ const ActiveReleaseStateSchema = z
       .regex(/^trust\/skillwire-trust-policy-v[1-9][0-9]*\.json$/),
   })
   .strict();
+
+const ClientIntegrationsStateSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.client-integrations/v1"),
+    installationId: z.uuid(),
+    integrations: z.array(ClientIntegrationSchema).max(2),
+  })
+  .strict();
+
+const ExternalIntegrationsStateSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.external-integrations/v1"),
+    installationId: z.uuid(),
+    dependencies: z.array(ExternalIntegrationDependencySchema).max(6),
+  })
+  .strict();
+
+const DeploymentStateSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.deployment/v1"),
+    installationId: z.uuid(),
+    releaseRoot: z.string().refine(isAbsolute),
+    composePath: z.string().refine(isAbsolute),
+    skillwireImage: z.string().min(1),
+    postgresImage: z.string().min(1),
+    databasePasswordFile: z.string().refine(isAbsolute),
+    applicationPepperFile: z.string().refine(isAbsolute),
+    runtimeSocketDirectory: z.string().refine(isAbsolute),
+    socketPath: z.string().refine(isAbsolute),
+    projectName: z.string().min(1),
+    volumeName: z.string().min(1),
+  })
+  .strict();
+
+export function unchangedSetupClientResults(
+  requested: readonly ClientName[],
+  installationId: string,
+  state: unknown,
+): readonly SetupClientResult[] | undefined {
+  const integrations = ClientIntegrationsStateSchema.parse(state);
+  if (integrations.installationId !== installationId)
+    throw new Error(
+      "Repeated setup client state belongs to another installation",
+    );
+  const results: SetupClientResult[] = [];
+  for (const client of requested) {
+    const integration = integrations.integrations.find(
+      (entry) => entry.client === client,
+    );
+    if (
+      integration === undefined ||
+      (integration.state !== "verified" &&
+        integration.state !== "external-verified")
+    )
+      return undefined;
+    results.push({
+      client,
+      status: integration.state,
+      compensated: false,
+      owned: integration.state !== "external-verified",
+    });
+  }
+  return results;
+}
+
+function repeatedSetupRequiresManagedCredential(
+  state: "verified" | "external-verified",
+): boolean {
+  return state === "verified";
+}
+
+export async function runRepeatedSetupClientVerification(
+  state: "verified" | "external-verified",
+  verification: {
+    readonly verifyManaged: () => Promise<void>;
+    readonly verifyExternal: () => Promise<void>;
+  },
+): Promise<void> {
+  await (repeatedSetupRequiresManagedCredential(state)
+    ? verification.verifyManaged()
+    : verification.verifyExternal());
+}
+
+export async function ownedLauncherIdentity(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stats = await handle.stat();
+    if (
+      !stats.isFile() ||
+      stats.nlink !== 1 ||
+      stats.uid !== process.getuid?.() ||
+      (stats.mode & 0o777) !== 0o700 ||
+      stats.size < 1 ||
+      stats.size > 64 * 1024
+    )
+      throw new Error("Stable launcher is not a protected owned file");
+    return createHash("sha256")
+      .update("skillwire-owned-launcher-v1\0")
+      .update(await handle.readFile())
+      .digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readProtectedSetupJson(path: string): Promise<unknown> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stats = await handle.stat();
+    if (
+      !stats.isFile() ||
+      stats.nlink !== 1 ||
+      stats.uid !== process.getuid?.() ||
+      (stats.mode & 0o777) !== 0o600 ||
+      stats.size > 1024 * 1024
+    )
+      throw new Error("Repeated setup state is unsafe");
+    return JSON.parse(await handle.readFile("utf8")) as unknown;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function requireLiveReadiness(
+  socketPath: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+  const ready = await new Promise<boolean>((done, reject) => {
+    const request = httpRequest(
+      {
+        socketPath,
+        path: "/health/ready",
+        method: "GET",
+        headers: { host: "localhost" },
+        signal: boundedSignal,
+      },
+      (response) => {
+        response.resume();
+        done(response.statusCode === 200);
+      },
+    );
+    request.once("error", reject);
+    request.end();
+  });
+  if (!ready) throw new Error("Installed SkillWire service is not ready");
+}
+
+async function verifyUnchangedProductionSetup(options: {
+  readonly installation: z.infer<typeof InstallationSchema>;
+  readonly integrations: z.infer<typeof ClientIntegrationsStateSchema>;
+  readonly clientsToVerify: readonly ClientName[];
+  readonly roots: SetupRoots;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly signal: AbortSignal;
+}): Promise<void> {
+  const { installation, clientsToVerify, environment, signal } = options;
+  const deployment = DeploymentStateSchema.parse(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "deployment.json"),
+    ),
+  );
+  const ownership = verifyOwnershipRecord(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "ownership.json"),
+    ),
+  );
+  const externalIntegrations = ExternalIntegrationsStateSchema.parse(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "external-integrations.json"),
+    ),
+  );
+  if (
+    deployment.installationId !== installation.installationId ||
+    ownership.installationId !== installation.installationId ||
+    externalIntegrations.installationId !== installation.installationId ||
+    deployment.projectName !== installation.composeProject ||
+    deployment.volumeName !== installation.postgresVolume ||
+    installation.endpoint !== `unix://${deployment.socketPath}`
+  ) {
+    throw new Error("Repeated setup service ownership state is inconsistent");
+  }
+  if (
+    ownership.externalDependencies.length !==
+      externalIntegrations.dependencies.length ||
+    externalIntegrations.dependencies.some(
+      ({ externalDependencyId }) =>
+        !ownership.externalDependencies.includes(externalDependencyId),
+    )
+  )
+    throw new Error(
+      "Repeated setup external integration ownership state is inconsistent",
+    );
+
+  const localDockerEndpoint = await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
+    environment,
+    signal,
+  });
+  const dockerEnvironment = pinLocalDockerEndpoint(
+    environment,
+    localDockerEndpoint,
+  );
+  const deploymentAdapter = new DeploymentAdapter({
+    dockerExecutable: "/usr/bin/docker",
+    composePath: deployment.composePath,
+    projectName: deployment.projectName,
+    volumeName: deployment.volumeName,
+    skillwireImage: deployment.skillwireImage,
+    postgresImage: deployment.postgresImage,
+    databasePasswordFile: deployment.databasePasswordFile,
+    applicationPepperFile: deployment.applicationPepperFile,
+    runtimeSocketDirectory: deployment.runtimeSocketDirectory,
+    socketPath: deployment.socketPath,
+    hostEnvironment: dockerEnvironment,
+  });
+  const [skillwirePresent, postgresPresent] = await Promise.all([
+    deploymentAdapter.observeOwnedService("skillwire", signal),
+    deploymentAdapter.observeOwnedService("postgres", signal),
+  ]);
+  if (!skillwirePresent || !postgresPresent)
+    throw new Error("Installed SkillWire services are not live");
+  const database = new ServiceDatabase({
+    dockerExecutable: "/usr/bin/docker",
+    projectName: deployment.projectName,
+    volumeName: deployment.volumeName,
+    composePath: deployment.composePath,
+    environment: composeEnvironment({
+      environment: dockerEnvironment,
+      projectName: deployment.projectName,
+      volumeName: deployment.volumeName,
+      skillwireImage: deployment.skillwireImage,
+      postgresImage: deployment.postgresImage,
+      databasePasswordFile: deployment.databasePasswordFile,
+      applicationPepperFile: deployment.applicationPepperFile,
+      runtimeSocketDirectory: deployment.runtimeSocketDirectory,
+    }),
+  });
+  await database.verifyVolume(signal);
+  await database.verifySchemaAndReadiness(signal);
+  await requireLiveReadiness(deployment.socketPath, signal);
+
+  const launcherIdentity = await ownedLauncherIdentity(
+    options.roots.launcherPath,
+  );
+  const launcherAsset = ownership.assets.find(
+    ({ kind, locator, disposition }) =>
+      kind === "path" &&
+      locator === options.roots.launcherPath &&
+      disposition === "present",
+  );
+  if (launcherAsset?.expectedIdentitySha256 !== launcherIdentity)
+    throw new Error("Repeated setup launcher ownership identity drifted");
+  const installedReleaseIdentity = await releaseDirectoryIdentity(
+    deployment.releaseRoot,
+  );
+  const releaseAsset = ownership.assets.find(
+    ({ kind, locator, disposition }) =>
+      kind === "release" &&
+      locator === deployment.releaseRoot &&
+      disposition === "present",
+  );
+  if (releaseAsset?.expectedIdentitySha256 !== installedReleaseIdentity)
+    throw new Error("Repeated setup release ownership identity drifted");
+
+  for (const client of clientsToVerify) {
+    const integration = options.integrations.integrations.find(
+      (entry) => entry.client === client,
+    );
+    if (integration === undefined)
+      throw new Error(`Repeated setup ${client} integration state is absent`);
+    if (
+      integration.state !== "verified" &&
+      integration.state !== "external-verified"
+    )
+      throw new Error(`Repeated setup ${client} integration is not verified`);
+    const vendorExecutable = await executable(client, environment);
+    const adapter =
+      client === "codex"
+        ? new CodexClientAdapter(vendorExecutable, environment, signal)
+        : new ClaudeClientAdapter(
+            vendorExecutable,
+            environment,
+            undefined,
+            undefined,
+            signal,
+          );
+    const marketplacePath = resolve(
+      deployment.releaseRoot,
+      client === "codex"
+        ? "distribution/codex-release-marketplace"
+        : "distribution/claude-marketplace",
+    );
+    const mcpIdentity = clientComponentIdentity({
+      command: options.roots.launcherPath,
+      args: [
+        "bridge",
+        "--installation",
+        installation.installationId,
+        "--client",
+        client,
+      ],
+      scope: "user",
+    });
+    const pluginIdentity = clientComponentIdentity({
+      plugin: "skillwire-autonomous-activation@skillwire",
+      marketplacePath,
+    });
+    if (
+      integration.mcpIdentitySha256 !== mcpIdentity ||
+      integration.adapterIdentitySha256 !== pluginIdentity
+    )
+      throw new Error(`Repeated setup ${client} integration identity drifted`);
+    for (const [kind, identity] of [
+      ["mcp-entry", mcpIdentity],
+      ["marketplace", pluginIdentity],
+      ["plugin", pluginIdentity],
+    ] as const) {
+      const owned = ownership.assets.filter(
+        (candidate) =>
+          candidate.kind === kind &&
+          candidate.client === client &&
+          candidate.disposition === "present" &&
+          candidate.expectedIdentitySha256 === identity,
+      );
+      const external = externalIntegrations.dependencies.filter(
+        (candidate) =>
+          candidate.kind === kind &&
+          candidate.client === client &&
+          candidate.verification === "equivalent" &&
+          candidate.observedIdentitySha256 === identity,
+      );
+      if (owned.length + external.length !== 1)
+        throw new Error(
+          `Repeated setup ${client} ${kind} ownership identity drifted`,
+        );
+    }
+    if (
+      integration.credentialReferenceId !== null &&
+      !ownership.assets.some(
+        ({ kind, client: assetClient, disposition }) =>
+          kind === "credential" &&
+          assetClient === client &&
+          disposition === "present",
+      )
+    )
+      throw new Error(
+        `Repeated setup ${client} credential ownership is absent`,
+      );
+    const registration = await adapter.readMcp();
+    await runRepeatedSetupClientVerification(integration.state, {
+      verifyManaged: async () => {
+        const resolvedCredential = await new CredentialResolver(
+          options.roots.stateRoot,
+          options.roots.dataRoot,
+          new SecretToolCredentialStore("/usr/bin/secret-tool", environment),
+        ).resolve(installation.installationId, client, signal);
+        if (
+          resolvedCredential.socketPath !== deployment.socketPath ||
+          resolvedCredential.endpoint.href !== "http://localhost/mcp"
+        )
+          throw new Error(
+            `Repeated setup ${client} credential bridge identity drifted`,
+          );
+        await verifyClientIntegration({
+          client,
+          vendorExecutable,
+          installationId: installation.installationId,
+          registration,
+          expectedLauncher: options.roots.launcherPath,
+          environment,
+          inventory: () => adapter.readInventory(marketplacePath),
+          signal,
+        });
+      },
+      verifyExternal: async () => {
+        const expectedArguments = [
+          "bridge",
+          "--installation",
+          installation.installationId,
+          "--client",
+          client,
+        ];
+        if (
+          registration.command !== options.roots.launcherPath ||
+          registration.args.join("\0") !== expectedArguments.join("\0")
+        )
+          throw new Error(
+            `Repeated setup ${client} external MCP identity drifted`,
+          );
+        const inventory = await adapter.readInventory(marketplacePath);
+        if (
+          inventory.mcp.command !== registration.command ||
+          inventory.mcp.args.join("\0") !== registration.args.join("\0")
+        )
+          throw new Error(
+            `Repeated setup ${client} external profile inventory drifted`,
+          );
+      },
+    });
+  }
+}
 
 export interface ProductionTrustOverrides {
   readonly pinnedInitialPolicySha256?: string | undefined;
@@ -448,8 +866,7 @@ function composeEnvironment(options: {
   readonly applicationPepperFile: string;
   readonly runtimeSocketDirectory: string;
 }): NodeJS.ProcessEnv {
-  return {
-    ...options.environment,
+  return dockerProcessEnvironment(options.environment, {
     SKILLWIRE_COMPOSE_PROJECT: options.projectName,
     SKILLWIRE_POSTGRES_VOLUME: options.volumeName,
     SKILLWIRE_IMAGE: options.skillwireImage,
@@ -459,7 +876,7 @@ function composeEnvironment(options: {
     SKILLWIRE_RUNTIME_SOCKET_DIRECTORY: options.runtimeSocketDirectory,
     SKILLWIRE_RUNTIME_UID: String(process.getuid?.() ?? 10001),
     SKILLWIRE_RUNTIME_GID: String(process.getgid?.() ?? 10001),
-  };
+  });
 }
 
 function image(
@@ -614,6 +1031,7 @@ async function runProductionSetupUnlocked(
       applicationPepperFile,
       runtimeSocketDirectory,
       socketPath,
+      hostEnvironment: environment,
     });
     await runEffect({
       step: "deployment",
@@ -652,8 +1070,11 @@ async function runProductionSetupUnlocked(
       installationId,
     );
     await mkdir(bridgeStateRoot, { recursive: true, mode: 0o700 });
-    const bridgeClients: { client: ClientName; credentialReference: string }[] =
-      [];
+    const bridgeClients: {
+      client: ClientName;
+      credentialReference: string;
+      keyId: string;
+    }[] = [];
     const persistBridgeState = (): Promise<void> =>
       atomicWriteJson(
         resolve(bridgeStateRoot, "bridge-state.json"),
@@ -679,6 +1100,7 @@ async function runProductionSetupUnlocked(
       readonly client: ClientName;
       readonly result: Awaited<ReturnType<typeof installClientLifecycle>>;
       readonly credentialReference: string | undefined;
+      readonly keyId: string | undefined;
       readonly marketplacePath: string;
     }[] = [];
     for (const client of selectedClients(options.clients)) {
@@ -692,6 +1114,7 @@ async function runProductionSetupUnlocked(
         installationId,
       );
       let currentReference: string | undefined;
+      let currentKeyId: string | undefined;
       const vendorExecutable = await executable(client, environment);
       const adapter =
         client === "codex"
@@ -702,6 +1125,20 @@ async function runProductionSetupUnlocked(
               undefined,
               undefined,
               signal,
+            );
+      const recoveryAdapter = () =>
+        client === "codex"
+          ? new CodexClientAdapter(
+              vendorExecutable,
+              environment,
+              AbortSignal.timeout(30_000),
+            )
+          : new ClaudeClientAdapter(
+              vendorExecutable,
+              environment,
+              undefined,
+              undefined,
+              AbortSignal.timeout(30_000),
             );
       const marketplacePath = resolve(
         installed.releaseRoot,
@@ -785,6 +1222,7 @@ async function runProductionSetupUnlocked(
               }),
             verification: (value) => ({ client, keyId: value.keyId }),
           });
+          currentKeyId = key.keyId;
           try {
             return await runEffect({
               step: `client-${client}-credential`,
@@ -843,6 +1281,7 @@ async function runProductionSetupUnlocked(
                 bridgeClients.push({
                   client,
                   credentialReference: currentReference,
+                  keyId: key.keyId,
                 });
                 await persistBridgeState();
                 return { keyId: key.keyId, reference: currentReference };
@@ -915,8 +1354,8 @@ async function runProductionSetupUnlocked(
             signal,
           });
         },
-        removePlugin: () => adapter.removePlugin(marketplacePath),
-        removeMcp: () => adapter.removeMcp(),
+        removePlugin: () => recoveryAdapter().removePlugin(marketplacePath),
+        removeMcp: () => recoveryAdapter().removeMcp(),
         revokeCredential: async (keyId, reference) => {
           const index = bridgeClients.findIndex(
             (entry) => entry.client === client,
@@ -957,6 +1396,7 @@ async function runProductionSetupUnlocked(
         client,
         result,
         credentialReference: currentReference,
+        keyId: currentKeyId,
         marketplacePath,
       });
     }
@@ -973,6 +1413,82 @@ async function runProductionSetupUnlocked(
         : "success";
     const timestamp = new Date().toISOString();
     const selected = selectedClients(options.clients);
+    const credentialOperationId = randomUUID();
+    const clientStateRecords = clientOwnership
+      .filter(
+        ({ result }) =>
+          result.status === "verified" || result.status === "external-verified",
+      )
+      .map((entry) => {
+        const clientIntegrationId = randomUUID();
+        const credentialReferenceId =
+          entry.result.components.credential === "created" &&
+          entry.credentialReference !== undefined &&
+          entry.keyId !== undefined
+            ? randomUUID()
+            : null;
+        const mcpIdentitySha256 = clientComponentIdentity({
+          command: installed.launcherPath,
+          args: [
+            "bridge",
+            "--installation",
+            installationId,
+            "--client",
+            entry.client,
+          ],
+          scope: "user",
+        });
+        const adapterIdentitySha256 = clientComponentIdentity({
+          plugin: "skillwire-autonomous-activation@skillwire",
+          marketplacePath: entry.marketplacePath,
+        });
+        return {
+          client: entry.client,
+          integration: ClientIntegrationSchema.parse({
+            schemaVersion: "skillwire.client-integration/v1",
+            clientIntegrationId,
+            installationId,
+            client: entry.client,
+            clientVersion: entry.client === "codex" ? "0.147.0" : "2.1.229",
+            profileScope: "normal-user",
+            state:
+              entry.result.status === "external-verified"
+                ? "external-verified"
+                : "verified",
+            credentialReferenceId,
+            keyPublicIdHash:
+              entry.keyId === undefined
+                ? null
+                : createHash("sha256").update(entry.keyId).digest("hex"),
+            mcpIdentitySha256,
+            adapterIdentitySha256,
+          }),
+          credential:
+            credentialReferenceId === null ||
+            entry.credentialReference === undefined ||
+            entry.keyId === undefined
+              ? null
+              : CredentialReferenceSchema.parse({
+                  schemaVersion: "skillwire.credential-reference/v1",
+                  credentialReferenceId,
+                  installationId,
+                  client: entry.client,
+                  backend: entry.credentialReference.startsWith(
+                    "secret-service:",
+                  )
+                    ? "secret-service"
+                    : "restrictive-file",
+                  locator: entry.credentialReference,
+                  keyPublicIdHash: createHash("sha256")
+                    .update(entry.keyId)
+                    .digest("hex"),
+                  createdByOperation: credentialOperationId,
+                  state: "available",
+                  fallbackRiskConfirmed:
+                    !entry.credentialReference.startsWith("secret-service:"),
+                }),
+        };
+      });
     const installation = InstallationSchema.parse({
       schemaVersion: "skillwire.installation/v1",
       installationId,
@@ -986,8 +1502,12 @@ async function runProductionSetupUnlocked(
       postgresVolume: volumeName,
       selectedClients: selected,
       clientIntegrationIds: {
-        codex: selected.includes("codex") ? randomUUID() : null,
-        claude: selected.includes("claude") ? randomUUID() : null,
+        codex:
+          clientStateRecords.find(({ client }) => client === "codex")
+            ?.integration.clientIntegrationId ?? null,
+        claude:
+          clientStateRecords.find(({ client }) => client === "claude")
+            ?.integration.clientIntegrationId ?? null,
       },
       status:
         status === "recovery-required"
@@ -1011,6 +1531,78 @@ async function runProductionSetupUnlocked(
     });
     const ownershipOperationId = randomUUID();
     let ownership = createOwnershipLedger(installationId);
+    const installedReleaseIdentity = await releaseDirectoryIdentity(
+      installed.releaseRoot,
+    );
+    const installedLauncherIdentity = await ownedLauncherIdentity(
+      installed.launcherPath,
+    );
+    for (const asset of [
+      {
+        kind: "release" as const,
+        locator: installed.releaseRoot,
+        identity: installedReleaseIdentity,
+        retention: "retain-by-default" as const,
+      },
+      {
+        kind: "trust-policy" as const,
+        locator: `trust/${manifest.trustPolicy.path}`,
+        identity: manifest.trustPolicy.sha256,
+        retention: "retain-by-default" as const,
+      },
+      ...secretReferences.map((secret) => ({
+        kind: "service-secret" as const,
+        locator: `${installationId}/${secret.relativePath}`,
+        identity: secret.identitySha256,
+        retention: "retain-by-default" as const,
+      })),
+      {
+        kind: "compose-project" as const,
+        locator: projectName,
+        identity: clientComponentIdentity({ projectName }),
+        retention: "remove-on-uninstall" as const,
+      },
+      ...(["skillwire", "postgres"] as const).map((service) => ({
+        kind: "container" as const,
+        locator: `${projectName}:${service}`,
+        identity: clientComponentIdentity({ projectName, service }),
+        retention: "remove-on-uninstall" as const,
+      })),
+      {
+        kind: "volume" as const,
+        locator: volumeName,
+        identity: clientComponentIdentity({ volumeName }),
+        retention: "retain-by-default" as const,
+      },
+      {
+        kind: "path" as const,
+        locator: installed.launcherPath,
+        identity: installedLauncherIdentity,
+        retention: "remove-only-on-purge" as const,
+      },
+      {
+        kind: "path" as const,
+        locator: installationRoot,
+        identity: clientComponentIdentity({ installationRoot }),
+        retention: "remove-only-on-purge" as const,
+      },
+      {
+        kind: "path" as const,
+        locator: bridgeStateRoot,
+        identity: clientComponentIdentity({ bridgeStateRoot }),
+        retention: "remove-only-on-purge" as const,
+      },
+    ]) {
+      ownership = recordOwnedAsset(ownership, {
+        kind: asset.kind,
+        client: null,
+        locator: asset.locator,
+        expectedIdentitySha256: asset.identity,
+        createdByOperation: ownershipOperationId,
+        retention: asset.retention,
+        disposition: "present",
+      });
+    }
     for (const entry of clientOwnership) {
       if (
         entry.result.status !== "verified" &&
@@ -1096,7 +1688,7 @@ async function runProductionSetupUnlocked(
             reference: entry.credentialReference,
           }),
           createdByOperation: ownershipOperationId,
-          retention: "remove-on-uninstall",
+          retention: "retain-by-default",
           disposition: "present",
         });
       }
@@ -1126,6 +1718,46 @@ async function runProductionSetupUnlocked(
             schemaVersion: "skillwire.external-integrations/v1",
             installationId,
             dependencies: ownership.externalIntegrations,
+          },
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "client-integrations.json"),
+          {
+            schemaVersion: "skillwire.client-integrations/v1",
+            installationId,
+            integrations: clientStateRecords.map(
+              ({ integration }) => integration,
+            ),
+          },
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "credential-references.json"),
+          {
+            schemaVersion: "skillwire.credential-references/v1",
+            installationId,
+            credentials: clientStateRecords
+              .map(({ credential }) => credential)
+              .filter((credential) => credential !== null),
+          },
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "deployment.json"),
+          {
+            schemaVersion: "skillwire.deployment/v1",
+            installationId,
+            releaseRoot: installed.releaseRoot,
+            composePath,
+            skillwireImage,
+            postgresImage,
+            databasePasswordFile,
+            applicationPepperFile,
+            runtimeSocketDirectory,
+            socketPath,
+            projectName,
+            volumeName,
           },
           setupRoots.stateRoot,
         );
@@ -1171,27 +1803,171 @@ export async function runProductionSetup(
     "installation",
     identity,
   );
-  const operationId = randomUUID();
-  const journal = await OperationJournal.create(
-    resolve(setupRoots.stateRoot, "operations"),
-    operationId,
-    "setup",
-  );
-  const previewHash =
-    options.previewHash ??
-    createHash("sha256")
-      .update(
-        JSON.stringify({
-          clients: options.clients,
-          credentialBackend: options.credentialBackend,
-        }),
-      )
-      .digest("hex");
-  await journal.intent("setup", {
-    clients: options.clients,
-    previewHash,
-  });
+  let journal: OperationJournal | undefined;
   try {
+    let existingInstallation: z.infer<typeof InstallationSchema> | undefined;
+    // Preserve the durable cancellation contract: even an already-aborted
+    // fresh setup records intent/cancel before returning. Live installed-state
+    // inspection is skipped until after that journal exists in this case.
+    if (!signal.aborted) {
+      try {
+        existingInstallation = (
+          await inspectInstalledStatus({
+            stateRoot: setupRoots.stateRoot,
+            signal,
+          })
+        ).installation;
+      } catch (error) {
+        if (!(
+          error instanceof Error &&
+          (("code" in error && error.code === "ENOENT") ||
+            error.message.includes("ENOENT"))
+        ))
+          throw error;
+      }
+      if (existingInstallation?.status === "recovery-required")
+        throw new Error(
+          "Setup cannot bypass an installation that requires journal recovery",
+        );
+      const requested = selectedClients(options.clients);
+      const installed = existingInstallation;
+      if (
+        installed !== undefined &&
+        (installed.status === "service-ready" ||
+          installed.status === "complete") &&
+        requested.every((client) => installed.selectedClients.includes(client))
+      ) {
+        const integrations = ClientIntegrationsStateSchema.parse(
+          await readProtectedSetupJson(
+            resolve(setupRoots.stateRoot, "client-integrations.json"),
+          ),
+        );
+        const unchangedClients = unchangedSetupClientResults(
+          requested,
+          installed.installationId,
+          integrations,
+        );
+        if (unchangedClients !== undefined) {
+          const candidate = await candidatePaths(environment);
+          const verified = await verifyCandidate(
+            candidate,
+            setupRoots,
+            trustOverrides,
+            signal,
+          );
+          if (
+            verified.releaseSequence !==
+              installed.highestAcceptedReleaseSequence ||
+            verified.trustPolicySequence !== installed.activeTrustPolicySequence
+          ) {
+            throw new Error(
+              "Unchanged setup candidate differs from the installed release state",
+            );
+          }
+          await verifyUnchangedProductionSetup({
+            installation: installed,
+            integrations,
+            clientsToVerify: installed.selectedClients,
+            roots: setupRoots,
+            environment,
+            signal,
+          });
+          return {
+            status: "success",
+            installationId: installed.installationId,
+            serviceReady: true,
+            clients: unchangedClients,
+            changed: false,
+          };
+        }
+      }
+    }
+
+    journal = await OperationJournal.create(
+      resolve(setupRoots.stateRoot, "operations"),
+      randomUUID(),
+      "setup",
+    );
+    const previewHash =
+      options.previewHash ??
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            clients: options.clients,
+            credentialBackend: options.credentialBackend,
+          }),
+        )
+        .digest("hex");
+    await journal.intent("setup", {
+      clients: options.clients,
+      previewHash,
+    });
+    if (
+      existingInstallation !== undefined &&
+      existingInstallation.status !== "purged"
+    ) {
+      const current = (
+        await inspectInstalledStatus({
+          stateRoot: setupRoots.stateRoot,
+          signal,
+        })
+      ).installation;
+      if (
+        current.installationId !== existingInstallation.installationId ||
+        current.updatedAt !== existingInstallation.updatedAt ||
+        current.status !== existingInstallation.status
+      )
+        throw new Error(
+          "Installed setup state changed before lock acquisition",
+        );
+      const candidate = await candidatePaths(environment);
+      const verified = await verifyCandidate(
+        candidate,
+        setupRoots,
+        trustOverrides,
+        signal,
+      );
+      if (
+        verified.releaseSequence !== current.highestAcceptedReleaseSequence ||
+        verified.trustPolicySequence !== current.activeTrustPolicySequence
+      )
+        throw new Error(
+          "Repeated setup cannot replace the installed signed release; use upgrade",
+        );
+      const continued = await continueProductionSetup({
+        setup: options,
+        credentialBackend: options.credentialBackend,
+        installation: current,
+        home: setupRoots.home,
+        dataRoot: setupRoots.dataRoot,
+        stateRoot: setupRoots.stateRoot,
+        runtimeRoot: setupRoots.runtimeRoot,
+        launcherPath: setupRoots.launcherPath,
+        environment,
+        signal,
+        journal,
+        verifyPriorSelectedClients: async (
+          clientsToVerify,
+          dockerEnvironment,
+        ) => {
+          const integrations = ClientIntegrationsStateSchema.parse(
+            await readProtectedSetupJson(
+              resolve(setupRoots.stateRoot, "client-integrations.json"),
+            ),
+          );
+          await verifyUnchangedProductionSetup({
+            installation: current,
+            integrations,
+            clientsToVerify,
+            roots: setupRoots,
+            environment: dockerEnvironment,
+            signal,
+          });
+        },
+      });
+      await journal.commit({ status: "success" });
+      return continued;
+    }
     const result = await runProductionSetupUnlocked(
       options,
       signal,
@@ -1202,12 +1978,16 @@ export async function runProductionSetup(
     await journal.commit({ status: result.status });
     return result;
   } catch (error) {
-    if (signal.aborted) {
-      await journal.cancel({
-        status: journal.hasUnprovenEffect() ? "recovery-required" : "cancelled",
-      });
-    } else {
-      await journal.compensate("setup", { status: "recovery-required" });
+    if (journal !== undefined) {
+      if (signal.aborted) {
+        await journal.cancel({
+          status: journal.hasUnprovenEffect()
+            ? "recovery-required"
+            : "cancelled",
+        });
+      } else {
+        await journal.compensate("setup", { status: "recovery-required" });
+      }
     }
     throw error;
   } finally {

@@ -7,6 +7,7 @@ import {
   copyFile,
   mkdir,
   readFile,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -24,6 +25,7 @@ import {
   createOnboardingEnvironment,
   type OnboardingEnvironment,
 } from "../../helpers/onboarding-environment.js";
+import { snapshotTree } from "../../helpers/filesystem-snapshot.js";
 import { createFakeExecutables } from "../../helpers/onboarding-executables.js";
 import {
   bundleV03Fixture,
@@ -358,6 +360,63 @@ describe("real disposable production setup", () => {
       expect(
         await readFile(resolve(fixture.home, ".claude.json"), "utf8"),
       ).toContain('"skillwire"');
+
+      const stateBeforeRepeat = await snapshotTree(
+        resolve(fixture.xdgStateHome, "skillwire"),
+      );
+      const profilesBeforeRepeat = await snapshotTree(fixture.home);
+      const unchanged = await runProductionSetup(
+        { clients: "none", credentialBackend: "not-selected" },
+        new AbortController().signal,
+        clientEnvironment,
+        { pinnedInitialPolicySha256: sha256(policyBytes) },
+      );
+      expect(unchanged).toMatchObject({
+        status: "success",
+        serviceReady: true,
+        clients: [],
+        changed: false,
+      });
+      expect(
+        await snapshotTree(resolve(fixture.xdgStateHome, "skillwire")),
+      ).toEqual(stateBeforeRepeat);
+      expect(await snapshotTree(fixture.home)).toEqual(profilesBeforeRepeat);
+
+      const claudeProfilePath = resolve(fixture.home, ".claude.json");
+      const claudeProfile = await readFile(claudeProfilePath);
+      await writeFile(claudeProfilePath, "{}", { mode: 0o600 });
+      await expect(
+        runProductionSetup(
+          { clients: "none", credentialBackend: "not-selected" },
+          new AbortController().signal,
+          clientEnvironment,
+          { pinnedInitialPolicySha256: sha256(policyBytes) },
+        ),
+      ).rejects.toThrow(/claude|integration|profile|registration/i);
+      expect(
+        await snapshotTree(resolve(fixture.xdgStateHome, "skillwire")),
+      ).toEqual(stateBeforeRepeat);
+      await writeFile(claudeProfilePath, claudeProfile, { mode: 0o600 });
+
+      await unlink(
+        resolve(
+          fixture.stateRoot,
+          "credentials",
+          clientResult.installationId,
+          "claude.key",
+        ),
+      );
+      await expect(
+        runProductionSetup(
+          { clients: "none", credentialBackend: "not-selected" },
+          new AbortController().signal,
+          clientEnvironment,
+          { pinnedInitialPolicySha256: sha256(policyBytes) },
+        ),
+      ).rejects.toThrow(/credential|bridge|unavailable/i);
+      expect(
+        await snapshotTree(resolve(fixture.xdgStateHome, "skillwire")),
+      ).toEqual(stateBeforeRepeat);
     },
     360_000,
   );

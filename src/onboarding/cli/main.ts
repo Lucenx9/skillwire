@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { routeAdministrativeCommand } from "./command-router.js";
 import { runBridgeCommand } from "../../credential-bridge/bridge-cli.js";
 import { redactText } from "./output.js";
+import { createProductionLifecycleOperations } from "../application/production-lifecycle.js";
 
 export type ClientName = "codex" | "claude";
 export type CommandRoute =
@@ -257,7 +258,13 @@ export function installCancellationSignals(
 }
 
 const defaultDependencies: DispatcherDependencies = {
-  admin: routeAdministrativeCommand,
+  admin: (command, io, signal) =>
+    routeAdministrativeCommand(
+      command,
+      io,
+      signal,
+      createProductionLifecycleOperations(process.env),
+    ),
   bridge: runBridgeCommand,
 };
 

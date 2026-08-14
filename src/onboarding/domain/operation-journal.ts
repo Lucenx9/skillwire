@@ -80,6 +80,25 @@ export class JournaledEffectError extends Error {
   }
 }
 
+export class JournaledOperationFailure extends Error {
+  readonly changed = true;
+  readonly recoveryRequired = true;
+
+  public constructor(
+    message: string,
+    readonly rollbackBoundary:
+      | "automatic"
+      | "client-only"
+      | "application-config"
+      | "database-restore-required"
+      | "none" = "application-config",
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "JournaledOperationFailure";
+  }
+}
+
 export class OperationJournal {
   readonly entries: JournalEntry[] = [];
 
@@ -146,15 +165,29 @@ export class OperationJournal {
     detail: JournalEntry["detail"],
   ): Promise<void> {
     const last = this.entries.at(-1);
-    if (last?.phase === "commit" || last?.phase === "cancel") {
+    const resumingCancelledOperation =
+      last?.phase === "cancel" &&
+      (last.detail["status"] === "failed" ||
+        last.detail["status"] === "recovery-required") &&
+      phase === "compensate";
+    if (
+      last?.phase === "commit" ||
+      (last?.phase === "cancel" && !resumingCancelledOperation)
+    ) {
       throw new Error("Operation journal is already terminal");
     }
     if (phase === "effect" && (last?.phase !== "intent" || last.step !== step))
       throw new Error("Effect must follow matching durable intent");
     if (phase === "verify" && (last?.phase !== "effect" || last.step !== step))
       throw new Error("Verification must follow matching effect");
+    const recoveredCommit =
+      phase === "commit" &&
+      detail["status"] === "recovered" &&
+      last?.phase === "compensate" &&
+      last.detail["completion"] !== "unproven";
     if (
       phase === "commit" &&
+      !recoveredCommit &&
       !this.entries.some(({ phase: entryPhase }) => entryPhase === "verify")
     )
       throw new Error("Cannot report success without verification");
@@ -243,15 +276,41 @@ export class OperationJournal {
   }
 
   hasUnprovenEffect(): boolean {
-    const unproven = new Set(
-      this.entries
-        .filter(
-          ({ phase, detail }) =>
-            phase === "compensate" && detail["completion"] === "unproven",
-        )
-        .map(({ step }) => step),
-    );
+    const unproven = new Set<string>();
+    for (const entry of this.entries) {
+      if (entry.phase !== "compensate") continue;
+      if (entry.detail["completion"] === "unproven") unproven.add(entry.step);
+      else unproven.delete(entry.step);
+    }
     return unproven.size > 0;
+  }
+
+  hasIncompleteMutation(): boolean {
+    const unresolved = new Set<string>();
+    for (const entry of this.entries) {
+      if (entry.phase === "effect") unresolved.add(entry.step);
+      if (entry.phase !== "compensate") continue;
+      if (entry.detail["completion"] === "unproven") unresolved.add(entry.step);
+      else unresolved.delete(entry.step);
+    }
+    return unresolved.size > 0;
+  }
+
+  failure(error: unknown): unknown {
+    if (!this.hasIncompleteMutation()) return error;
+    if (error instanceof JournaledOperationFailure) return error;
+    return new JournaledOperationFailure(
+      error instanceof Error
+        ? error.message
+        : "Lifecycle operation stopped after an owned mutation began",
+      this.command === "clients-uninstall" ||
+        this.command === "clients-rotate-key"
+        ? "client-only"
+        : this.command === "purge"
+          ? "none"
+          : "application-config",
+      { cause: error },
+    );
   }
 }
 

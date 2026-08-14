@@ -272,3 +272,121 @@ export function recordOwnedAsset(
     externalIntegrations: ledger.externalIntegrations,
   };
 }
+
+export type OwnershipRemovalOperation =
+  "client-uninstall" | "uninstall" | "purge";
+
+export interface OwnedAssetDispositionPlan {
+  readonly remove: readonly z.infer<typeof OwnedAssetSchema>[];
+  readonly retain: readonly z.infer<typeof OwnedAssetSchema>[];
+}
+
+export function planOwnedAssetDispositions(
+  candidate: unknown,
+  operation: OwnershipRemovalOperation,
+  client?: "codex" | "claude",
+): OwnedAssetDispositionPlan {
+  const record = verifyOwnershipRecord(candidate);
+  if (operation === "client-uninstall" && client === undefined)
+    throw new Error("Client uninstall requires an exact client");
+  const remove = record.assets.filter((asset) => {
+    if (operation === "purge")
+      return (
+        asset.disposition === "present" || asset.disposition === "retained"
+      );
+    if (operation === "client-uninstall")
+      return (
+        asset.client === client &&
+        (asset.disposition === "present" ||
+          (asset.kind === "credential" && asset.disposition === "retained"))
+      );
+    if (asset.disposition !== "present") return false;
+    return (
+      asset.kind === "mcp-entry" ||
+      asset.kind === "plugin" ||
+      asset.kind === "marketplace" ||
+      asset.kind === "container" ||
+      asset.kind === "compose-project"
+    );
+  });
+  const removeIds = new Set(remove.map(({ assetId }) => assetId));
+  return {
+    remove,
+    retain: record.assets.filter(({ assetId }) => !removeIds.has(assetId)),
+  };
+}
+
+export function requireCurrentOwnedAssetIdentity(
+  asset: z.infer<typeof OwnedAssetSchema>,
+  currentIdentitySha256: string,
+): void {
+  if (asset.disposition === "ambiguous" || asset.disposition === "drifted")
+    throw new Error("Owned asset is ambiguous or drifted");
+  if (asset.disposition !== "present" && asset.disposition !== "retained")
+    throw new Error("Owned asset is not currently removable");
+  if (asset.expectedIdentitySha256 !== currentIdentitySha256)
+    throw new Error("Owned asset identity changed after preview");
+}
+
+export function recordAssetDisposition(
+  candidate: unknown,
+  assetId: string,
+  disposition: "removed" | "retained" | "drifted" | "ambiguous",
+): z.infer<typeof OwnershipRecordSchema> {
+  const record = verifyOwnershipRecord(candidate);
+  if (!record.assets.some((asset) => asset.assetId === assetId))
+    throw new Error("Owned asset is not recorded");
+  return updateRecord(record, {
+    assets: record.assets.map((asset) =>
+      asset.assetId === assetId ? { ...asset, disposition } : asset,
+    ),
+  });
+}
+
+export function reactivateOwnedAsset(
+  candidate: unknown,
+  assetId: string,
+  currentIdentitySha256: string,
+): z.infer<typeof OwnershipRecordSchema> {
+  const record = verifyOwnershipRecord(candidate);
+  const asset = record.assets.find((entry) => entry.assetId === assetId);
+  if (asset === undefined) throw new Error("Owned asset is not recorded");
+  if (asset.expectedIdentitySha256 !== currentIdentitySha256)
+    throw new Error("Retained owned asset identity changed");
+  if (asset.disposition !== "retained" && asset.disposition !== "removed")
+    throw new Error("Owned asset is not eligible for reactivation");
+  return updateRecord(record, {
+    assets: record.assets.map((entry) =>
+      entry.assetId === assetId
+        ? { ...entry, disposition: "present" as const }
+        : entry,
+    ),
+  });
+}
+
+export function replaceOwnedAssetIdentity(
+  candidate: unknown,
+  assetId: string,
+  replacement: {
+    readonly locator: string;
+    readonly expectedIdentitySha256: string;
+  },
+): z.infer<typeof OwnershipRecordSchema> {
+  const record = verifyOwnershipRecord(candidate);
+  if (!/^[0-9a-f]{64}$/.test(replacement.expectedIdentitySha256))
+    throw new Error("Replacement owned asset identity is invalid");
+  if (!record.assets.some((asset) => asset.assetId === assetId))
+    throw new Error("Owned asset is not recorded");
+  return updateRecord(record, {
+    assets: record.assets.map((asset) =>
+      asset.assetId === assetId
+        ? {
+            ...asset,
+            locator: replacement.locator,
+            expectedIdentitySha256: replacement.expectedIdentitySha256,
+            disposition: "present" as const,
+          }
+        : asset,
+    ),
+  });
+}

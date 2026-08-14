@@ -235,6 +235,44 @@ describe("service-only deployment boundary", () => {
     ).toBe(false);
   });
 
+  it("uses an already resolved local endpoint without re-reading another context", async () => {
+    const run = vi.fn(async (options: CommandOptions) => {
+      await Promise.resolve();
+      const joined = options.args.join(" ");
+      if (joined.startsWith("context "))
+        throw new Error("the default context must not replace a pinned host");
+      if (joined === "--version") return result("Docker version 29.7.2\n");
+      if (joined === "compose version")
+        return result("Docker Compose version v5.4.0\n");
+      if (joined.includes("image inspect"))
+        return result(`${JSON.stringify([options.args.at(-1) ?? ""])}\n`);
+      return result("");
+    });
+    const adapter = new DeploymentAdapter({
+      dockerExecutable: "/usr/bin/docker",
+      composePath: "/tmp/disposable/compose.yaml",
+      projectName: "skillwire-test-0123456789abcdef",
+      volumeName: "skillwire-test-0123456789abcdef_postgres_data",
+      skillwireImage: `localhost:5000/skillwire@sha256:${"1".repeat(64)}`,
+      postgresImage: `docker.io/library/postgres@sha256:${"2".repeat(64)}`,
+      databasePasswordFile: "/tmp/disposable/database-password",
+      applicationPepperFile: "/tmp/disposable/application-pepper",
+      runtimeSocketDirectory: runtimeDirectory,
+      socketPath: resolve(runtimeDirectory, "mcp.sock"),
+      hostEnvironment: { DOCKER_HOST: "unix:///run/user/1000/docker.sock" },
+      run,
+    });
+
+    await expect(adapter.probe()).resolves.toBeUndefined();
+    expect(
+      run.mock.calls.every(
+        ([options]) =>
+          options.environment?.["DOCKER_HOST"] ===
+          "unix:///run/user/1000/docker.sock",
+      ),
+    ).toBe(true);
+  });
+
   it("rejects an unsafe socket directory before Compose mutation", async () => {
     const run = vi.fn<(options: CommandOptions) => Promise<CommandResult>>();
     const unsafeDirectory = resolve(runtimeDirectory, "unsafe");
@@ -256,6 +294,39 @@ describe("service-only deployment boundary", () => {
       /unsafe/i,
     );
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("observes one owned Compose service without inserting a second compose subcommand", async () => {
+    const calls: CommandOptions[] = [];
+    const run = vi.fn((options: CommandOptions) => {
+      calls.push(options);
+      return Promise.resolve(
+        options.args.includes("ps")
+          ? result("container-id\n")
+          : result(
+              `skillwire-test-0123456789abcdef|skillwire|localhost:5000/skillwire@sha256:${"1".repeat(64)}\n`,
+            ),
+      );
+    });
+
+    await expect(
+      deployment(run).observeOwnedService(
+        "skillwire",
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(true);
+    expect(calls[0]?.args).toEqual([
+      "compose",
+      "--project-name",
+      "skillwire-test-0123456789abcdef",
+      "--file",
+      "/tmp/disposable/compose.yaml",
+      "ps",
+      "--all",
+      "--quiet",
+      "skillwire",
+    ]);
+    expect(calls[0]?.args.filter((arg) => arg === "compose")).toHaveLength(1);
   });
 });
 

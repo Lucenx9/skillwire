@@ -315,3 +315,109 @@ export async function installClientLifecycle(
         };
   }
 }
+
+export type RemovableClientComponent =
+  "mcp-entry" | "plugin" | "marketplace" | "credential";
+
+export interface ClientRemovalObservation {
+  readonly component: RemovableClientComponent;
+  readonly classification: ClientComponentClassification;
+  readonly expectedIdentitySha256: string | null;
+  readonly currentIdentitySha256: string | null;
+}
+
+export interface ClientRemovalDependencies {
+  inspect(): Promise<readonly ClientRemovalObservation[]>;
+  removeMcp(): Promise<void>;
+  removePlugin(): Promise<void>;
+  removeMarketplace(): Promise<void>;
+  revokeCredential(): Promise<void>;
+  verifyAbsent(component: RemovableClientComponent): Promise<boolean>;
+}
+
+export interface ClientRemovalResult {
+  readonly client: ClientName;
+  readonly status: "removed" | "unchanged" | "recovery-required";
+  readonly removed: readonly RemovableClientComponent[];
+  readonly retainedExternal: readonly RemovableClientComponent[];
+}
+
+export async function uninstallClientLifecycle(
+  client: ClientName,
+  dependencies: ClientRemovalDependencies,
+  signal: AbortSignal,
+): Promise<ClientRemovalResult> {
+  const observations = await dependencies.inspect();
+  const retainedExternal = observations
+    .filter(({ classification }) => classification === "external-equivalent")
+    .map(({ component }) => component);
+  const blocked = observations.find(
+    ({ classification }) =>
+      classification !== "absent" &&
+      classification !== "external-equivalent" &&
+      classification !== "owned-equivalent",
+  );
+  if (blocked !== undefined)
+    return {
+      client,
+      status: "recovery-required",
+      removed: [],
+      retainedExternal,
+    };
+  const removable = observations.filter(
+    (observation) => observation.classification === "owned-equivalent",
+  );
+  if (
+    removable.some(
+      ({ expectedIdentitySha256, currentIdentitySha256 }) =>
+        expectedIdentitySha256 === null ||
+        currentIdentitySha256 === null ||
+        expectedIdentitySha256 !== currentIdentitySha256,
+    )
+  )
+    return {
+      client,
+      status: "recovery-required",
+      removed: [],
+      retainedExternal,
+    };
+  const inverse: Readonly<
+    Record<RemovableClientComponent, () => Promise<void>>
+  > = {
+    "mcp-entry": () => dependencies.removeMcp(),
+    plugin: () => dependencies.removePlugin(),
+    marketplace: () => dependencies.removeMarketplace(),
+    credential: () => dependencies.revokeCredential(),
+  };
+  const order: readonly RemovableClientComponent[] = [
+    "plugin",
+    "marketplace",
+    "mcp-entry",
+    "credential",
+  ];
+  const removed: RemovableClientComponent[] = [];
+  for (const component of order) {
+    if (!removable.some((entry) => entry.component === component)) continue;
+    if (signal.aborted)
+      return { client, status: "recovery-required", removed, retainedExternal };
+    try {
+      await inverse[component]();
+      if (!(await dependencies.verifyAbsent(component)))
+        return {
+          client,
+          status: "recovery-required",
+          removed,
+          retainedExternal,
+        };
+      removed.push(component);
+    } catch {
+      return { client, status: "recovery-required", removed, retainedExternal };
+    }
+  }
+  return {
+    client,
+    status: removed.length === 0 ? "unchanged" : "removed",
+    removed,
+    retainedExternal,
+  };
+}

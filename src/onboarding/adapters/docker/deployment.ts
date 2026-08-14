@@ -8,6 +8,7 @@ import {
   type CommandOptions,
   type CommandResult,
 } from "../process/command-runner.js";
+import { dockerProcessEnvironment } from "./environment.js";
 
 type CommandExecutor = (options: CommandOptions) => Promise<CommandResult>;
 
@@ -22,6 +23,7 @@ export interface DeploymentOptions {
   readonly applicationPepperFile: string;
   readonly runtimeSocketDirectory: string;
   readonly socketPath: string;
+  readonly hostEnvironment?: NodeJS.ProcessEnv | undefined;
   readonly run?: CommandExecutor | undefined;
   readonly readinessProbe?:
     ((socketPath: string, signal: AbortSignal) => Promise<boolean>) | undefined;
@@ -118,8 +120,7 @@ export class DeploymentAdapter {
       executable: resolve(this.options.dockerExecutable),
       args,
       environment: {
-        PATH: "/usr/bin:/bin",
-        LANG: "C.UTF-8",
+        ...dockerProcessEnvironment(this.options.hostEnvironment ?? {}),
         SKILLWIRE_COMPOSE_PROJECT: this.options.projectName,
         SKILLWIRE_POSTGRES_VOLUME: this.options.volumeName,
         SKILLWIRE_IMAGE: this.options.skillwireImage,
@@ -151,21 +152,27 @@ export class DeploymentAdapter {
     );
     if (composeVersion === null || Number(composeVersion[1]) < 2)
       throw new Error("Unsupported Docker Compose version");
-    const context = (
-      await this.command(["context", "show"], signal)
-    ).stdout.trim();
-    const endpoint = (
-      await this.command(
-        [
-          "context",
-          "inspect",
-          context,
-          "--format",
-          "{{.Endpoints.docker.Host}}",
-        ],
-        signal,
-      )
-    ).stdout.trim();
+    const routedEnvironment = dockerProcessEnvironment(
+      this.options.hostEnvironment ?? {},
+    );
+    const pinnedEndpoint =
+      this.options.hostEnvironment?.["DOCKER_CONTEXT"] === undefined
+        ? routedEnvironment["DOCKER_HOST"]
+        : undefined;
+    const endpoint =
+      pinnedEndpoint ??
+      (
+        await this.command(
+          [
+            "context",
+            "inspect",
+            (await this.command(["context", "show"], signal)).stdout.trim(),
+            "--format",
+            "{{.Endpoints.docker.Host}}",
+          ],
+          signal,
+        )
+      ).stdout.trim();
     if (!endpoint.startsWith("unix://") && !endpoint.startsWith("npipe://"))
       throw new Error(
         "A local Docker context is required; remote contexts are refused",
@@ -280,5 +287,49 @@ export class DeploymentAdapter {
     throw new Error(
       `SkillWire readiness failed${lastError instanceof Error ? `: ${lastError.message}` : ""}`,
     );
+  }
+
+  async observeOwnedService(
+    service: "skillwire" | "postgres",
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const listed = await this.command(
+      [
+        "compose",
+        "--project-name",
+        this.options.projectName,
+        "--file",
+        this.options.composePath,
+        "ps",
+        "--all",
+        "--quiet",
+        service,
+      ],
+      signal,
+    );
+    const identities = listed.stdout.trim().split("\n").filter(Boolean);
+    if (identities.length === 0) return false;
+    if (identities.length !== 1)
+      throw new Error("Owned Compose service identity is ambiguous");
+    const inspected = await this.command(
+      [
+        "container",
+        "inspect",
+        identities[0] ?? "",
+        "--format",
+        '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.Config.Image}}',
+      ],
+      signal,
+    );
+    const expectedImage =
+      service === "skillwire"
+        ? this.options.skillwireImage
+        : this.options.postgresImage;
+    if (
+      inspected.stdout.trim() !==
+      `${this.options.projectName}|${service}|${expectedImage}`
+    )
+      throw new Error("Owned Compose service labels or image identity drifted");
+    return true;
   }
 }

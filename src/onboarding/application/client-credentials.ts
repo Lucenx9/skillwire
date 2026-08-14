@@ -38,6 +38,13 @@ export class ClientCredentialService {
     private readonly backend: ClientCredentialBackend,
   ) {}
 
+  private async revokeThenRemove(
+    credential: PersistedClientCredential,
+  ): Promise<void> {
+    await this.issuer.revoke(credential.keyId);
+    await this.backend.remove(credential.client, credential.reference);
+  }
+
   async provision(client: ClientName): Promise<PersistedClientCredential> {
     const created = await this.issuer.create(client);
     if (parseApiKeyToken(created.token) === undefined)
@@ -55,13 +62,11 @@ export class ClientCredentialService {
         throw new Error("Persisted client credential did not verify");
       return { client, keyId: created.keyId, reference };
     } catch (error) {
-      const cleanup = await Promise.allSettled([
-        ...(reference === undefined
-          ? []
-          : [this.backend.remove(client, reference)]),
-        this.issuer.revoke(created.keyId),
-      ]);
-      if (cleanup.some(({ status }) => status === "rejected")) {
+      try {
+        await this.issuer.revoke(created.keyId);
+        if (reference !== undefined)
+          await this.backend.remove(client, reference);
+      } catch {
         throw new ClientCredentialRecoveryError(
           "Client credential provisioning failed and narrow cleanup requires recovery",
         );
@@ -70,12 +75,67 @@ export class ClientCredentialService {
     }
   }
 
+  async rotate(
+    current: PersistedClientCredential,
+    transition?: {
+      readonly activate: (
+        replacement: PersistedClientCredential,
+      ) => Promise<void>;
+      readonly verify: (
+        replacement: PersistedClientCredential,
+      ) => Promise<void>;
+      readonly rollback: (current: PersistedClientCredential) => Promise<void>;
+    },
+  ): Promise<PersistedClientCredential> {
+    const replacement = await this.provision(current.client);
+    try {
+      await transition?.activate(replacement);
+      await transition?.verify(replacement);
+    } catch (error) {
+      try {
+        await transition?.rollback(current);
+        await this.revokeThenRemove(replacement);
+      } catch {
+        throw new ClientCredentialRecoveryError(
+          "Client key rotation failed and replacement cleanup requires recovery",
+        );
+      }
+      throw new Error(
+        "Client key rotation could not activate its replacement",
+        {
+          cause: error,
+        },
+      );
+    }
+    try {
+      await this.issuer.revoke(current.keyId);
+    } catch (error) {
+      try {
+        await transition?.rollback(current);
+        await this.revokeThenRemove(replacement);
+      } catch {
+        throw new ClientCredentialRecoveryError(
+          "Client key rotation failed and replacement cleanup requires recovery",
+        );
+      }
+      throw new Error("Client key rotation could not revoke the old key", {
+        cause: error,
+      });
+    }
+    try {
+      await this.backend.remove(current.client, current.reference);
+    } catch {
+      throw new ClientCredentialRecoveryError(
+        "Client key rotation succeeded but old credential cleanup requires recovery",
+      );
+    }
+    return replacement;
+  }
+
   async revoke(credential: PersistedClientCredential): Promise<void> {
-    const cleanup = await Promise.allSettled([
-      this.backend.remove(credential.client, credential.reference),
-      this.issuer.revoke(credential.keyId),
-    ]);
-    if (cleanup.some(({ status }) => status === "rejected")) {
+    try {
+      await this.revokeThenRemove(credential);
+    } catch {
       throw new ClientCredentialRecoveryError(
         "Client credential removal is incomplete and requires recovery",
       );
