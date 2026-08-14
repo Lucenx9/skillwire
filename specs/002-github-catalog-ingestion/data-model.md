@@ -32,7 +32,7 @@ One canonical public GitHub repository, whether found by discovery or explicitly
 | `default_branch` | bounded validated text | Last observed mutable default branch |
 | `visibility` | `text CHECK = 'public'` | Private sources cannot enter the model |
 | `first_observed_at` / `last_observed_at` | timestamp | Discovery history |
-| `current_published_snapshot_id` | nullable UUID FK | Atomic visible head, set only after successful publication |
+| `current_published_snapshot_id` | nullable UUID FK | Atomic evaluated head, set after successful finalization, including all-quarantined snapshots |
 | `metadata_etag` | nullable bounded text | Conditional mutable repository lookup |
 | `metadata_cache_sha256` | nullable SHA-256 | Binds the ETag to its validated cached representation |
 
@@ -122,8 +122,8 @@ One fully evaluated immutable source commit.
   decoded bytes.
 - Finalization timestamp and external advisory-chain head when publication occurs.
 - Created only in the final fenced finalization transaction. A completely evaluated all-quarantined
-  commit may have a non-current snapshot and reports; a failed/incomplete acquisition has a sync run
-  but no snapshot row.
+  commit becomes the current snapshot and retains its reports; a failed/incomplete acquisition has a
+  sync run but no snapshot row.
 
 ### `external_skill_identities`
 
@@ -147,7 +147,8 @@ One candidate skill within one snapshot.
   optional published/reused revision reference. The separate current-classification projection is
   authoritative for state.
 - A quarantined candidate can exist without an external revision.
-- A failed newer candidate does not mutate or hide the source's previously published head.
+- A failed newer candidate is recorded in the new evaluated head. Its superseded verified revision
+  remains immutable and exactly loadable with an `unavailable` advisory, but is hidden from search.
 
 ### `external_content_objects`
 

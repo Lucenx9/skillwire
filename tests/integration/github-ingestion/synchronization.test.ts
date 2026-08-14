@@ -101,6 +101,16 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
       this.#commit("5".repeat(40), {
         "alpha/SKILL.md": skill("alpha", "Keep this content."),
       }),
+      this.#commit("6".repeat(40), {
+        "alpha/SKILL.md": "invalid skill document",
+        "beta/SKILL.md": "invalid skill document",
+        "omega/SKILL.md": "invalid skill document",
+      }),
+      this.#commit("7".repeat(40), {
+        "alpha/SKILL.md": "invalid skill document",
+        "beta/SKILL.md": skill("beta", "Changed beta content."),
+        "omega/SKILL.md": skill("omega", "Removed later."),
+      }),
     ];
   }
 
@@ -510,6 +520,66 @@ describe("immutable source synchronization", () => {
     }
   }, 120_000);
 
+  it.each([
+    { index: 5, expectedClassification: "quarantined" },
+    { index: 6, expectedClassification: "verified" },
+  ])(
+    "marks revisions replaced by quarantined candidates unavailable (snapshot $index)",
+    async ({ index, expectedClassification }) => {
+      const isolated = await createTestDatabase();
+      await isolated.migrate();
+      try {
+        const provider = new MutableNestedFixtureProvider(6100 + index);
+        const store = new PostgresExternalCatalogStore(isolated.pool);
+        const registration = await new SourceRegistrationService(
+          provider,
+          store,
+        ).add(
+          { owner: "fixture-org", repository: provider.repositoryName },
+          "quarantine-reconciliation-admin",
+        );
+        const synchronization = new SourceSynchronizationService(
+          provider,
+          store,
+        );
+        const catalog = new PostgresImportedSkillCatalogProvider(isolated.pool);
+        const first = await synchronization.sync(registration.sourceId);
+        const alpha = (await catalog.listMetadata()).find(
+          ({ name }) => name === "alpha",
+        );
+        if (alpha === undefined) throw new Error("alpha fixture missing");
+
+        provider.index = index;
+        const replacement = await synchronization.sync(registration.sourceId);
+
+        expect(await catalog.advisoryStatus(alpha.id, alpha.revision)).toBe(
+          "unavailable",
+        );
+        expect(
+          (await catalog.listMetadata()).some(({ name }) => name === "alpha"),
+        ).toBe(false);
+        expect(
+          (
+            await isolated.pool.query<{
+              current_published_snapshot_id: string | null;
+              source_classification: string;
+            }>(
+              `SELECT current_published_snapshot_id,source_classification
+               FROM github_sources WHERE id=$1`,
+              [registration.sourceId],
+            )
+          ).rows[0],
+        ).toEqual({
+          current_published_snapshot_id: replacement.snapshotId,
+          source_classification: expectedClassification,
+        });
+        expect(first.snapshotId).not.toBe(replacement.snapshotId);
+      } finally {
+        await isolated.close();
+      }
+    },
+    120_000,
+  );
   it("requires reverification before a shared quarantined revision can be curated", async () => {
     const isolated = await createTestDatabase();
     await isolated.migrate();
