@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - feature-004-release
+    - debian-12
+    - debian-13
+    - amd64
+    - rootful
+    - rootless

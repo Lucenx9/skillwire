@@ -17,6 +17,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { buildSelfHostedRelease } from "../../../scripts/build-self-hosted-release.js";
 import { buildSelfHostedApplication } from "../../../scripts/build-self-hosted-app.js";
+import { cleanupQuickstartDeployment } from "../../../scripts/validate-self-hosted-quickstart.js";
 import {
   previewProductionSetup,
   runProductionSetup,
@@ -59,26 +60,10 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function dockerInventory(
-  kind: "container" | "volume",
-): Promise<Set<string>> {
-  const result = await exec("/usr/bin/docker", [
-    kind,
-    "ls",
-    ...(kind === "container" ? ["--all"] : []),
-    "--quiet",
-  ]);
-  return new Set(result.stdout.split("\n").filter(Boolean));
-}
-
 describe("real disposable production setup", () => {
   let fixture: OnboardingEnvironment | undefined;
-  const createdContainers = new Set<string>();
-  const createdVolumes = new Set<string>();
   let registryName: string | undefined;
   let pushedImage: string | undefined;
-  let baselineContainers = new Set<string>();
-  let baselineVolumes = new Set<string>();
 
   beforeAll(async () => {
     if (process.env["SKILLWIRE_RUN_COMPOSE_INTEGRATION"] === "1") {
@@ -87,33 +72,40 @@ describe("real disposable production setup", () => {
   });
 
   afterEach(async () => {
-    const currentContainers = await dockerInventory("container").catch(
-      () => new Set<string>(),
-    );
-    const currentVolumes = await dockerInventory("volume").catch(
-      () => new Set<string>(),
-    );
-    for (const id of currentContainers) {
-      if (!baselineContainers.has(id)) createdContainers.add(id);
-    }
-    for (const name of currentVolumes) {
-      if (!baselineVolumes.has(name)) createdVolumes.add(name);
-    }
-    for (const id of createdContainers) {
-      await exec("/usr/bin/docker", ["container", "rm", "--force", id]).catch(
-        () => undefined,
-      );
-    }
-    for (const name of createdVolumes) {
-      await exec("/usr/bin/docker", ["volume", "rm", name]).catch(
-        () => undefined,
-      );
+    let cleanupFailure: unknown;
+    if (fixture !== undefined) {
+      try {
+        const [deployment, ownership] = await Promise.all([
+          readFile(
+            resolve(fixture.xdgStateHome, "skillwire/deployment.json"),
+            "utf8",
+          ),
+          readFile(
+            resolve(fixture.xdgStateHome, "skillwire/ownership.json"),
+            "utf8",
+          ),
+        ]);
+        await cleanupQuickstartDeployment(
+          JSON.parse(deployment) as unknown,
+          JSON.parse(ownership) as unknown,
+          fixture.environment,
+        );
+      } catch (error) {
+        if (!(
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        )) {
+          cleanupFailure = error;
+        }
+      }
     }
     if (registryName !== undefined) {
       await exec("/usr/bin/docker", [
         "container",
         "rm",
         "--force",
+        "--volumes",
         registryName,
       ]).catch(() => undefined);
     }
@@ -124,20 +116,19 @@ describe("real disposable production setup", () => {
     }
     await fixture?.close();
     fixture = undefined;
-    createdContainers.clear();
-    createdVolumes.clear();
-    baselineContainers = new Set<string>();
-    baselineVolumes = new Set<string>();
     registryName = undefined;
     pushedImage = undefined;
+    if (cleanupFailure instanceof Error) throw cleanupFailure;
+    if (cleanupFailure !== undefined)
+      throw new Error("Disposable Compose cleanup failed", {
+        cause: cleanupFailure,
+      });
   });
 
   it.skipIf(process.env["SKILLWIRE_RUN_COMPOSE_INTEGRATION"] !== "1")(
     "installs without clients, then verifies both native clients from simulated normal profiles",
     async () => {
       fixture = await createOnboardingEnvironment();
-      baselineContainers = await dockerInventory("container");
-      baselineVolumes = await dockerInventory("volume");
       const registryPort = await freePort();
       registryName = `${fixture.composeProject}-registry`;
       await exec(
@@ -384,7 +375,19 @@ describe("real disposable production setup", () => {
 
       const claudeProfilePath = resolve(fixture.home, ".claude.json");
       const claudeProfile = await readFile(claudeProfilePath);
-      await writeFile(claudeProfilePath, "{}", { mode: 0o600 });
+      await writeFile(
+        claudeProfilePath,
+        JSON.stringify({
+          mcpServers: {
+            skillwire: {
+              type: "stdio",
+              command: "/bin/false",
+              args: [],
+            },
+          },
+        }),
+        { mode: 0o600 },
+      );
       await expect(
         runProductionSetup(
           { clients: "none", credentialBackend: "not-selected" },

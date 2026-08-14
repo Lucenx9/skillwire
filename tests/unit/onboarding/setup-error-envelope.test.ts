@@ -37,4 +37,20 @@ describe("setup failure envelope mutation truthfulness", () => {
       recovery: { rollbackBoundary: "none" },
     });
   });
+
+  it("reports a committed healthy service as changed when optional-source input is cancelled", () => {
+    const result = setupFailureEnvelope({
+      error: new Error("GitHub source credential input cancelled"),
+      operationId: randomUUID(),
+      previewHash: "b".repeat(64),
+      cancelled: true,
+      changed: true,
+    });
+    expect(result).toMatchObject({
+      status: "cancelled",
+      exitClass: "user-cancellation",
+      changed: true,
+      recovery: { rollbackBoundary: "none" },
+    });
+  });
 });

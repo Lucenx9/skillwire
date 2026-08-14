@@ -37,7 +37,7 @@ export interface CommandResult {
 }
 
 const SECRET_PATTERN =
-  /(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+)/gi;
+  /(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})/gi;
 const PROCESS_INJECTION_ENVIRONMENT =
   /^(?:LD_|DYLD_|NODE_OPTIONS$|NODE_PATH$|BASH_ENV$|ENV$|CDPATH$|PYTHON(?:HOME|PATH)$|RUBYOPT$|PERL5OPT$|GIT_CONFIG|SSH_ASKPASS$)/i;
 

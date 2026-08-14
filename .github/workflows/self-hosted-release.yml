@@ -1,6 +1,7 @@
 name: Self-hosted release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "self-hosted-v*"
@@ -13,7 +14,174 @@ env:
   NODE_VERSION: 24.18.0
 
 jobs:
+  certified-matrix:
+    if:
+      startsWith(github.ref, 'refs/tags/self-hosted-v') || github.event_name ==
+      'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, debian-12, debian-13]
+        arch: [amd64, arm64]
+        docker-mode: [rootful, rootless]
+    runs-on:
+      - self-hosted
+      - feature-004-release
+      - ${{ matrix.os }}
+      - ${{ matrix.arch }}
+      - ${{ matrix.docker-mode }}
+    env:
+      PNPM_VERSION: 11.21.0
+      MATRIX_OS: ${{ matrix.os }}
+      MATRIX_ARCH: ${{ matrix.arch }}
+      MATRIX_DOCKER_MODE: ${{ matrix.docker-mode }}
+      SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+      SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
+      SKILLWIRE_RUN_COMPOSE_INTEGRATION: "1"
+      SKILLWIRE_RUN_SECRET_SERVICE_INTEGRATION: "1"
+      SKILLWIRE_RUN_POSTGRES_BACKUP_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+      - run:
+          corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Require pinned clients and real Secret Service tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v dbus-daemon
+          command -v dbus-send
+          command -v gdbus
+          command -v gnome-keyring-daemon
+          command -v secret-tool
+          test "$(pnpm exec codex --version)" = "codex-cli 0.147.0"
+          test "$(pnpm exec claude --version)" = "2.1.229 (Claude Code)"
+      - name: Create disposable Compose inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          matrix_os="${MATRIX_OS//./-}"
+          project="skillwire-matrix-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${matrix_os}-${MATRIX_ARCH}-${MATRIX_DOCKER_MODE}"
+          [[ "${project}" =~ ^[a-z0-9][a-z0-9-]+$ ]]
+          docker_context="$(docker context show)"
+          docker_host="$(docker context inspect "${docker_context}" --format '{{.Endpoints.docker.Host}}')"
+          [[ "${docker_host}" == unix://* ]]
+          resource_root="${RUNNER_TEMP}/${project}"
+          test ! -e "${resource_root}"
+          install -d -m 0700 "${resource_root}/secrets" "${resource_root}/runtime"
+          openssl rand -hex 32 > "${resource_root}/secrets/postgres-password"
+          openssl rand -hex 32 > "${resource_root}/secrets/api-key-pepper"
+          : > "${resource_root}/secrets/github-token"
+          password="$(tr -d '\n' < "${resource_root}/secrets/postgres-password")"
+          printf 'postgresql://skillwire:%s@postgres:5432/skillwire\n' "${password}" \
+            > "${resource_root}/secrets/database-url"
+          {
+            echo "SKILLWIRE_JOB_RESOURCE_ROOT=${resource_root}"
+            echo "DOCKER_HOST=${docker_host}"
+            echo "SKILLWIRE_COMPOSE_PROJECT=${project}"
+            echo "SKILLWIRE_POSTGRES_VOLUME=${project}_postgres_data"
+            echo "SKILLWIRE_IMAGE=ghcr.io/lucenx9/skillwire@sha256:${{ '1111111111111111111111111111111111111111111111111111111111111111' }}"
+            echo "SKILLWIRE_POSTGRES_IMAGE=docker.io/library/postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+            echo "SKILLWIRE_DATABASE_URL_SECRET_FILE=${resource_root}/secrets/database-url"
+            echo "SKILLWIRE_POSTGRES_PASSWORD_SECRET_FILE=${resource_root}/secrets/postgres-password"
+            echo "SKILLWIRE_API_KEY_PEPPER_SECRET_FILE=${resource_root}/secrets/api-key-pepper"
+            echo "SKILLWIRE_GITHUB_TOKEN_SECRET_FILE=${resource_root}/secrets/github-token"
+            echo "SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE=${resource_root}/secrets/postgres-password"
+            echo "SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE=${resource_root}/secrets/api-key-pepper"
+            echo "SKILLWIRE_RUNTIME_SOCKET_DIRECTORY=${resource_root}/runtime"
+            echo "SKILLWIRE_RUNTIME_UID=$(id -u)"
+            echo "SKILLWIRE_RUNTIME_GID=$(id -g)"
+          } >> "${GITHUB_ENV}"
+      - name: Assert certified runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }}"
+          . /etc/os-release
+          case "${{ matrix.os }}" in
+            ubuntu-24.04) test "${ID}:${VERSION_ID}" = "ubuntu:24.04" ;;
+            debian-12) test "${ID}:${VERSION_ID}" = "debian:12" ;;
+            debian-13) test "${ID}:${VERSION_ID}" = "debian:13" ;;
+            *) exit 2 ;;
+          esac
+          docker info >/dev/null
+          docker_version="$(docker version --format '{{.Server.Version}}')"
+          compose_version="$(docker compose version --short)"
+          test "${docker_version}" = "29.7.2"
+          test "${compose_version}" = "5.4.0"
+          test "$(docker info --format '{{json .SecurityOptions}}' | grep -c rootless || true)" \
+            ${{ matrix.docker-mode == 'rootless' && '-ge 1' || '-eq 0' }}
+      - name: Complete Feature 004 and unchanged Feature 001-003 gates
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm build
+          pnpm test
+          pnpm test:feature-004
+          pnpm test:activation
+          pnpm test:activation-adapter
+          pnpm catalog:verify --release-id launch-catalog-v1
+          pnpm advisory:verify --release-id launch-catalog-v1
+      - name:
+          Compose, PostgreSQL restore, Secret Service, and lifecycle journeys
+        run: |
+          docker compose --project-name "${SKILLWIRE_COMPOSE_PROJECT}" config --quiet
+          docker compose --project-name "${SKILLWIRE_COMPOSE_PROJECT}" \
+            -f compose.yaml -f compose.test.yaml config --quiet
+          docker compose --project-name "${SKILLWIRE_COMPOSE_PROJECT}" \
+            -f distribution/self-hosted/compose.yaml config --quiet
+          pnpm vitest run tests/integration/onboarding/backup-restore-validation.test.ts --maxWorkers=1
+          pnpm vitest run tests/integration/onboarding/secret-service-session.test.ts --maxWorkers=1
+          pnpm vitest run tests/integration/onboarding/production-setup.test.ts --maxWorkers=1
+          pnpm vitest run \
+            tests/integration/onboarding/upgrade-compatible.test.ts \
+            tests/integration/onboarding/upgrade-forward-only-010.test.ts \
+            tests/integration/onboarding/upgrade-interruption.test.ts \
+            --maxWorkers=1
+          pnpm vitest run tests/e2e/self-hosted-onboarding/acceptance-scenarios.test.ts --maxWorkers=1
+      - name: Verify no persistent disposable resources
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          cleanup_failed=0
+          if [[ -n "${SKILLWIRE_COMPOSE_PROJECT:-}" ]]; then
+            docker compose --project-name "${SKILLWIRE_COMPOSE_PROJECT}" \
+              -f distribution/self-hosted/compose.yaml \
+              down --volumes || cleanup_failed=1
+            if [[ -n "$(docker container ls --all --quiet --filter \
+              "label=com.docker.compose.project=${SKILLWIRE_COMPOSE_PROJECT}")" ]]; then
+              echo "Exact disposable Compose project remains" >&2
+              cleanup_failed=1
+            fi
+          fi
+          if [[ -n "${SKILLWIRE_POSTGRES_VOLUME:-}" ]] && \
+            docker volume inspect "${SKILLWIRE_POSTGRES_VOLUME}" >/dev/null 2>&1; then
+            echo "Exact disposable PostgreSQL volume remains" >&2
+            cleanup_failed=1
+          fi
+          if [[ -n "${SKILLWIRE_JOB_RESOURCE_ROOT:-}" && \
+            "${SKILLWIRE_JOB_RESOURCE_ROOT}" == "${RUNNER_TEMP}/skillwire-matrix-"* ]]; then
+            rm -rf -- "${SKILLWIRE_JOB_RESOURCE_ROOT}"
+          else
+            echo "Disposable resource root identity is unavailable" >&2
+            cleanup_failed=1
+          fi
+          git diff --check || cleanup_failed=1
+          git diff --exit-code || cleanup_failed=1
+          exit "${cleanup_failed}"
+
   build-test-sign:
+    needs: certified-matrix
     if: startsWith(github.ref, 'refs/tags/self-hosted-v')
     strategy:
       fail-fast: true
@@ -182,8 +350,107 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  publish:
+  signed-asset-matrix:
     needs: build-test-sign
+    if: startsWith(github.ref, 'refs/tags/self-hosted-v')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, debian-12, debian-13]
+        arch: [amd64, arm64]
+        docker-mode: [rootful, rootless]
+    runs-on:
+      - self-hosted
+      - feature-004-release
+      - ${{ matrix.os }}
+      - ${{ matrix.arch }}
+      - ${{ matrix.docker-mode }}
+    permissions:
+      contents: read
+    env:
+      PNPM_VERSION: 11.21.0
+      MATRIX_OS: ${{ matrix.os }}
+      MATRIX_ARCH: ${{ matrix.arch }}
+      MATRIX_DOCKER_MODE: ${{ matrix.docker-mode }}
+      VERSION: ${{ needs.build-test-sign.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Assert signed-asset runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }}"
+          . /etc/os-release
+          case "${MATRIX_OS}" in
+            ubuntu-24.04) test "${ID}:${VERSION_ID}" = "ubuntu:24.04" ;;
+            debian-12) test "${ID}:${VERSION_ID}" = "debian:12" ;;
+            debian-13) test "${ID}:${VERSION_ID}" = "debian:13" ;;
+            *) exit 2 ;;
+          esac
+          docker_context="$(docker context show)"
+          docker_host="$(docker context inspect "${docker_context}" --format '{{.Endpoints.docker.Host}}')"
+          [[ "${docker_host}" == unix://* ]]
+          echo "DOCKER_HOST=${docker_host}" >> "${GITHUB_ENV}"
+          docker info >/dev/null
+          docker_version="$(docker version --format '{{.Server.Version}}')"
+          compose_version="$(docker compose version --short)"
+          test "${docker_version}" = "29.7.2"
+          test "${compose_version}" = "5.4.0"
+          test "$(docker info --format '{{json .SecurityOptions}}' | grep -c rootless || true)" \
+            ${{ matrix.docker-mode == 'rootless' && '-ge 1' || '-eq 0' }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: self-hosted-release-${{ matrix.arch }}
+          path: ${{ runner.temp }}/signed-assets
+      - name: Acquire the independent pinned Cosign verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MATRIX_ARCH}" in
+            amd64) cosign_sha=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71 ;;
+            arm64) cosign_sha=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a ;;
+            *) exit 2 ;;
+          esac
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "${RUNNER_TEMP}/cosign-independent" \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${MATRIX_ARCH}"
+          echo "${cosign_sha}  ${RUNNER_TEMP}/cosign-independent" \
+            | sha256sum --check --strict
+          chmod 0700 "${RUNNER_TEMP}/cosign-independent"
+      - name: Verify and execute the exact signed quickstart
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${RUNNER_TEMP}/signed-assets/skillwire-${VERSION}-linux-${MATRIX_ARCH}"
+          result="$(pnpm exec tsx scripts/validate-self-hosted-quickstart.ts \
+            --manifest "${base}.release.json" \
+            --bundle "${base}.release.sigstore.json" \
+            --archive "${base}.tar.zst" \
+            --policy "${RUNNER_TEMP}/signed-assets/skillwire-trust-policy-v1.json" \
+            --trusted-root "${PWD}/distribution/self-hosted/trusted-root.v1.json" \
+            --cosign "${RUNNER_TEMP}/cosign-independent" \
+            --architecture "${MATRIX_ARCH}" --execute)"
+          project="$(jq -er '.cleanupProject' <<<"${result}")"
+          volume="$(jq -er '.cleanupVolume' <<<"${result}")"
+          [[ "${project}" =~ ^skillwire-[0-9a-f]{32}$ ]]
+          test "${volume}" = "${project}_postgres_data"
+          test -z "$(docker container ls --all --quiet --filter \
+            "label=com.docker.compose.project=${project}")"
+          ! docker volume inspect "${volume}" >/dev/null 2>&1
+
+  publish:
+    needs: [build-test-sign, signed-asset-matrix]
     if:
       github.ref == format('refs/tags/self-hosted-v{0}',
       needs.build-test-sign.outputs.version)
@@ -210,5 +477,25 @@ jobs:
             test -s "${base}.release.sigstore.json"
           done
           test -s release-assets/skillwire-trust-policy-v1.json
-          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+          {
+            for arch in amd64 arm64; do
+              echo "skillwire-${VERSION}-linux-${arch}.release.json"
+              echo "skillwire-${VERSION}-linux-${arch}.release.sigstore.json"
+              echo "skillwire-${VERSION}-linux-${arch}.tar.zst"
+            done
+            echo "skillwire-trust-policy-v1.json"
+          } | sort > "${RUNNER_TEMP}/expected-release-assets.txt"
+          find release-assets -maxdepth 1 -type f -printf '%f\n' | sort \
+            > "${RUNNER_TEMP}/actual-release-assets.txt"
+          cmp "${RUNNER_TEMP}/expected-release-assets.txt" \
+            "${RUNNER_TEMP}/actual-release-assets.txt"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release asset namespace already exists" >&2
+            exit 1
+          fi
+          mapfile -t assets < "${RUNNER_TEMP}/expected-release-assets.txt"
+          for index in "${!assets[@]}"; do
+            assets[index]="release-assets/${assets[index]}"
+          done
+          gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
             --verify-tag --title "SkillWire self-hosted ${VERSION}"

@@ -72,6 +72,7 @@ import {
 import { verifyClientIntegration } from "./client-verification.js";
 import { inspectInstalledStatus } from "./status.js";
 import { continueProductionSetup } from "./production-continuation.js";
+import { verifyBundledFirstPartyCatalog } from "./first-party-catalog.js";
 import type {
   GuidedSetupOptions,
   GuidedSetupResult,
@@ -546,7 +547,8 @@ export interface ProductionSetupPreview {
   readonly components: readonly string[];
   readonly volumes: readonly string[];
   readonly retainedOnFailure: readonly string[];
-  readonly catalogChoice: "deferred";
+  readonly catalogChoice: "bundled-first-party";
+  readonly sources: readonly ("mattpocock/skills" | "obra/superpowers")[];
 }
 
 interface CandidatePaths {
@@ -833,7 +835,8 @@ function setupPreviewScope(
     components: ["service", "postgres", "credential-bridge", ...clients],
     volumes: ["skillwire-<installation-id>_postgres_data"],
     retainedOnFailure: ["verified release", "service data", "service secrets"],
-    catalogChoice: "deferred",
+    catalogChoice: "bundled-first-party",
+    sources: options.sources ?? [],
   };
 }
 
@@ -932,7 +935,7 @@ async function runProductionSetupUnlocked(
     }
     const { manifest } = verified;
     const installationId = randomUUID();
-    const projectName = `skillwire-${installationId.replaceAll("-", "").slice(0, 16)}`;
+    const projectName = `skillwire-${installationId.replaceAll("-", "")}`;
     const volumeName = `${projectName}_postgres_data`;
     const runEffect = async <T>(effectOptions: {
       readonly step: string;
@@ -966,6 +969,10 @@ async function runProductionSetupUnlocked(
       verification: (value) => ({
         launcherInstalled: value.launcherPath === setupRoots.launcherPath,
       }),
+    });
+    await verifyBundledFirstPartyCatalog({
+      releaseRoot: installed.releaseRoot,
+      release: manifest,
     });
     const installationRoot = resolve(
       setupRoots.dataRoot,
@@ -1038,6 +1045,7 @@ async function runProductionSetupUnlocked(
       intent: { projectName, volumeName },
       action: async () => {
         await deployment.probe(signal);
+        await deployment.assertDeploymentTargetsAbsent(signal);
         await deployment.deploy(signal);
       },
       verification: () => ({ composeReady: true }),

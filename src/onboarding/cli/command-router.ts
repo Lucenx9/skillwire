@@ -13,6 +13,12 @@ import {
   runProductionSetup,
 } from "../application/production-setup.js";
 import { inspectInstalledStatus } from "../application/status.js";
+import {
+  bootstrapProductionSources,
+  ProductionSourceBootstrapError,
+  readProductionSourceDeployment,
+} from "../application/source-bootstrap.js";
+import { readBoundedGitHubToken } from "../adapters/credentials/github-token.js";
 import { JournaledOperationFailure } from "../domain/operation-journal.js";
 import type { AdminResult, ExitClass } from "./output.js";
 
@@ -77,8 +83,10 @@ export function setupFailureEnvelope(options: {
   readonly operationId: string;
   readonly previewHash: string | null;
   readonly cancelled: boolean;
+  readonly changed?: boolean | undefined;
 }): AdminResult {
   const mutated = options.error instanceof ProductionSetupMutationError;
+  const changed = options.changed === true || mutated;
   const exitClass = failureClass(options.error);
   return AdminResultSchema.parse({
     schemaVersion: "skillwire.admin-result/v1",
@@ -95,9 +103,11 @@ export function setupFailureEnvelope(options: {
         ? "rollback-required"
         : exitClass,
     previewHash: options.previewHash,
-    changed: mutated,
-    summary: mutated
-      ? "Setup stopped after an owned installation mutation began"
+    changed,
+    summary: changed
+      ? mutated
+        ? "Setup stopped after an owned installation mutation began"
+        : "Setup stopped after reaching a persisted safe boundary"
       : "Setup stopped before a successful final state",
     components: [],
     findings: [
@@ -133,42 +143,11 @@ async function routeSetup(
 ): Promise<number> {
   const operationId = randomUUID();
   let previewHash: string | null = null;
-  if ((command.sources?.length ?? 0) > 0) {
-    return emit(
-      AdminResultSchema.parse({
-        schemaVersion: "skillwire.admin-result/v1",
-        command: "setup",
-        operationId,
-        status: "failure",
-        exitClass: "unsupported-prerequisite",
-        previewHash: null,
-        changed: false,
-        summary:
-          "External source bootstrap is outside the Feature 004 technical MVP",
-        components: [],
-        findings: [
-          {
-            code: "SOURCE_BOOTSTRAP_NOT_AVAILABLE",
-            severity: "error",
-            component: "source",
-            summary: "No source registration was attempted",
-            nextAction: "Run setup without --source",
-          },
-        ],
-        recovery: {
-          rollbackBoundary: "none",
-          backupId: null,
-          instructions: [],
-        },
-      }),
-      command,
-      io,
-    );
-  }
+  let setupChanged = false;
   try {
     const selection = command.clients ?? "none";
     const scope = await previewProductionSetup(
-      { clients: selection },
+      { clients: selection, sources: command.sources ?? [] },
       process.env,
       {},
       signal,
@@ -220,14 +199,63 @@ async function routeSetup(
       );
     }
     confirmPreview(preview, command.confirmPreview);
-    const result = await runProductionSetup(
+    const setupResult = await runProductionSetup(
       {
         clients: selection,
+        sources: command.sources ?? [],
         credentialBackend: scope.credentialBackend,
         previewHash: preview.hash,
       },
       signal,
     );
+    setupChanged = setupResult.changed !== false;
+    let sourceChoices = setupResult.sources ?? [];
+    let sourceChanged = false;
+    if ((command.sources?.length ?? 0) > 0 && setupResult.serviceReady) {
+      const stateHome =
+        process.env["XDG_STATE_HOME"] ??
+        `${process.env["HOME"] ?? ""}/.local/state`;
+      const stateRoot = `${stateHome}/skillwire`;
+      const runtimeRoot = `${process.env["XDG_RUNTIME_DIR"] ?? `/run/user/${String(process.getuid?.() ?? 0)}`}/skillwire`;
+      let token: string | undefined;
+      if (!process.stdin.isTTY) {
+        try {
+          token = await readBoundedGitHubToken(process.stdin, signal);
+        } catch (error) {
+          if (signal.aborted) throw error;
+        }
+      }
+      const bootstrapped = await bootstrapProductionSources({
+        selected: command.sources ?? [],
+        deployment: await readProductionSourceDeployment(stateRoot),
+        stateRoot,
+        runtimeRoot,
+        environment: process.env,
+        ...(token === undefined ? {} : { token }),
+        signal,
+        operationId,
+      });
+      sourceChoices = bootstrapped.choices;
+      sourceChanged = bootstrapped.changed;
+    }
+    const sourceIncomplete = sourceChoices.some(
+      ({ selected, syncState }) =>
+        selected && (syncState === "degraded" || syncState === "failed"),
+    );
+    const clientIncomplete = setupResult.clients.some(
+      ({ status }) => status !== "verified" && status !== "external-verified",
+    );
+    const result = {
+      ...setupResult,
+      status:
+        setupResult.status === "recovery-required"
+          ? setupResult.status
+          : sourceIncomplete
+            ? ("incomplete" as const)
+            : setupResult.status,
+      sources: sourceChoices,
+      changed: setupResult.changed !== false || sourceChanged,
+    };
     const exitClass: ExitClass =
       result.status === "success"
         ? "success"
@@ -242,16 +270,17 @@ async function routeSetup(
         status: result.status,
         exitClass,
         previewHash: preview.hash,
-        changed: result.changed !== false,
-        summary:
-          selection === "none" && result.status === "success"
+        changed: result.changed,
+        summary: sourceIncomplete
+          ? "Self-hosted service is ready; an optional source remains degraded"
+          : selection === "none" && result.status === "success"
             ? "Self-hosted service is ready; client integration remains pending"
             : `Self-hosted setup finished with status ${result.status}`,
         components: [
           {
             component: "service",
             state: result.serviceReady ? "ready" : "failed",
-            changed: result.changed !== false,
+            changed: setupResult.changed !== false,
             owned: true,
             identity: { installationId: result.installationId },
           },
@@ -265,38 +294,73 @@ async function routeSetup(
               external: client.status === "external-verified",
             },
           })),
+          ...result.sources
+            .filter(({ selected }) => selected)
+            .map((source) => ({
+              component: "source",
+              state: source.syncState,
+              changed: sourceChanged,
+              owned: false,
+              identity: {
+                source: source.source,
+                registered: source.registrationIdentity !== null,
+              },
+            })),
         ],
-        findings: result.clients
-          .filter(
-            (client) =>
-              client.status !== "verified" &&
-              client.status !== "external-verified",
-          )
-          .map((client) =>
-            client.conflict === undefined
-              ? {
-                  code: `${client.client.toUpperCase()}_INSTALLATION_INCOMPLETE`,
-                  severity:
-                    client.status === "recovery-required"
-                      ? ("recovery-required" as const)
-                      : ("error" as const),
-                  component: client.client,
-                  summary: `${client.client} deterministic verification did not complete`,
-                  nextAction:
-                    "Review the client-specific recovery summary and retry after resolution",
-                }
-              : {
-                  code: client.conflict.code,
-                  severity: "error" as const,
-                  component: client.client,
-                  summary: `${client.client} ${client.conflict.component} is ${client.conflict.classification} at ${client.conflict.scope} scope (${client.conflict.identitySha256})`,
-                  nextAction:
-                    "Resolve the external client or managed-policy conflict outside SkillWire, then retry",
-                },
-          ),
+        findings: [
+          ...result.clients
+            .filter(
+              (client) =>
+                client.status !== "verified" &&
+                client.status !== "external-verified",
+            )
+            .map((client) =>
+              client.conflict === undefined
+                ? {
+                    code: `${client.client.toUpperCase()}_INSTALLATION_INCOMPLETE`,
+                    severity:
+                      client.status === "recovery-required"
+                        ? ("recovery-required" as const)
+                        : ("error" as const),
+                    component: client.client,
+                    summary: `${client.client} deterministic verification did not complete`,
+                    nextAction:
+                      "Review the client-specific recovery summary and retry after resolution",
+                  }
+                : {
+                    code: client.conflict.code,
+                    severity: "error" as const,
+                    component: client.client,
+                    summary: `${client.client} ${client.conflict.component} is ${client.conflict.classification} at ${client.conflict.scope} scope (${client.conflict.identitySha256})`,
+                    nextAction:
+                      "Resolve the external client or managed-policy conflict outside SkillWire, then retry",
+                  },
+            ),
+          ...result.sources
+            .filter(
+              ({ selected, syncState }) =>
+                selected &&
+                (syncState === "degraded" || syncState === "failed"),
+            )
+            .map((source) => ({
+              code:
+                source.syncState === "degraded"
+                  ? "SOURCE_SYNCHRONIZATION_DEGRADED"
+                  : "SOURCE_BOOTSTRAP_FAILED",
+              severity: "warning" as const,
+              component: "source",
+              summary: `${source.source} did not become eligible; first-party service remains ready`,
+              nextAction:
+                source.credentialReferenceId === null
+                  ? "Pipe one separate read-only GitHub token on stdin and retry the same confirmed setup"
+                  : "Keep eligible cached content and retry source synchronization later",
+            })),
+        ],
         recovery: {
           rollbackBoundary:
-            result.status === "success" ? "none" : "client-only",
+            result.status === "success" || !clientIncomplete
+              ? "none"
+              : "client-only",
           backupId: null,
           instructions: [],
         },
@@ -311,6 +375,9 @@ async function routeSetup(
         operationId,
         previewHash,
         cancelled: signal.aborted,
+        changed:
+          setupChanged ||
+          (error instanceof ProductionSourceBootstrapError && error.changed),
       }),
       command,
       io,

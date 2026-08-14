@@ -283,19 +283,19 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Tests for User Story 7 — write and observe failure first
 
-- [ ] T139 [P] [US7] Add failing no-GitHub/no-token first-party setup, exact ten-skill identity, advisory, and smoke tests in `tests/e2e/self-hosted-onboarding/first-party-catalog.test.ts`
-- [ ] T140 [P] [US7] Add failing unselected/selected `mattpocock/skills` and `obra/superpowers` registration/quarantine tests in `tests/integration/onboarding/source-bootstrap.test.ts`
-- [ ] T141 [P] [US7] Add failing rate-limit, unavailable, revoked, quarantined, and integrity-failure degraded-source tests in `tests/integration/onboarding/source-degradation.test.ts`
-- [ ] T142 [P] [US7] Add failing imported-text non-execution, zero client/repository installation, and separate GitHub/client credential tests in `tests/security/onboarding/source-boundaries.test.ts`
+- [x] T139 [P] [US7] Add failing no-GitHub/no-token first-party setup, exact ten-skill identity, advisory, and smoke tests in `tests/e2e/self-hosted-onboarding/first-party-catalog.test.ts`
+- [x] T140 [P] [US7] Add failing unselected/selected `mattpocock/skills` and `obra/superpowers` registration/quarantine tests in `tests/integration/onboarding/source-bootstrap.test.ts`
+- [x] T141 [P] [US7] Add failing rate-limit, unavailable, revoked, quarantined, and integrity-failure degraded-source tests in `tests/integration/onboarding/source-degradation.test.ts`
+- [x] T142 [P] [US7] Add failing imported-text non-execution, zero client/repository installation, and separate GitHub/client credential tests in `tests/security/onboarding/source-boundaries.test.ts`
 
 ### Implementation for User Story 7
 
-- [ ] T143 [P] [US7] Implement explicit bootstrap-source choice and sync-state validation in `src/onboarding/domain/source-choice.ts`
-- [ ] T144 [P] [US7] Implement bundled ten-skill catalog/advisory identity verification with GitHub disabled in `src/onboarding/application/first-party-catalog.ts`
-- [ ] T145 [P] [US7] Implement separate read-only GitHub credential persistence/reference handling in `src/onboarding/adapters/credentials/github-token.ts`
-- [ ] T146 [US7] Orchestrate fixed-origin registration and the existing ingestion/quarantine pipeline without changing first-party readiness in `src/onboarding/application/source-bootstrap.ts`
-- [ ] T147 [US7] Add explicit source previews/options and post-readiness bootstrap in `src/onboarding/application/setup.ts`
-- [ ] T148 [US7] Emit bounded degraded-source findings while preserving eligible cached content in `src/onboarding/application/diagnostic-probes.ts`
+- [x] T143 [P] [US7] Implement explicit bootstrap-source choice and sync-state validation in `src/onboarding/domain/source-choice.ts`
+- [x] T144 [P] [US7] Implement bundled ten-skill catalog/advisory identity verification with GitHub disabled in `src/onboarding/application/first-party-catalog.ts`
+- [x] T145 [P] [US7] Implement separate read-only GitHub credential persistence/reference handling in `src/onboarding/adapters/credentials/github-token.ts`
+- [x] T146 [US7] Orchestrate fixed-origin registration and the existing ingestion/quarantine pipeline without changing first-party readiness in `src/onboarding/application/source-bootstrap.ts`
+- [x] T147 [US7] Add explicit source previews/options and post-readiness bootstrap in `src/onboarding/application/setup.ts`
+- [x] T148 [US7] Emit bounded degraded-source findings while preserving eligible cached content in `src/onboarding/application/diagnostic-probes.ts`
 
 **Checkpoint**: Baseline catalog use is offline; optional imported content remains explicit, inert, provenance-bound, and isolated.
 
@@ -307,21 +307,21 @@ description: "Dependency-ordered implementation tasks for Feature 004"
 
 ### Release-gate tests — add before their implementation/evidence tasks
 
-- [ ] T149 [P] Add failing canary/no-telemetry scans across argv, environment, `/proc`, logs, terminal captures, configs, diffs, snapshots, journals, backups, reports, release artifacts, and repository files in `tests/security/onboarding/secret-containment.test.ts`
-- [ ] T150 [P] Add a failing table-driven traceability suite mapping all 28 numbered scenarios, FR-001 through FR-092, and buildable SC gates to concrete evidence in `tests/e2e/self-hosted-onboarding/acceptance-scenarios.test.ts`
-- [ ] T151 [P] Add failing archive extraction, canonicalization, signature/transparency/claim, overlap/revocation/downgrade, unlisted-byte, mutable-image, unsafe-Compose, and matrix-overclaim tests in `tests/security/onboarding/release-integrity.test.ts`
-- [ ] T152 [P] Add failing compatibility tests that recompute and validate the unchanged Feature 003 Codex package inventory and `distribution/codex-marketplace/release-integrity.json` in `tests/contract/release/feature-003-integrity-compatibility.test.ts`
-- [ ] T153 [P] Add a non-gating clean-host setup-duration recorder that reports elapsed time without treating the 15-minute participant target as a CI threshold in `tests/e2e/self-hosted-onboarding/setup-duration-evidence.test.ts`
+- [x] T149 [P] Add failing canary/no-telemetry scans across argv, environment, `/proc`, logs, terminal captures, configs, diffs, snapshots, journals, backups, reports, release artifacts, and repository files in `tests/security/onboarding/secret-containment.test.ts`
+- [x] T150 [P] Add a failing table-driven traceability suite mapping all 28 numbered scenarios, FR-001 through FR-092, and buildable SC gates to concrete evidence in `tests/e2e/self-hosted-onboarding/acceptance-scenarios.test.ts`
+- [x] T151 [P] Add failing archive extraction, canonicalization, signature/transparency/claim, overlap/revocation/downgrade, unlisted-byte, mutable-image, unsafe-Compose, and matrix-overclaim tests in `tests/security/onboarding/release-integrity.test.ts`
+- [x] T152 [P] Add failing compatibility tests that recompute and validate the unchanged Feature 003 Codex package inventory and `distribution/codex-marketplace/release-integrity.json` in `tests/contract/release/feature-003-integrity-compatibility.test.ts`
+- [x] T153 [P] Add a non-gating clean-host setup-duration recorder that reports elapsed time without treating the 15-minute participant target as a CI threshold in `tests/e2e/self-hosted-onboarding/setup-duration-evidence.test.ts`
 
 ### Release-gate implementation and evidence
 
-- [ ] T154 Refresh candidate verification to enforce T151-T152 and refuse publication on any Feature 001-003 integrity/regression failure in `scripts/verify-self-hosted-release.ts`
-- [ ] T155 Add the aggregate Feature 004 test command while retaining all existing Feature 001-003 commands unchanged in `package.json`
-- [ ] T156 Write exact Cosign bootstrap verification, four normal sibling assets, overlap-bundle exception, offline `verify-blob`, trust refresh/rotation/revocation, extraction, and no-`curl | sh` instructions in `distribution/self-hosted/README.md`
-- [ ] T157 [P] Document setup/status/doctor/repair/backup/upgrade/uninstall/purge, credential/service-secret lifecycle, no-wrapper profiles, privacy, and support boundaries in `README.md`, `docs/operations.md`, and `docs/privacy.md`
-- [ ] T158 [P] Define exact release evidence, certified matrix, automatic-activation claim separation, informational setup duration, and moderated usability result format in `docs/self-hosted-release-evidence.md`
-- [ ] T159 Implement Ubuntu 24.04 and Debian 12/13 `amd64`/`arm64`, rootless/rootful, pinned-client, real Secret Service, backup/upgrade, 28-scenario, and Feature 001-003 release jobs in `.github/workflows/ci.yml` and `.github/workflows/self-hosted-release.yml`
-- [ ] T160 Implement the disposable-profile quickstart runner with exact signed-asset verification and safe named-resource cleanup in `scripts/validate-self-hosted-quickstart.ts`
+- [x] T154 Refresh candidate verification to enforce T151-T152 and refuse publication on any Feature 001-003 integrity/regression failure in `scripts/verify-self-hosted-release.ts`
+- [x] T155 Add the aggregate Feature 004 test command while retaining all existing Feature 001-003 commands unchanged in `package.json`
+- [x] T156 Write exact Cosign bootstrap verification, four normal sibling assets, overlap-bundle exception, offline `verify-blob`, trust refresh/rotation/revocation, extraction, and no-`curl | sh` instructions in `distribution/self-hosted/README.md`
+- [x] T157 [P] Document setup/status/doctor/repair/backup/upgrade/uninstall/purge, credential/service-secret lifecycle, no-wrapper profiles, privacy, and support boundaries in `README.md`, `docs/operations.md`, and `docs/privacy.md`
+- [x] T158 [P] Define exact release evidence, certified matrix, automatic-activation claim separation, informational setup duration, and moderated usability result format in `docs/self-hosted-release-evidence.md`
+- [x] T159 Implement Ubuntu 24.04 and Debian 12/13 `amd64`/`arm64`, rootless/rootful, pinned-client, real Secret Service, backup/upgrade, 28-scenario, and Feature 001-003 release jobs in `.github/workflows/ci.yml` and `.github/workflows/self-hosted-release.yml`
+- [x] T160 Implement the disposable-profile quickstart runner with exact signed-asset verification and safe named-resource cleanup in `scripts/validate-self-hosted-quickstart.ts`
 - [ ] T161 Run Prettier, diff-check, lint, typecheck, build, all test projects, unchanged Feature 001-003 regressions, Feature 004 aggregate, quickstart, and supported matrix; record exact outcomes in `docs/self-hosted-release-evidence.md`
 
 **Checkpoint**: Publication is blocked until all 28 scenarios, signing/trust gates, disclosure scans, profile preservation, and unchanged Feature 001-003 invariants pass.

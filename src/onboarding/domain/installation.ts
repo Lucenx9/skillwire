@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { SourceChoiceSchema } from "./source-choice.js";
+
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const TimestampSchema = z.iso.datetime({ offset: true });
 const RelativeLocatorSchema = z
@@ -252,30 +254,6 @@ export const VerificationRecordSchema = z
     ({ result, provenanceCheck, advisoryCheck }) =>
       result !== "passed" || (provenanceCheck && advisoryCheck),
     "passing verification requires provenance and advisory checks",
-  );
-
-export const SourceChoiceSchema = z
-  .object({
-    schemaVersion: z.literal("skillwire.source-choice/v1"),
-    sourceChoiceId: z.uuid(),
-    source: z.enum(["mattpocock/skills", "obra/superpowers"]),
-    selected: z.boolean(),
-    credentialReferenceId: z.uuid().nullable(),
-    registrationIdentity: z.string().min(1).max(128).nullable(),
-    syncState: z.enum([
-      "not-selected",
-      "registered",
-      "verifying",
-      "eligible",
-      "quarantined",
-      "degraded",
-      "failed",
-    ]),
-  })
-  .strict()
-  .refine(
-    ({ selected, syncState }) => selected || syncState === "not-selected",
-    "an unselected source cannot have lifecycle state",
   );
 
 export type Installation = z.infer<typeof InstallationSchema>;

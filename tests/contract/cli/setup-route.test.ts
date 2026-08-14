@@ -124,6 +124,26 @@ describe("compiled guided setup route", () => {
     expect(preview.json).not.toMatch(
       /swk\.|Bearer|password\s*[=:]|pepper\s*[=:]/i,
     );
+    const sourceScope = await previewProductionSetup(
+      {
+        clients: "none",
+        sources: ["mattpocock/skills", "obra/superpowers"],
+      },
+      {
+        ...fixture.environment,
+        SKILLWIRE_RELEASE_ROOT: releaseRoot,
+      },
+      { pinnedInitialPolicySha256: sha256(policyBytes) },
+    );
+    const sourcePreview = canonicalPreview("setup", sourceScope);
+    expect(sourceScope).toMatchObject({
+      catalogChoice: "bundled-first-party",
+      sources: ["mattpocock/skills", "obra/superpowers"],
+    });
+    expect(sourcePreview.hash).not.toBe(preview.hash);
+    expect(sourcePreview.json).not.toMatch(
+      /github_pat_|ghp_|Bearer|password\s*[=:]|pepper\s*[=:]/i,
+    );
     await expect(
       runProductionSetup(
         {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const SecretValuePattern =
-  /(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|password\s*[=:]\s*\S+|pepper\s*[=:]\s*\S+)/gi;
+  /(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|password\s*[=:]\s*\S+|pepper\s*[=:]\s*\S+)/gi;
 
 export function redactText(value: string): string {
   return value.replace(SecretValuePattern, "[REDACTED]");
@@ -74,7 +74,8 @@ const SetupPreviewScopeSchema = z
     components: z.array(z.string().min(1).max(64)).min(3).max(5),
     volumes: z.array(z.string().min(1).max(128)).length(1),
     retainedOnFailure: z.array(z.string().min(1).max(128)).min(1).max(8),
-    catalogChoice: z.literal("deferred"),
+    catalogChoice: z.literal("bundled-first-party"),
+    sources: z.array(z.enum(["mattpocock/skills", "obra/superpowers"])).max(2),
   })
   .strict();
 
@@ -86,7 +87,7 @@ const LifecyclePreviewScopeSchema = z
   )
   .refine(
     (value) =>
-      !/(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|password\s*[=:]\s*\S+|pepper\s*[=:]\s*\S+)/i.test(
+      !/(?:swk\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}|bearer\s+\S+|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|password\s*[=:]\s*\S+|pepper\s*[=:]\s*\S+)/i.test(
         JSON.stringify(value),
       ),
     "preview scope contains secret material",

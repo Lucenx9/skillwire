@@ -8,6 +8,7 @@ import {
   SecretToolCredentialStore,
   SecretToolError,
 } from "../../../src/onboarding/adapters/credentials/secret-tool.js";
+import { GitHubTokenCredentialStore } from "../../../src/onboarding/adapters/credentials/github-token.js";
 import { RestrictiveFileCredentialStore } from "../../../src/onboarding/adapters/credentials/restrictive-file.js";
 import { selectCredentialBackend } from "../../../src/onboarding/application/production-setup.js";
 
@@ -74,6 +75,45 @@ describe("real isolated Secret Service session", async () => {
       expect(
         await store.lookup(installationId, "claude", claudeStored.reference),
       ).toBe(claude);
+    },
+    30_000,
+  );
+
+  it.skipIf(!available)(
+    "keeps a read-only GitHub source token separate from client credentials across processes",
+    async () => {
+      session = await createSecretServiceSession();
+      const clientStore = new SecretToolCredentialStore(
+        "/usr/bin/secret-tool",
+        session.environment,
+      );
+      const sourceStore = new GitHubTokenCredentialStore(
+        "/usr/bin/secret-tool",
+        session.environment,
+      );
+      const clientToken = createApiKeyToken().token;
+      const sourceToken = "github_pat_disposable_source_read_token";
+      const client = await clientStore.store(
+        installationId,
+        "codex",
+        clientToken,
+      );
+      const source = await sourceStore.store(sourceToken);
+
+      const freshSourceProcess = new GitHubTokenCredentialStore(
+        "/usr/bin/secret-tool",
+        session.environment,
+      );
+      expect(await freshSourceProcess.lookup(source.reference)).toBe(
+        sourceToken,
+      );
+      await freshSourceProcess.clear(source.reference);
+      await expect(
+        freshSourceProcess.lookup(source.reference),
+      ).rejects.toThrow();
+      expect(
+        await clientStore.lookup(installationId, "codex", client.reference),
+      ).toBe(clientToken);
     },
     30_000,
   );

@@ -16,6 +16,9 @@ describe("disposable onboarding infrastructure", () => {
     try {
       expect(fixture.home).toContain(fixture.root);
       expect(fixture.environment["HOME"]).toBe(fixture.home);
+      expect(fixture.environment["DOCKER_HOST"]).toBe(
+        process.env["DOCKER_HOST"],
+      );
       expect(fixture.composeProject).toMatch(/^skillwire-test-[0-9a-f]{16}$/);
       expect(() => {
         fixture.assertMutablePath(process.cwd());

@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 
 import {
   verifyManifestPayload,
@@ -11,6 +15,9 @@ import {
 } from "../src/onboarding/adapters/filesystem/release-verifier.js";
 import { runCommand } from "../src/onboarding/adapters/process/command-runner.js";
 import { redactText } from "../src/onboarding/cli/output.js";
+import type { ReleaseManifest } from "../src/onboarding/domain/release-manifest.js";
+import { validateCodexAdapterIntegrityManifest } from "../src/evaluation/codex-adapter-package.js";
+import { verifyBundledFirstPartyCatalog } from "../src/onboarding/application/first-party-catalog.js";
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -24,7 +31,7 @@ function argumentsFor(name: string): readonly string[] {
   });
 }
 
-async function pinVerifiedArchive(
+export async function pinVerifiedArchive(
   sourcePath: string,
   targetPath: string,
   expectedSize: number,
@@ -75,7 +82,7 @@ async function pinVerifiedArchive(
   }
 }
 
-function validateArchiveListings(names: string, verbose: string): void {
+export function validateArchiveListings(names: string, verbose: string): void {
   const entries = names.split("\n").filter(Boolean);
   const verboseEntries = verbose.split("\n").filter(Boolean);
   if (
@@ -87,8 +94,7 @@ function validateArchiveListings(names: string, verbose: string): void {
       "Release archive inventory is empty, inconsistent, or too large",
     );
   }
-  entries.forEach((raw, index) => {
-    const type = verboseEntries[index]?.[0];
+  const normalize = (raw: string, type: string | undefined): string => {
     if (type !== "-" && type !== "d")
       throw new Error("Release archive contains a link or special entry");
     if (!/^[A-Za-z0-9@+_,=./-]+\/?$/.test(raw))
@@ -97,15 +103,285 @@ function validateArchiveListings(names: string, verbose: string): void {
     const path = unprefixed.endsWith("/")
       ? unprefixed.slice(0, -1)
       : unprefixed;
-    if ((path === "" || path === ".") && type === "d") return;
+    if ((path === "" || path === ".") && type === "d") return ".";
     if (
       path.startsWith("/") ||
-      path.split("/").some((segment) => segment === "" || segment === "..") ||
+      path
+        .split("/")
+        .some(
+          (segment) => segment === "" || segment === "." || segment === "..",
+        ) ||
       path.includes("\0")
     ) {
       throw new Error("Release archive contains an unsafe path");
     }
+    return path;
+  };
+  const normalized = entries.map((raw, index) => {
+    const type = verboseEntries[index]?.[0];
+    const path = normalize(raw, type);
+    const verbosePath = verboseEntries[index]?.trim().split(/\s+/).at(-1);
+    if (verbosePath === undefined || normalize(verbosePath, type) !== path)
+      throw new Error("Release archive listings disagree");
+    return path;
   });
+  if (new Set(normalized).size !== normalized.length)
+    throw new Error("Release archive contains duplicate paths");
+}
+
+const CertifiedMatrixSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.supported-matrix/v1"),
+    operatingSystems: z.tuple([
+      z
+        .object({ id: z.literal("ubuntu"), version: z.literal("24.04") })
+        .strict(),
+      z.object({ id: z.literal("debian"), version: z.literal("12") }).strict(),
+      z.object({ id: z.literal("debian"), version: z.literal("13") }).strict(),
+    ]),
+    architectures: z.tuple([z.literal("amd64"), z.literal("arm64")]),
+    docker: z
+      .object({
+        minimum: z.literal("29.7.2"),
+        tested: z.string().regex(/^\d+\.\d+\.\d+$/),
+      })
+      .strict(),
+    compose: z
+      .object({
+        minimum: z.literal("5.4.0"),
+        tested: z.string().regex(/^\d+\.\d+\.\d+$/),
+      })
+      .strict(),
+    postgresql: z.literal("17.10-alpine"),
+    node: z.literal("24.18.0"),
+    codex: z.literal("0.147.0"),
+    claude: z.literal("2.1.229"),
+    cosign: z.literal("3.1.3"),
+  })
+  .strict();
+
+const EXPECTED_PRODUCTION_COMPOSE = {
+  name: "${SKILLWIRE_COMPOSE_PROJECT:?compose project is required}",
+  services: {
+    postgres: {
+      image:
+        "${SKILLWIRE_POSTGRES_IMAGE:?digest-pinned PostgreSQL image is required}",
+      environment: {
+        POSTGRES_DB: "skillwire",
+        POSTGRES_USER: "skillwire",
+        POSTGRES_PASSWORD_FILE: "/run/secrets/database_password",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+      ],
+      volumes: ["postgres_data:/var/lib/postgresql/data"],
+      healthcheck: {
+        test: ["CMD-SHELL", "pg_isready -U skillwire -d skillwire"],
+        interval: "5s",
+        timeout: "3s",
+        retries: 20,
+      },
+      restart: "unless-stopped",
+      stop_grace_period: "15s",
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+    },
+    migrate: {
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"],
+      command: [
+        "database",
+        "node",
+        "dist/src/persistence/postgres/migration-runner.js",
+      ],
+      user: "0:0",
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+      ],
+      depends_on: { postgres: { condition: "service_healthy" } },
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+      restart: "no",
+    },
+    skillwire: {
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"],
+      command: ["application", "node", "dist/src/main.js"],
+      user: "0:0",
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+        SKILLWIRE_API_KEY_PEPPER_FILE: "/run/secrets/application_pepper",
+        SKILLWIRE_BIND_HOST: "localhost",
+        SKILLWIRE_UNIX_SOCKET_PATH: "/run/skillwire/mcp.sock",
+        SKILLWIRE_RUNTIME_UID:
+          "${SKILLWIRE_RUNTIME_UID:?runtime uid is required}",
+        SKILLWIRE_RUNTIME_GID:
+          "${SKILLWIRE_RUNTIME_GID:?runtime gid is required}",
+        SKILLWIRE_ALLOWED_HOSTS: "localhost,127.0.0.1",
+        SKILLWIRE_CATALOG_ROOT: "/app",
+        SKILLWIRE_CATALOG_RELEASE: "launch-catalog-v1",
+        SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE:
+          "${SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE:-600}",
+        SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST:
+          "${SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST:-60}",
+        SKILLWIRE_GITHUB_INGESTION_ENABLED: "false",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+        {
+          source: "api_key_pepper",
+          target: "application_pepper",
+          mode: 400,
+        },
+      ],
+      volumes: [
+        "${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is required}:/run/skillwire:rw",
+      ],
+      depends_on: {
+        postgres: { condition: "service_healthy" },
+        migrate: { condition: "service_completed_successfully" },
+      },
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+      restart: "unless-stopped",
+      stop_grace_period: "15s",
+      healthcheck: {
+        test: [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:http').request({socketPath:'/run/skillwire/mcp.sock',path:'/health/ready',headers:{host:'localhost'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).end()",
+        ],
+        interval: "10s",
+        timeout: "3s",
+        start_period: "15s",
+        retries: 6,
+      },
+    },
+    admin: {
+      profiles: ["admin"],
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["node", "dist/src/authentication/admin-cli.js"],
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+        SKILLWIRE_API_KEY_PEPPER_FILE: "/run/secrets/application_pepper",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+        {
+          source: "api_key_pepper",
+          target: "application_pepper",
+          mode: 400,
+        },
+      ],
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      security_opt: ["no-new-privileges:true"],
+      logging: { driver: "none" },
+      restart: "no",
+    },
+  },
+  secrets: {
+    postgres_password: {
+      file: "${SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE:?database password file is required}",
+    },
+    api_key_pepper: {
+      file: "${SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE:?application pepper file is required}",
+    },
+  },
+  volumes: {
+    postgres_data: {
+      name: "${SKILLWIRE_POSTGRES_VOLUME:?owned PostgreSQL volume is required}",
+    },
+  },
+} as const;
+
+export function verifyProductionComposeText(composeText: string): void {
+  if (
+    !isDeepStrictEqual(
+      parseYaml(composeText) as unknown,
+      EXPECTED_PRODUCTION_COMPOSE,
+    )
+  ) {
+    throw new Error("Production Compose policy is unsafe");
+  }
+}
+
+export async function verifySelfHostedReleasePolicy(
+  manifest: ReleaseManifest,
+  releaseRoot: string,
+): Promise<{
+  readonly feature003PackageSha256: string;
+  readonly firstPartyRevisionCount: 10;
+  readonly matrix: z.infer<typeof CertifiedMatrixSchema>;
+}> {
+  const composeText = await readFile(
+    resolve(releaseRoot, "distribution/self-hosted/compose.yaml"),
+    "utf8",
+  );
+  verifyProductionComposeText(composeText);
+  const matrixResult = CertifiedMatrixSchema.safeParse(
+    JSON.parse(
+      await readFile(
+        resolve(releaseRoot, "distribution/self-hosted/supported-matrix.json"),
+        "utf8",
+      ),
+    ) as unknown,
+  );
+  if (!matrixResult.success)
+    throw new Error("Certified release matrix is invalid or overclaimed");
+  const matrix = matrixResult.data;
+  const integrity = validateCodexAdapterIntegrityManifest(
+    JSON.parse(
+      await readFile(
+        resolve(
+          releaseRoot,
+          "distribution/codex-marketplace/release-integrity.json",
+        ),
+        "utf8",
+      ),
+    ) as unknown,
+    resolve(releaseRoot, "integrations/codex/skillwire-autonomous-activation"),
+  );
+  const catalog = await verifyBundledFirstPartyCatalog({
+    releaseRoot,
+    release: manifest,
+  });
+  return {
+    feature003PackageSha256: integrity.packageSha256,
+    firstPartyRevisionCount: catalog.revisions.length as 10,
+    matrix,
+  };
 }
 
 export async function verifyCandidateFromCommandLine(): Promise<void> {
@@ -198,6 +474,7 @@ export async function verifyCandidateFromCommandLine(): Promise<void> {
       maximumOutputBytes: 64 * 1024,
     });
     await verifyManifestPayload(verified.manifest, extractionRoot);
+    await verifySelfHostedReleasePolicy(verified.manifest, extractionRoot);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

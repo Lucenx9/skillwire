@@ -1,8 +1,11 @@
 import type { ClientName } from "../cli/main.js";
+import type { BootstrapSource } from "../domain/source-choice.js";
+import type { SourceChoice } from "../domain/source-choice.js";
 import type { ClientConflictFinding } from "./client-lifecycle.js";
 
 export interface GuidedSetupOptions {
   readonly clients: "none" | "codex" | "claude" | "codex,claude";
+  readonly sources?: readonly BootstrapSource[] | undefined;
 }
 
 export interface SetupClientResult {
@@ -38,6 +41,10 @@ export interface GuidedSetupDependencies {
     client: ClientName,
     installationId: string,
   ): Promise<SetupClientResult>;
+  bootstrapSources?(selected: readonly BootstrapSource[]): Promise<{
+    readonly choices: readonly SourceChoice[];
+    readonly changed: boolean;
+  }>;
 }
 
 export interface RetainedSetupState {
@@ -50,7 +57,37 @@ export interface GuidedSetupResult {
   readonly installationId: string;
   readonly serviceReady: boolean;
   readonly clients: readonly SetupClientResult[];
+  readonly sources?: readonly SourceChoice[] | undefined;
   readonly changed?: boolean | undefined;
+}
+
+async function withSources(
+  options: GuidedSetupOptions,
+  dependencies: GuidedSetupDependencies,
+  result: GuidedSetupResult,
+): Promise<GuidedSetupResult> {
+  const selected = options.sources ?? [];
+  if (selected.length === 0) return result;
+  if (dependencies.bootstrapSources === undefined)
+    throw new Error("Explicit source bootstrap is unavailable");
+  if (!result.serviceReady)
+    throw new Error("Sources cannot bootstrap before service readiness");
+  const bootstrapped = await dependencies.bootstrapSources(selected);
+  const degraded = bootstrapped.choices.some(
+    ({ selected: chosen, syncState }) =>
+      chosen && (syncState === "degraded" || syncState === "failed"),
+  );
+  return {
+    ...result,
+    status:
+      result.status === "recovery-required"
+        ? result.status
+        : degraded
+          ? "incomplete"
+          : result.status,
+    sources: bootstrapped.choices,
+    changed: result.changed !== false || bootstrapped.changed,
+  };
 }
 
 function selectedClients(
@@ -66,7 +103,8 @@ export async function runGuidedSetup(
   dependencies: GuidedSetupDependencies,
 ): Promise<GuidedSetupResult> {
   const existing = await dependencies.inspectExisting?.(options);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined)
+    return withSources(options, dependencies, existing);
   const release = await dependencies.verifyRelease();
   const retained = await dependencies.discoverRetained?.(options);
   if (retained !== undefined) {
@@ -104,12 +142,12 @@ export async function runGuidedSetup(
           )
         ? "incomplete"
         : "success";
-    return {
+    return withSources(options, dependencies, {
       status,
       installationId: retained.installationId,
       serviceReady: true,
       clients,
-    };
+    });
   }
   const service = await dependencies.installService(release);
   if (!service.ready)
@@ -130,10 +168,10 @@ export async function runGuidedSetup(
         )
       ? "incomplete"
       : "success";
-  return {
+  return withSources(options, dependencies, {
     status,
     installationId: service.installationId,
     serviceReady: true,
     clients,
-  };
+  });
 }

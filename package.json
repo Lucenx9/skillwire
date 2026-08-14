@@ -37,7 +37,8 @@
     "test:evaluation": "vitest run --project evaluation --passWithNoTests",
     "test:security": "vitest run --project security --passWithNoTests",
     "test:activation": "vitest run tests/unit/evaluation/activation-baseline.test.ts tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/unit/transport/activation-policy.test.ts tests/unit/domain/ranking.test.ts tests/contract/cli/activation-evidence.test.ts tests/contract/mcp/activation-metadata.test.ts tests/contract/mcp/search-skills.test.ts tests/contract/mcp/load-skill.test.ts tests/integration/service/activation-memory-attribution.test.ts tests/e2e/autonomous-activation-transport.test.ts tests/evaluation/autonomous-activation.test.ts tests/security/transport/autonomous-activation-boundaries.test.ts",
-    "test:activation-adapter": "vitest run tests/unit/evaluation/codex-adapter-package.test.ts tests/unit/evaluation/codex-marketplace.test.ts tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/contract/cli/codex-activation-plugin.test.ts tests/contract/cli/activation-evidence.test.ts"
+    "test:activation-adapter": "vitest run tests/unit/evaluation/codex-adapter-package.test.ts tests/unit/evaluation/codex-marketplace.test.ts tests/unit/evaluation/activation-corpus.test.ts tests/unit/evaluation/manual-evidence.test.ts tests/contract/cli/codex-activation-plugin.test.ts tests/contract/cli/activation-evidence.test.ts",
+    "test:feature-004": "vitest run tests/unit/onboarding tests/contract/clients tests/contract/credential-bridge tests/contract/release tests/integration/onboarding tests/e2e/self-hosted-onboarding tests/security/onboarding"
   },
   "dependencies": {
     "@hono/node-server": "2.1.0",
