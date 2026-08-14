@@ -145,6 +145,9 @@ class Harness implements CodexPluginManagerHarness {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
+    writeFileSync(this.#gitConfig, "", { mode: 0o600 });
+    this.#gitConfigSet("safe.directory", projectRoot);
+    this.#gitConfigSet("safe.directory", resolve(projectRoot, ".git"));
     const pluginRoot = join(projectRoot, CODEX_ADAPTER_SOURCE_PATH.slice(2));
     validateCodexAdapterPackage(pluginRoot);
 
@@ -196,7 +199,6 @@ class Harness implements CodexPluginManagerHarness {
       );
     }
 
-    writeFileSync(this.#gitConfig, "", { mode: 0o600 });
     this.#gitConfigSet(
       `url.file://${this.#marketplaceRepository}/.insteadOf`,
       FIXTURE_MARKETPLACE_URL,
@@ -553,6 +555,7 @@ class Harness implements CodexPluginManagerHarness {
         env: {
           PATH: process.env["PATH"] ?? "/usr/bin:/bin",
           HOME: this.#home,
+          GIT_CONFIG_GLOBAL: this.#gitConfig,
           GIT_CONFIG_NOSYSTEM: "1",
           GIT_TERMINAL_PROMPT: "0",
         },

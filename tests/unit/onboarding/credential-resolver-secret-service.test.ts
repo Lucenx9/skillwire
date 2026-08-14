@@ -34,21 +34,34 @@ describe("credential resolver Secret Service reference", () => {
       `${JSON.stringify({
         schemaVersion: "skillwire.bridge-state/v1",
         installationId,
-        endpoint: "http://127.0.0.1:3000/mcp",
+        transport: "unix-domain-socket",
+        endpoint: "http://localhost/mcp",
+        socketPath: "/tmp/disposable/mcp.sock",
         clients: [{ client: "codex", credentialReference: reference }],
       })}\n`,
       { mode: 0o600 },
     );
     const token = createApiKeyToken().token;
     const lookup = vi.fn().mockResolvedValue(token);
-    const resolver = new CredentialResolver(stateRoot, dataRoot, {
-      lookup,
-    } as never);
+    const resolver = new CredentialResolver(
+      stateRoot,
+      dataRoot,
+      {
+        lookup,
+      } as never,
+      () => Promise.resolve(),
+    );
 
     await expect(resolver.resolve(installationId, "codex")).resolves.toEqual({
-      endpoint: new URL("http://127.0.0.1:3000/mcp"),
+      endpoint: new URL("http://localhost/mcp"),
+      socketPath: "/tmp/disposable/mcp.sock",
       token,
     });
-    expect(lookup).toHaveBeenCalledWith(installationId, "codex", reference);
+    expect(lookup).toHaveBeenCalledWith(
+      installationId,
+      "codex",
+      reference,
+      undefined,
+    );
   });
 });

@@ -297,6 +297,7 @@ export interface VerifyReleaseOptions {
   readonly currentPolicyRoot?: string | undefined;
   readonly pinnedInitialPolicySha256?: string | undefined;
   readonly now?: Date | undefined;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export type VerifyReleaseEnvelopeOptions = Omit<
@@ -432,24 +433,55 @@ export async function verifySignedReleaseEnvelope(
           !currentPolicy.deniedSigners.includes(signer.signerId) &&
           !currentPolicy.deniedSigners.includes(signerIdentity(signer)),
       );
-      const oldSigner = activeSigners[0];
-      if (oldSigner === undefined)
+      if (activeSigners.length < currentPolicy.overlap.requiredSignerCount)
         throw new Error(
-          "No active signer survives; out-of-band trust bootstrap is required",
+          "No complete active signer quorum survives; out-of-band trust bootstrap is required",
         );
-      verificationSigners = [oldSigner];
-      if (policy.overlap.requiredSignerCount === 2) {
-        const nextSigner = policy.signers.find(
-          (signer) =>
-            signerIdentity(signer) !== signerIdentity(oldSigner) &&
-            !policy.deniedSigners.includes(signer.signerId) &&
-            !policy.deniedSigners.includes(signerIdentity(signer)),
+      const candidateSigners = policy.signers.filter(
+        (signer) =>
+          !policy.deniedSigners.includes(signer.signerId) &&
+          !policy.deniedSigners.includes(signerIdentity(signer)),
+      );
+      for (const currentSigner of activeSigners) {
+        const candidateSigner = candidateSigners.find(
+          ({ signerId }) => signerId === currentSigner.signerId,
         );
-        if (nextSigner === undefined)
-          throw new Error("Signer overlap has no distinct next signer");
-        verificationSigners.push(nextSigner);
+        if (
+          candidateSigner !== undefined &&
+          signerIdentity(candidateSigner) !== signerIdentity(currentSigner)
+        ) {
+          throw new Error(
+            "A signer identifier cannot change cryptographic identity during rotation",
+          );
+        }
       }
-      requiredSignerCount = policy.overlap.requiredSignerCount;
+      verificationSigners = manifest.signatureBundles.map(({ signerId }) => {
+        const signer =
+          activeSigners.find((candidate) => candidate.signerId === signerId) ??
+          candidateSigners.find((candidate) => candidate.signerId === signerId);
+        if (signer === undefined)
+          throw new Error("Trust rotation bundle has an unknown signer");
+        return signer;
+      });
+      const activeQuorum = new Set(
+        verificationSigners
+          .filter((verifiedSigner) =>
+            activeSigners.some(
+              (activeSigner) =>
+                signerIdentity(activeSigner) === signerIdentity(verifiedSigner),
+            ),
+          )
+          .map(signerIdentity),
+      );
+      if (activeQuorum.size < currentPolicy.overlap.requiredSignerCount) {
+        throw new Error(
+          "Trust policy rotation requires the complete current active signer quorum",
+        );
+      }
+      requiredSignerCount = Math.max(
+        currentPolicy.overlap.requiredSignerCount,
+        policy.overlap.requiredSignerCount,
+      );
     }
   }
   const now = (options.now ?? new Date()).getTime();
@@ -630,6 +662,7 @@ export async function verifySignedReleaseEnvelope(
         },
         deadlineMilliseconds: 35_000,
         maximumOutputBytes: 64 * 1024,
+        signal: options.signal,
       });
       cosignInvocations.push(cosignArguments);
     }

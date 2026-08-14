@@ -1,5 +1,7 @@
 import { constants } from "node:fs";
-import { open, mkdir, readFile, unlink } from "node:fs/promises";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { once } from "node:events";
+import { open, mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 
@@ -66,6 +68,17 @@ export const OperationRecordSchema = z
   .strict();
 
 export type JournalEntry = z.infer<typeof JournalEntrySchema>;
+
+export class JournaledEffectError extends Error {
+  public constructor(
+    message: string,
+    readonly effectMayHaveBegun: boolean,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "JournaledEffectError";
+  }
+}
 
 export class OperationJournal {
   readonly entries: JournalEntry[] = [];
@@ -187,6 +200,59 @@ export class OperationJournal {
   cancel(detail: JournalEntry["detail"]): Promise<void> {
     return this.append("cancel", this.command, detail);
   }
+
+  async runEffect<T>(options: {
+    readonly step: string;
+    readonly intent: JournalEntry["detail"];
+    readonly signal: AbortSignal;
+    readonly action: () => Promise<T>;
+    readonly effectNotStarted?: (error: unknown) => boolean;
+    readonly verification: (value: T) => JournalEntry["detail"];
+  }): Promise<T> {
+    await this.intent(options.step, options.intent);
+    if (options.signal.aborted) {
+      throw new JournaledEffectError(
+        `Operation cancelled before ${options.step} began`,
+        false,
+      );
+    }
+    let value: T;
+    try {
+      value = await options.action();
+      await this.effect(options.step, { completion: "recorded" });
+      await this.verify(options.step, options.verification(value));
+    } catch (error) {
+      if (options.effectNotStarted?.(error) === true) {
+        await this.compensate(options.step, {
+          completion: "not-started",
+          recoveryRequired: false,
+        });
+        throw error;
+      }
+      await this.compensate(options.step, {
+        completion: "unproven",
+        recoveryRequired: true,
+      });
+      throw new JournaledEffectError(
+        `${options.step} may have begun without proven completion`,
+        true,
+        { cause: error },
+      );
+    }
+    return value;
+  }
+
+  hasUnprovenEffect(): boolean {
+    const unproven = new Set(
+      this.entries
+        .filter(
+          ({ phase, detail }) =>
+            phase === "compensate" && detail["completion"] === "unproven",
+        )
+        .map(({ step }) => step),
+    );
+    return unproven.size > 0;
+  }
 }
 
 export interface ProcessIdentity {
@@ -248,8 +314,7 @@ export async function currentProcessIdentity(): Promise<ProcessIdentity> {
 export class InstallationLock {
   private constructor(
     private readonly path: string,
-    private readonly device: bigint,
-    private readonly inode: bigint,
+    private readonly holder: ChildProcessWithoutNullStreams,
   ) {}
 
   static async acquire(
@@ -267,79 +332,128 @@ export class InstallationLock {
       throw new Error("Installation lock caller identity is stale");
     }
     await mkdir(root, { recursive: true, mode: 0o700 });
-    const path = resolve(root, `${name}.lock`);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const handle = await open(
-          path,
-          constants.O_WRONLY |
-            constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_NOFOLLOW,
-          0o600,
-        );
-        await handle.writeFile(`${JSON.stringify(identity)}\n`, "utf8");
-        await handle.sync();
-        const stats = await handle.stat({ bigint: true });
-        await handle.close();
-        return new InstallationLock(path, stats.dev, stats.ino);
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !("code" in error) ||
-          error.code !== "EEXIST"
-        )
-          throw error;
-        const existing = await open(
-          path,
-          constants.O_RDONLY | constants.O_NOFOLLOW,
-        );
-        let observed: ProcessIdentity;
-        try {
-          const stats = await existing.stat();
-          if (
-            !stats.isFile() ||
-            stats.nlink !== 1 ||
-            stats.uid !== process.getuid?.() ||
-            (stats.mode & 0o777) !== 0o600 ||
-            stats.size > 4096
-          ) {
-            throw new Error("Installation lock is unsafe", { cause: error });
-          }
-          observed = ProcessIdentitySchema.parse(
-            JSON.parse((await existing.readFile()).toString("utf8")) as unknown,
-          );
-        } finally {
-          await existing.close();
-        }
-        const live = await processIdentity(observed.pid);
-        if (
-          live?.bootId === observed.bootId &&
-          live.processStart === observed.processStart
-        ) {
-          throw new Error("Installation is locked by a live process", {
-            cause: error,
-          });
-        }
-        await unlink(path);
+    const rootHandle = await open(
+      root,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    try {
+      const stats = await rootHandle.stat();
+      if (
+        !stats.isDirectory() ||
+        stats.uid !== (process.getuid?.() ?? -1) ||
+        (stats.mode & 0o077) !== 0
+      ) {
+        throw new Error("Installation lock directory is unsafe");
       }
+    } finally {
+      await rootHandle.close();
     }
-    throw new Error("Unable to acquire installation lock");
+    const path = resolve(root, `${name}.lock`);
+    let lockFile;
+    try {
+      lockFile = await open(
+        path,
+        constants.O_RDWR |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "EEXIST"
+      )
+        throw error;
+      lockFile = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
+    }
+    try {
+      const stats = await lockFile.stat();
+      if (
+        !stats.isFile() ||
+        stats.nlink !== 1 ||
+        stats.uid !== process.getuid?.() ||
+        (stats.mode & 0o777) !== 0o600 ||
+        stats.size > 4096
+      ) {
+        throw new Error("Installation lock is unsafe");
+      }
+    } finally {
+      await lockFile.close();
+    }
+
+    const holder = spawn(
+      "/usr/bin/flock",
+      [
+        "--exclusive",
+        "--nonblock",
+        "--no-fork",
+        path,
+        process.execPath,
+        "-e",
+        'process.stdout.write("locked\\n");process.stdin.resume();process.stdin.once("data",()=>process.exit(0))',
+      ],
+      {
+        env: { PATH: "/usr/bin:/bin", LANG: "C" },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const outcome = await Promise.race([
+      new Promise<"ready">((done) => {
+        holder.stdout.once("data", (chunk: Buffer) => {
+          if (chunk.toString("utf8") === "locked\n") done("ready");
+        });
+      }),
+      once(holder, "exit").then(() => "exit" as const),
+      once(holder, "error").then(() => "error" as const),
+      new Promise<"timeout">((done) => {
+        const timer = setTimeout(() => {
+          done("timeout");
+        }, 2_000);
+        timer.unref();
+      }),
+    ]);
+    if (outcome !== "ready") {
+      holder.kill("SIGKILL");
+      throw new Error("Installation is locked by a live process");
+    }
+    try {
+      const metadata = await open(
+        path,
+        constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW,
+      );
+      try {
+        await metadata.writeFile(`${JSON.stringify(identity)}\n`, "utf8");
+        await metadata.sync();
+      } finally {
+        await metadata.close();
+      }
+    } catch (error) {
+      holder.stdin.end("release\n");
+      await once(holder, "exit").catch(() => undefined);
+      throw error;
+    }
+    return new InstallationLock(path, holder);
   }
 
   async release(): Promise<void> {
-    const handle = await open(
-      this.path,
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
-    try {
-      const stats = await handle.stat({ bigint: true });
-      if (stats.dev !== this.device || stats.ino !== this.inode) {
-        throw new Error("Installation lock identity changed before release");
-      }
-    } finally {
-      await handle.close();
+    if (this.holder.exitCode !== null || this.holder.signalCode !== null)
+      throw new Error("Installation lock holder exited before release");
+    this.holder.stdin.end("release\n");
+    const outcome = await Promise.race([
+      once(this.holder, "exit").then(() => "exit" as const),
+      new Promise<"timeout">((done) => {
+        const timer = setTimeout(() => {
+          done("timeout");
+        }, 2_000);
+        timer.unref();
+      }),
+    ]);
+    if (outcome !== "exit") {
+      this.holder.kill("SIGKILL");
+      await once(this.holder, "exit").catch(() => undefined);
+      throw new Error(`Installation lock ${this.path} did not release safely`);
     }
-    await unlink(this.path);
   }
 }

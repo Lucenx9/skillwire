@@ -38,7 +38,7 @@ describe("onboarding records and transitions", () => {
       activeReleaseId: "1-amd64",
       highestAcceptedReleaseSequence: 1,
       activeTrustPolicySequence: 1,
-      endpoint: "http://127.0.0.1:3000/mcp",
+      endpoint: "unix:///tmp/disposable/mcp.sock",
       composeProject: "skillwire-0000000000004000",
       postgresVolume: "skillwire-0000000000004000_postgres_data",
       selectedClients: ["codex"],

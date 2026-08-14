@@ -1,7 +1,9 @@
-import { createServer } from "node:net";
+import { request as httpRequest } from "node:http";
+import { lstat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 
 import {
+  CommandFailure,
   runCommand,
   type CommandOptions,
   type CommandResult,
@@ -18,24 +20,33 @@ export interface DeploymentOptions {
   readonly postgresImage: string;
   readonly databasePasswordFile: string;
   readonly applicationPepperFile: string;
-  readonly port: number;
+  readonly runtimeSocketDirectory: string;
+  readonly socketPath: string;
   readonly run?: CommandExecutor | undefined;
-  readonly fetch?: typeof fetch | undefined;
-  readonly ensurePortAvailable?: ((port: number) => Promise<void>) | undefined;
+  readonly readinessProbe?:
+    ((socketPath: string, signal: AbortSignal) => Promise<boolean>) | undefined;
 }
 
-async function defaultPortProbe(port: number): Promise<void> {
-  await new Promise<void>((done, reject) => {
-    const server = createServer();
-    server.once("error", () => {
-      reject(new Error(`Loopback port ${String(port)} is occupied`));
-    });
-    server.listen(port, "127.0.0.1", () => {
-      server.close((error) => {
-        if (error === undefined) done();
-        else reject(error);
-      });
-    });
+async function defaultReadinessProbe(
+  socketPath: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  return new Promise<boolean>((done, reject) => {
+    const request = httpRequest(
+      {
+        socketPath,
+        path: "/health/ready",
+        method: "GET",
+        headers: { host: "localhost" },
+        signal,
+      },
+      (response) => {
+        response.resume();
+        done(response.statusCode === 200);
+      },
+    );
+    request.once("error", reject);
+    request.end();
   });
 }
 
@@ -68,7 +79,10 @@ function canonicalDockerReference(reference: string): string {
 
 export class DeploymentAdapter {
   private readonly run: CommandExecutor;
-  private readonly fetch: typeof fetch;
+  private readonly readinessProbe: (
+    socketPath: string,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
 
   public constructor(private readonly options: DeploymentOptions) {
     if (
@@ -83,15 +97,17 @@ export class DeploymentAdapter {
       throw new Error("Deployment resource names are not installation-bound");
     }
     if (
-      !Number.isInteger(options.port) ||
-      options.port < 1024 ||
-      options.port > 65535
+      !isAbsolute(options.runtimeSocketDirectory) ||
+      !isAbsolute(options.socketPath) ||
+      resolve(options.socketPath) !==
+        resolve(options.runtimeSocketDirectory, "mcp.sock") ||
+      options.socketPath.length > 103
     )
-      throw new Error("Loopback service port is invalid");
+      throw new Error("Runtime Unix socket identity is invalid");
     expectedDigest(options.skillwireImage);
     expectedDigest(options.postgresImage);
     this.run = options.run ?? runCommand;
-    this.fetch = options.fetch ?? fetch;
+    this.readinessProbe = options.readinessProbe ?? defaultReadinessProbe;
   }
 
   private command(
@@ -112,7 +128,9 @@ export class DeploymentAdapter {
           this.options.databasePasswordFile,
         SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE:
           this.options.applicationPepperFile,
-        SKILLWIRE_PORT: String(this.options.port),
+        SKILLWIRE_RUNTIME_SOCKET_DIRECTORY: this.options.runtimeSocketDirectory,
+        SKILLWIRE_RUNTIME_UID: String(process.getuid?.() ?? 10001),
+        SKILLWIRE_RUNTIME_GID: String(process.getgid?.() ?? 10001),
       },
       deadlineMilliseconds: 60_000,
       maximumOutputBytes: 256 * 1024,
@@ -120,28 +138,33 @@ export class DeploymentAdapter {
     });
   }
 
-  async probe(): Promise<void> {
-    const docker = await this.command(["--version"]);
+  async probe(signal?: AbortSignal): Promise<void> {
+    const docker = await this.command(["--version"], signal);
     const dockerVersion = /Docker version\s+(\d+)\.(\d+)\.(\d+)/.exec(
       docker.stdout,
     );
     if (dockerVersion === null || Number(dockerVersion[1]) < 27)
       throw new Error("Unsupported Docker version");
-    const compose = await this.command(["compose", "version"]);
+    const compose = await this.command(["compose", "version"], signal);
     const composeVersion = /version\s+v?(\d+)\.(\d+)\.(\d+)/i.exec(
       compose.stdout,
     );
     if (composeVersion === null || Number(composeVersion[1]) < 2)
       throw new Error("Unsupported Docker Compose version");
-    const context = (await this.command(["context", "show"])).stdout.trim();
+    const context = (
+      await this.command(["context", "show"], signal)
+    ).stdout.trim();
     const endpoint = (
-      await this.command([
-        "context",
-        "inspect",
-        context,
-        "--format",
-        "{{.Endpoints.docker.Host}}",
-      ])
+      await this.command(
+        [
+          "context",
+          "inspect",
+          context,
+          "--format",
+          "{{.Endpoints.docker.Host}}",
+        ],
+        signal,
+      )
     ).stdout.trim();
     if (!endpoint.startsWith("unix://") && !endpoint.startsWith("npipe://"))
       throw new Error(
@@ -151,15 +174,15 @@ export class DeploymentAdapter {
       this.options.skillwireImage,
       this.options.postgresImage,
     ]) {
-      const inspected = (
-        await this.command([
-          "image",
-          "inspect",
-          "--format",
-          "{{json .RepoDigests}}",
-          image,
-        ])
-      ).stdout.trim();
+      let inspected: string;
+      try {
+        inspected = await this.inspectImage(image, signal);
+      } catch (error) {
+        if (!(error instanceof CommandFailure) || error.kind !== "exit")
+          throw error;
+        await this.command(["pull", image], signal);
+        inspected = await this.inspectImage(image, signal);
+      }
       let repoDigests: unknown;
       try {
         repoDigests = JSON.parse(inspected) as unknown;
@@ -182,10 +205,28 @@ export class DeploymentAdapter {
     }
   }
 
+  private async inspectImage(
+    image: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    return (
+      await this.command(
+        ["image", "inspect", "--format", "{{json .RepoDigests}}", image],
+        signal,
+      )
+    ).stdout.trim();
+  }
+
   async deploy(signal: AbortSignal): Promise<void> {
-    await (this.options.ensurePortAvailable ?? defaultPortProbe)(
-      this.options.port,
-    );
+    const runtime = await lstat(this.options.runtimeSocketDirectory);
+    if (
+      !runtime.isDirectory() ||
+      runtime.isSymbolicLink() ||
+      runtime.uid !== process.getuid?.() ||
+      (runtime.mode & 0o777) !== 0o700
+    ) {
+      throw new Error("Runtime Unix socket directory is unsafe");
+    }
     const composeBase = [
       "compose",
       "--project-name",
@@ -210,18 +251,29 @@ export class DeploymentAdapter {
     let lastError: unknown;
     while (performance.now() < deadline && !signal.aborted) {
       try {
-        const response = await this.fetch(
-          `http://127.0.0.1:${String(this.options.port)}/health/ready`,
-          {
-            redirect: "error",
-            signal: AbortSignal.timeout(2_000),
-          },
-        );
-        if (response.ok) return;
+        if (
+          await this.readinessProbe(
+            this.options.socketPath,
+            AbortSignal.any([signal, AbortSignal.timeout(2_000)]),
+          )
+        )
+          return;
       } catch (error) {
         lastError = error;
       }
-      await new Promise((done) => setTimeout(done, 100));
+      await new Promise<void>((done, reject) => {
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", onAbort);
+          reject(new Error("Deployment cancelled at a safe boundary"));
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          done();
+        }, 100);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
     }
     if (signal.aborted)
       throw new Error("Deployment cancelled at a safe boundary");

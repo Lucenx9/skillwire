@@ -22,6 +22,7 @@ import {
 import { FakeRepositoryMemoryStore } from "../../helpers/memory-store.js";
 
 describe("ordinary normal-profile clients fail open", () => {
+  const claudeExecutable = resolve("node_modules/.bin/claude");
   let fixture: OnboardingEnvironment | undefined;
   afterEach(async () => fixture?.close());
 
@@ -41,13 +42,13 @@ describe("ordinary normal-profile clients fail open", () => {
               resolve("node_modules/.bin/codex"),
               fixture.environment,
             )
-          : new ClaudeClientAdapter("/usr/bin/claude", fixture.environment);
+          : new ClaudeClientAdapter(claudeExecutable, fixture.environment);
       await adapter.addMcp(launcher, "00000000-0000-4000-8000-000000000001");
 
       const executable =
         client === "codex"
           ? resolve("node_modules/.bin/codex")
-          : "/usr/bin/claude";
+          : claudeExecutable;
       const started = spawnSync(executable, ["--version"], {
         cwd: fixture.home,
         env: fixture.environment,
@@ -90,7 +91,9 @@ describe("ordinary normal-profile clients fail open", () => {
           `${JSON.stringify({
             schemaVersion: "skillwire.bridge-state/v1",
             installationId,
-            endpoint: "http://127.0.0.1:3000/mcp",
+            transport: "unix-domain-socket",
+            endpoint: "http://localhost/mcp",
+            socketPath: "/tmp/disposable/mcp.sock",
             clients: [
               {
                 client: "codex",
@@ -117,6 +120,7 @@ describe("ordinary normal-profile clients fail open", () => {
           stateRoot,
           dataRoot,
           new UnavailableSecretService(),
+          () => Promise.resolve(),
         );
       }
       const failure = await resolver.resolve(installationId, "codex").then(
@@ -131,7 +135,7 @@ describe("ordinary normal-profile clients fail open", () => {
       );
       for (const executable of [
         resolve("node_modules/.bin/codex"),
-        "/usr/bin/claude",
+        claudeExecutable,
       ]) {
         expect(
           spawnSync(executable, ["--version"], {
@@ -221,8 +225,10 @@ describe("ordinary normal-profile clients fail open", () => {
             ? "http://does-not-resolve.invalid/mcp"
             : "http://localhost/mcp",
         ),
+        socketPath: "/tmp/disposable/mcp.sock",
         token,
         fetch: appFetch,
+        peerValidator: () => Promise.resolve(),
         deadlineMilliseconds: scenario === "timeout" ? 25 : 1_000,
       }).then(
         async (connection) => {
@@ -245,7 +251,7 @@ describe("ordinary normal-profile clients fail open", () => {
       );
       for (const [executable, pattern] of [
         [resolve("node_modules/.bin/codex"), /codex-cli/],
-        ["/usr/bin/claude", /Claude Code/],
+        [claudeExecutable, /Claude Code/],
       ] as const) {
         const started = spawnSync(executable, ["--version"], {
           cwd: fixture.home,
@@ -270,7 +276,7 @@ describe("ordinary normal-profile clients fail open", () => {
               resolve("node_modules/.bin/codex"),
               fixture.environment,
             )
-          : new ClaudeClientAdapter("/usr/bin/claude", fixture.environment);
+          : new ClaudeClientAdapter(claudeExecutable, fixture.environment);
       await adapter.addMcp(
         missingLauncher,
         "00000000-0000-4000-8000-000000000001",
@@ -278,7 +284,7 @@ describe("ordinary normal-profile clients fail open", () => {
       const started = spawnSync(
         client === "codex"
           ? resolve("node_modules/.bin/codex")
-          : "/usr/bin/claude",
+          : claudeExecutable,
         ["--version"],
         {
           cwd: fixture.home,
@@ -320,7 +326,7 @@ describe("ordinary normal-profile clients fail open", () => {
         })}\n`,
         { mode: 0o600 },
       );
-      const started = spawnSync("/usr/bin/claude", ["--version"], {
+      const started = spawnSync(claudeExecutable, ["--version"], {
         cwd: fixture.home,
         env: fixture.environment,
         encoding: "utf8",

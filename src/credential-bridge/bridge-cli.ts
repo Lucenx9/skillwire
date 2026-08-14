@@ -26,9 +26,11 @@ export interface BridgeLifecycleDependencies {
   resolve(
     installationId: string,
     client: "codex" | "claude",
+    signal: AbortSignal,
   ): Promise<ResolvedBridgeCredential>;
   connect(options: {
     endpoint: URL;
+    socketPath: string;
     token: string;
     deadlineMilliseconds: number;
     signal: AbortSignal;
@@ -108,6 +110,7 @@ export async function runBridgeLifecycle(
         const credential = await dependencies.resolve(
           options.installationId,
           options.client,
+          controller.signal,
         );
         const budget = Math.max(
           1,
@@ -115,6 +118,7 @@ export async function runBridgeLifecycle(
         );
         const activeConnection = await dependencies.connect({
           endpoint: credential.endpoint,
+          socketPath: credential.socketPath,
           token: credential.token,
           deadlineMilliseconds: budget,
           signal: controller.signal,
@@ -170,8 +174,8 @@ export async function runBridgeCommand(
         signal,
       },
       {
-        resolve: (installationId, client) =>
-          resolver.resolve(installationId, client),
+        resolve: (installationId, client, activeSignal) =>
+          resolver.resolve(installationId, client, activeSignal),
         connect: (options) => connectUpstream(options),
         serve: serveStdioProxy,
       },

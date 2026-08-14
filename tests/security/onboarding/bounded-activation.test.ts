@@ -24,6 +24,7 @@ describe("bounded fail-open activation", () => {
                 ? Promise.reject(new Error("unavailable"))
                 : Promise.resolve({
                     endpoint: new URL("http://127.0.0.1:3000/mcp"),
+                    socketPath: "/tmp/disposable/mcp.sock",
                     token: "fixture",
                   });
             },
@@ -83,6 +84,7 @@ describe("bounded fail-open activation", () => {
         resolve: () =>
           Promise.resolve({
             endpoint: new URL("http://127.0.0.1:3000/mcp"),
+            socketPath: "/tmp/disposable/mcp.sock",
             token: "fixture",
           }),
         connect: () =>

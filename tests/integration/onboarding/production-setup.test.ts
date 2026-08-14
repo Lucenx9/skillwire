@@ -137,7 +137,6 @@ describe("real disposable production setup", () => {
       baselineContainers = await dockerInventory("container");
       baselineVolumes = await dockerInventory("volume");
       const registryPort = await freePort();
-      const servicePort = await freePort();
       registryName = `${fixture.composeProject}-registry`;
       await exec(
         "/usr/bin/docker",
@@ -290,16 +289,17 @@ describe("real disposable production setup", () => {
       const environment = {
         ...fixture.environment,
         SKILLWIRE_RELEASE_ROOT: candidateRoot,
-        SKILLWIRE_SETUP_PORT: String(servicePort),
       };
       const preview = await previewProductionSetup(
         { clients: "none" },
         environment,
         { pinnedInitialPolicySha256: sha256(policyBytes) },
       );
-      expect(preview.endpoint).toBe(
-        `http://127.0.0.1:${String(servicePort)}/mcp`,
-      );
+      expect(preview).toMatchObject({
+        endpoint: `unix://${resolve(fixture.runtimeRoot, "skillwire/s-<installation-id-sha256-prefix>/mcp.sock")}`,
+        transport: "unix-domain-socket",
+        port: null,
+      });
       const result = await runProductionSetup(
         { clients: "none", credentialBackend: "not-selected" },
         new AbortController().signal,
@@ -321,11 +321,9 @@ describe("real disposable production setup", () => {
         readFile(resolve(fixture.home, ".claude.json"), "utf8"),
       ).rejects.toMatchObject({ code: "ENOENT" });
 
-      const clientServicePort = await freePort();
       const clientEnvironment = {
         ...fixture.environment,
         SKILLWIRE_RELEASE_ROOT: candidateRoot,
-        SKILLWIRE_SETUP_PORT: String(clientServicePort),
       };
       const clientPreview = await previewProductionSetup(
         { clients: "codex,claude" },
@@ -334,7 +332,9 @@ describe("real disposable production setup", () => {
       );
       expect(clientPreview).toMatchObject({
         clients: "codex,claude",
-        endpoint: `http://127.0.0.1:${String(clientServicePort)}/mcp`,
+        endpoint: `unix://${resolve(fixture.runtimeRoot, "skillwire/s-<installation-id-sha256-prefix>/mcp.sock")}`,
+        transport: "unix-domain-socket",
+        port: null,
         credentialBackend: "restrictive-file",
         fallbackRiskConfirmedByThisPreview: true,
       });

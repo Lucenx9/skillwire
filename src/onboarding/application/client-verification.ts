@@ -8,6 +8,7 @@ import {
 } from "../../transport/mcp/schemas.js";
 import { SKILLWIRE_TOOL_NAMES } from "../../credential-bridge/upstream-client.js";
 import type { ClientName } from "../cli/main.js";
+import { runCommand } from "../adapters/process/command-runner.js";
 import type { ActivationDiagnosticResult } from "./activation-diagnostic.js";
 
 export interface VerifiableRegistration {
@@ -17,6 +18,7 @@ export interface VerifiableRegistration {
 
 export interface ClientVerificationOptions {
   readonly client: ClientName;
+  readonly vendorExecutable: string;
   readonly installationId: string;
   readonly registration: VerifiableRegistration;
   readonly expectedLauncher: string;
@@ -77,7 +79,6 @@ export async function verifyClientIntegration(
   ) {
     throw new Error("Verification must use the normal client profile");
   }
-  const before = JSON.stringify(await options.inventory());
   const allowedEnvironment = [
     "HOME",
     "XDG_CONFIG_HOME",
@@ -96,6 +97,20 @@ export async function verifyClientIntegration(
       return value === undefined ? [] : [[key, value]];
     }),
   );
+  const expectedVersion =
+    options.client === "codex" ? "codex-cli 0.147.0" : "2.1.229 (Claude Code)";
+  const version = await runCommand({
+    executable: options.vendorExecutable,
+    args: ["--version"],
+    environment,
+    deadlineMilliseconds: 5_000,
+    maximumOutputBytes: 4_096,
+    signal: options.signal,
+  });
+  if (version.stdout.trim() !== expectedVersion) {
+    throw new Error(`Certified ${options.client} version is unavailable`);
+  }
+  const before = JSON.stringify(await options.inventory());
   const client = new Client(
     { name: `skillwire-${options.client}-verification`, version: "0.1.0" },
     { versionNegotiation: { mode: "legacy" } },

@@ -351,6 +351,62 @@ export async function profileMatchesSnapshotBefore(
   return true;
 }
 
+export async function profileMatchesExpectedPostImage(
+  snapshot: ProtectedProfileSnapshot,
+  relativePaths?: readonly string[],
+): Promise<boolean> {
+  for (const entry of selectedEntries(snapshot, relativePaths)) {
+    if (
+      !sameIdentity(
+        await fileIdentity(snapshot.profileRoot, entry.relativePath),
+        entry.expectedPostIdentity,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function profileMatchesExpectedPostContent(
+  snapshot: ProtectedProfileSnapshot,
+  relativePaths?: readonly string[],
+): Promise<boolean> {
+  for (const entry of selectedEntries(snapshot, relativePaths)) {
+    if (
+      !sameRestoredImage(
+        await fileIdentity(snapshot.profileRoot, entry.relativePath),
+        entry.expectedPostIdentity,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function selectedEntries(
+  snapshot: ProtectedProfileSnapshot,
+  relativePaths: readonly string[] | undefined,
+): readonly ProfileSnapshotEntry[] {
+  if (relativePaths === undefined) return snapshot.entries;
+  if (
+    relativePaths.length < 1 ||
+    new Set(relativePaths).size !== relativePaths.length
+  ) {
+    throw new Error("Profile checkpoint path selection is invalid");
+  }
+  return relativePaths.map((relativePath) => {
+    const normalized = validateRelativePath(relativePath);
+    const entry = snapshot.entries.find(
+      (candidate) => candidate.relativePath === normalized,
+    );
+    if (entry === undefined)
+      throw new Error("Profile checkpoint path is outside the snapshot");
+    return entry;
+  });
+}
+
 async function restoreEntry(
   snapshot: ProtectedProfileSnapshot,
   entry: ProfileSnapshotEntry,

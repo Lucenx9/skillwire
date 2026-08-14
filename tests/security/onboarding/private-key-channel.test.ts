@@ -95,6 +95,41 @@ describe("one-shot private API key channel", () => {
     );
   });
 
+  it("keeps every documented and automated bootstrap caller on a private token channel", async () => {
+    for (const path of [
+      ".github/workflows/ci.yml",
+      ".github/workflows/benchmark.yml",
+      "README.md",
+      "docs/api-keys.md",
+    ]) {
+      const contents = await readFile(path, "utf8");
+      expect(contents, path).toContain("--key-id");
+      expect(contents, path).toContain("--token-output");
+      expect(contents, path).not.toMatch(/JSON\.parse\([^\n]+\)\.token/);
+      if (path.startsWith(".github/workflows/")) {
+        expect(contents, path).toContain("cleanup_key_channel()");
+        expect(contents, path).toMatch(
+          /trap (?:cleanup_key_channel|cleanup) EXIT/,
+        );
+      }
+    }
+  });
+
+  it("creates the CI token destination privately before the FIFO copy", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const start = workflow.indexOf("- name: Bootstrap one account and key");
+    const end = workflow.indexOf(
+      "- name: Run progressive and repository-memory smoke journey",
+      start,
+    );
+    const bootstrap = workflow.slice(start, end);
+    expect(bootstrap).toContain("umask 077");
+    expect(bootstrap).toContain(": > .secrets/api-key");
+    expect(bootstrap.indexOf("chmod 0600 .secrets/api-key")).toBeLessThan(
+      bootstrap.indexOf('cat "$1" > "$2"'),
+    );
+  });
+
   it("keeps a live one-shot token out of process identity and terminal channels", async () => {
     fixture = await createOnboardingEnvironment();
     const path = resolve(fixture.root, "live-private-token");

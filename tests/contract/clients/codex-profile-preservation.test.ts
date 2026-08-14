@@ -84,13 +84,21 @@ describe("Codex populated normal-profile preservation", () => {
     await adapter.addMcp(fixture.launcher, installationId);
     const registrationBefore = await adapter.readMcp();
     const marketplace = resolve("distribution/codex-release-marketplace");
+    const mutationComponents: string[] = [];
 
-    await adapter.addPlugin(marketplace);
+    await adapter.addPlugin(marketplace, async (component, action) => {
+      mutationComponents.push(component);
+      await action();
+    });
+    expect(mutationComponents).toEqual([
+      "marketplace-install",
+      "plugin-install",
+    ]);
     expect((await adapter.reconcilePlugin(marketplace)).classification).toBe(
       "external-equivalent",
     );
     expect(await adapter.readMcp()).toEqual(registrationBefore);
-    await adapter.removePlugin();
+    await adapter.removePlugin(marketplace);
     expect(await adapter.readMcp()).toEqual(registrationBefore);
   }, 30_000);
 

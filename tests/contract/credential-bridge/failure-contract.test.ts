@@ -48,6 +48,7 @@ describe("credential bridge stable fail-open contract", () => {
           resolve: () =>
             Promise.resolve({
               endpoint: new URL("http://127.0.0.1:3000/mcp"),
+              socketPath: "/tmp/disposable/mcp.sock",
               token: "fixture",
             }),
           connect: () =>

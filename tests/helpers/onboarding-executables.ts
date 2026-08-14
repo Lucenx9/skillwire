@@ -4,7 +4,13 @@ import { resolve } from "node:path";
 export type FakeExecutable =
   "codex" | "claude" | "secret-tool" | "cosign" | "docker" | "signal";
 
-const FAKE_SOURCE = `#!/usr/bin/env node
+function fakeSource(): string {
+  if (/\s/.test(process.execPath)) {
+    throw new Error(
+      "Resolved Node executable cannot be represented in a shebang",
+    );
+  }
+  return `#!${process.execPath}
 const fs = require("node:fs");
 const path = require("node:path");
 const name = path.basename(process.argv[1]);
@@ -24,6 +30,7 @@ if (process.env.SKILLWIRE_FAKE_SIGNAL === "wait") {
   process.stdout.write(JSON.stringify(result) + "\\n");
 }
 `;
+}
 
 export async function createFakeExecutables(
   root: string,
@@ -41,7 +48,7 @@ export async function createFakeExecutables(
   const entries = await Promise.all(
     names.map(async (name) => {
       const path = resolve(directory, name);
-      await writeFile(path, FAKE_SOURCE, { mode: 0o700, flag: "wx" });
+      await writeFile(path, fakeSource(), { mode: 0o700, flag: "wx" });
       await chmod(path, 0o700);
       return [name, path] as const;
     }),

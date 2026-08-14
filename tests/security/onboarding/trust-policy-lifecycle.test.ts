@@ -416,6 +416,96 @@ describe("offline release trust lifecycle", () => {
     ).rejects.toThrow(/overlap|bundle/i);
   });
 
+  it("requires the complete active two-signer quorum before replacing one signer", async () => {
+    let files = await releaseFiles();
+    const activePolicy = JSON.parse(
+      await readFile(files.policyPath, "utf8"),
+    ) as {
+      sequence: number;
+      signers: Record<string, unknown>[];
+      overlap: { previousSequence: number | null; requiredSignerCount: number };
+    };
+    activePolicy.sequence = 2;
+    activePolicy.signers.push({
+      ...activePolicy.signers[0],
+      signerId: "github-release-secondary",
+      workflow: ".github/workflows/self-hosted-release-secondary.yml",
+    });
+    activePolicy.overlap = { previousSequence: 1, requiredSignerCount: 2 };
+    const activePolicyPath = resolve(files.root, "active-policy.json");
+    await writeFile(activePolicyPath, canonicalJson(activePolicy), {
+      mode: 0o600,
+    });
+    await chmod(activePolicyPath, 0o600);
+
+    const candidatePolicy = structuredClone(activePolicy);
+    candidatePolicy.sequence = 3;
+    candidatePolicy.signers[1] = {
+      ...candidatePolicy.signers[1],
+      signerId: "github-release-attacker",
+      workflow: ".github/workflows/self-hosted-release-attacker.yml",
+    };
+    candidatePolicy.overlap = { previousSequence: 2, requiredSignerCount: 2 };
+    const attackerBundle = resolve(
+      files.root,
+      "skillwire-0.1.0-test.1-linux-amd64.release.github-release-attacker.sigstore.json",
+    );
+    files = await bindCandidatePolicy(files, candidatePolicy, [
+      files.bundlePath,
+      attackerBundle,
+    ]);
+
+    await expect(
+      verifySelfHostedRelease({
+        ...files,
+        bundlePaths: [files.bundlePath, attackerBundle],
+        architecture: "amd64",
+        currentReleaseSequence: 1,
+        currentTrustSequence: 2,
+        currentPolicyPath: activePolicyPath,
+        currentPolicyRoot: files.root,
+      }),
+    ).rejects.toThrow(/active.*quorum|current.*signer/i);
+
+    const manifest = JSON.parse(
+      await readFile(files.manifestPath, "utf8"),
+    ) as Record<string, unknown>;
+    const signatureBundles = manifest["signatureBundles"] as {
+      signerId: string;
+      path: string;
+    }[];
+    if (signatureBundles[1] === undefined)
+      throw new Error("fixture second bundle is unavailable");
+    signatureBundles[1].signerId = "github-release-secondary";
+    const secondaryBundle = resolve(
+      files.root,
+      "skillwire-0.1.0-test.1-linux-amd64.release.github-release-secondary.sigstore.json",
+    );
+    signatureBundles[1].path = secondaryBundle.split("/").at(-1) ?? "";
+    await writeFile(files.manifestPath, canonicalJson(manifest));
+    for (const [index, bundlePath] of [
+      files.bundlePath,
+      secondaryBundle,
+    ].entries()) {
+      const bundle = bundleV03Fixture(manifest as never);
+      if (index > 0)
+        (bundle["messageSignature"] as { signature: string }).signature =
+          Buffer.from("fixture-secondary-signature").toString("base64");
+      await writeFile(bundlePath, canonicalJson(bundle));
+    }
+    await expect(
+      verifySelfHostedRelease({
+        ...files,
+        bundlePaths: [files.bundlePath, secondaryBundle],
+        architecture: "amd64",
+        currentReleaseSequence: 1,
+        currentTrustSequence: 2,
+        currentPolicyPath: activePolicyPath,
+        currentPolicyRoot: files.root,
+      }),
+    ).resolves.toMatchObject({ trustPolicySequence: 3 });
+  });
+
   it("requires a protected, currently valid authorizing policy whose release floor is preserved", async () => {
     let files = await releaseFiles();
     const activePolicy = JSON.parse(

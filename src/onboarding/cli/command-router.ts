@@ -144,7 +144,12 @@ async function routeSetup(
   }
   try {
     const selection = command.clients ?? "none";
-    const scope = await previewProductionSetup({ clients: selection });
+    const scope = await previewProductionSetup(
+      { clients: selection },
+      process.env,
+      {},
+      signal,
+    );
     const preview = canonicalPreview("setup", scope);
     previewHash = preview.hash;
     if (command.previewOnly) {
@@ -156,6 +161,7 @@ async function routeSetup(
           status: "preview",
           exitClass: "success",
           previewHash: preview.hash,
+          previewScope: scope,
           changed: false,
           summary: "Validated signed-release setup preview",
           components: [

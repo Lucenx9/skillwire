@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { request as httpRequest } from "node:http";
 import { promisify } from "node:util";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -15,24 +15,6 @@ import {
 } from "../../../src/onboarding/adapters/postgres/bootstrap-admin.js";
 
 const exec = promisify(execFile);
-
-async function freePort(): Promise<number> {
-  return new Promise((done, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("Unable to allocate a loopback test port"));
-        return;
-      }
-      server.close((error) => {
-        if (error === undefined) done(address.port);
-        else reject(error);
-      });
-    });
-  });
-}
 
 describe("self-hosted production Compose secret boundary", () => {
   it("mounts independent files without values in environment, config, healthchecks, or logs", () => {
@@ -47,6 +29,7 @@ describe("self-hosted production Compose secret boundary", () => {
           environment?: Record<string, unknown>;
           secrets?: (string | { source: string })[];
           ports?: string[];
+          volumes?: string[];
           user?: string;
           cap_add?: string[];
         }
@@ -64,9 +47,17 @@ describe("self-hosted production Compose secret boundary", () => {
       "SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE",
     );
     expect(compose.services["postgres"]?.ports).toBeUndefined();
-    expect(compose.services["skillwire"]?.ports).toEqual([
-      "127.0.0.1:${SKILLWIRE_PORT:-3000}:3000",
+    expect(compose.services["skillwire"]?.ports).toBeUndefined();
+    expect(compose.services["skillwire"]?.volumes).toEqual([
+      "${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is required}:/run/skillwire:rw",
     ]);
+    expect(compose.services["skillwire"]?.environment).toMatchObject({
+      SKILLWIRE_UNIX_SOCKET_PATH: "/run/skillwire/mcp.sock",
+      SKILLWIRE_RUNTIME_UID:
+        "${SKILLWIRE_RUNTIME_UID:?runtime uid is required}",
+      SKILLWIRE_RUNTIME_GID:
+        "${SKILLWIRE_RUNTIME_GID:?runtime gid is required}",
+    });
     expect(compose.services["skillwire"]?.user).toBe("0:0");
     expect(compose.services["migrate"]?.user).toBe("0:0");
     expect(compose.services["skillwire"]?.cap_add).toEqual([
@@ -108,7 +99,9 @@ describe("self-hosted production Compose secret boundary", () => {
       );
       const image = `skillwire:feature004-${fixture.composeProject}`;
       const composePath = resolve("distribution/self-hosted/compose.yaml");
-      const port = await freePort();
+      const socketDirectory = resolve(fixture.runtimeRoot, "compose-socket");
+      const socketPath = resolve(socketDirectory, "mcp.sock");
+      await mkdir(socketDirectory, { mode: 0o700 });
       await ensureServiceSecrets(installationRoot, fixture.stateRoot);
       const databasePasswordFile = resolve(
         installationRoot,
@@ -132,7 +125,9 @@ describe("self-hosted production Compose secret boundary", () => {
           "postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193",
         SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE: databasePasswordFile,
         SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE: applicationPepperFile,
-        SKILLWIRE_PORT: String(port),
+        SKILLWIRE_RUNTIME_SOCKET_DIRECTORY: socketDirectory,
+        SKILLWIRE_RUNTIME_UID: String(process.getuid?.() ?? 10001),
+        SKILLWIRE_RUNTIME_GID: String(process.getgid?.() ?? 10001),
       };
       const composeArgs = [
         "compose",
@@ -153,10 +148,22 @@ describe("self-hosted production Compose secret boundary", () => {
           [...composeArgs, "up", "--detach", "--wait", "--wait-timeout", "120"],
           { cwd: process.cwd(), env: environment, timeout: 180_000 },
         );
-        const response = await fetch(
-          `http://127.0.0.1:${String(port)}/health/ready`,
-        );
-        expect(response.ok).toBe(true);
+        const ready = await new Promise<boolean>((done, reject) => {
+          const request = httpRequest(
+            {
+              socketPath,
+              path: "/health/ready",
+              headers: { host: "localhost" },
+            },
+            (response) => {
+              response.resume();
+              done(response.statusCode === 200);
+            },
+          );
+          request.once("error", reject);
+          request.end();
+        });
+        expect(ready).toBe(true);
         const processStatus = await exec(
           "/usr/bin/docker",
           [
@@ -170,8 +177,12 @@ describe("self-hosted production Compose secret boundary", () => {
           ],
           { cwd: process.cwd(), env: environment, timeout: 30_000 },
         );
+        const runtimeUid = String(process.getuid?.() ?? 10001);
         expect(processStatus.stdout).toMatch(
-          /^Uid:\s+10001\s+10001\s+10001\s+10001$/m,
+          new RegExp(
+            `^Uid:\\s+${runtimeUid}\\s+${runtimeUid}\\s+${runtimeUid}\\s+${runtimeUid}$`,
+            "m",
+          ),
         );
         expect(processStatus.stdout).toMatch(/^CapEff:\s+0+$/m);
         const accountId = await createAccountInAdminContainer({

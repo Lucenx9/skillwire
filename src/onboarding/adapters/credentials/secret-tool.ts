@@ -76,7 +76,9 @@ export class SecretToolCredentialStore {
       throw new Error("secret-tool executable must be absolute");
   }
 
-  async probe(): Promise<"available" | "locked" | "unavailable"> {
+  async probe(
+    signal?: AbortSignal,
+  ): Promise<"available" | "locked" | "unavailable"> {
     const probeId = randomUUID();
     const probeSecret = randomBytes(32).toString("base64url");
     const probeAttributes = ["skillwire-probe", probeId];
@@ -92,6 +94,7 @@ export class SecretToolCredentialStore {
         environment: this.environment,
         stdin: probeSecret,
         deadlineMilliseconds: 2_000,
+        signal,
       });
       const lookup = await runCommand({
         executable: resolve(this.executable),
@@ -100,6 +103,7 @@ export class SecretToolCredentialStore {
         deadlineMilliseconds: 2_000,
         maximumOutputBytes: 256,
         allowSensitiveStdout: true,
+        signal,
       });
       const value = lookup.stdout.endsWith("\n")
         ? lookup.stdout.slice(0, -1)
@@ -128,6 +132,7 @@ export class SecretToolCredentialStore {
     installationId: string,
     client: ClientName,
     token: string,
+    signal?: AbortSignal,
   ): Promise<{ reference: string; command: CommandResult }> {
     if (parseApiKeyToken(token) === undefined)
       throw new SecretToolError(
@@ -147,6 +152,7 @@ export class SecretToolCredentialStore {
       stdin: token,
       deadlineMilliseconds: 5_000,
       maximumOutputBytes: 16 * 1024,
+      signal,
     });
     return {
       reference: `secret-service:${client}:${referenceId}`,
@@ -158,6 +164,7 @@ export class SecretToolCredentialStore {
     installationId: string,
     client: ClientName,
     reference: string,
+    signal?: AbortSignal,
   ): Promise<string> {
     const credentialId = credentialReferenceId(reference, client);
     const credentialAttributes = attributes(
@@ -174,6 +181,7 @@ export class SecretToolCredentialStore {
         deadlineMilliseconds: 3_000,
         maximumOutputBytes: 256,
         allowSensitiveStdout: true,
+        signal,
       });
     } catch (error) {
       if (error instanceof CommandFailure && error.kind === "deadline") {
@@ -190,6 +198,7 @@ export class SecretToolCredentialStore {
           acceptExitCodes: [0, 1],
           deadlineMilliseconds: 2_000,
           maximumOutputBytes: 16 * 1024,
+          signal,
         });
         if (/locked|collection.*lock/i.test(search.stderr)) {
           throw new SecretToolError(
@@ -240,6 +249,7 @@ export class SecretToolCredentialStore {
     installationId: string,
     client: ClientName,
     reference: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     const credentialId = credentialReferenceId(reference, client);
     try {
@@ -249,6 +259,7 @@ export class SecretToolCredentialStore {
         environment: this.environment,
         acceptExitCodes: [0, 1],
         deadlineMilliseconds: 3_000,
+        signal,
       });
     } catch {
       throw new SecretToolError(

@@ -93,18 +93,19 @@ const InstallationStatusSchema = z.enum([
   "purged",
 ]);
 
-function loopbackEndpoint(value: string): boolean {
+function localEndpoint(value: string): boolean {
   try {
     const endpoint = new URL(value);
     return (
-      endpoint.protocol === "http:" &&
-      endpoint.hostname === "127.0.0.1" &&
-      endpoint.pathname === "/mcp" &&
+      endpoint.protocol === "unix:" &&
+      endpoint.hostname === "" &&
+      endpoint.pathname.startsWith("/") &&
+      endpoint.pathname.endsWith("/mcp.sock") &&
       endpoint.search === "" &&
       endpoint.hash === "" &&
       endpoint.username === "" &&
       endpoint.password === "" &&
-      endpoint.port !== ""
+      endpoint.port === ""
     );
   } catch {
     return false;
@@ -122,8 +123,8 @@ export const InstallationSchema = z
     activeTrustPolicySequence: z.number().int().positive(),
     endpoint: z
       .string()
-      .max(256)
-      .refine(loopbackEndpoint, "endpoint must be exact loopback HTTP"),
+      .max(1024)
+      .refine(localEndpoint, "endpoint must be an exact local Unix socket"),
     composeProject: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/),
     postgresVolume: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
     selectedClients: z.array(z.enum(["codex", "claude"])).max(2),

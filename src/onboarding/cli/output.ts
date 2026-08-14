@@ -46,6 +46,38 @@ const FindingSchema = z
   })
   .strict();
 
+const SetupPreviewScopeSchema = z
+  .object({
+    releaseRoot: z.string().min(1).max(1024),
+    releaseVersion: z.string().min(1).max(64),
+    releaseSequence: z.number().int().positive(),
+    manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    trustPolicySequence: z.number().int().positive(),
+    architecture: z.enum(["amd64", "arm64"]),
+    clients: z.enum(["none", "codex", "claude", "codex,claude"]),
+    endpoint: z.string().min(1).max(1024),
+    transport: z.literal("unix-domain-socket"),
+    port: z.null(),
+    composeProjectPattern: z.literal("skillwire-<installation-id>"),
+    postgresVolumePattern: z.literal(
+      "skillwire-<installation-id>_postgres_data",
+    ),
+    serviceSecretRoot: z.string().min(1).max(1024),
+    runtimeSocketRoot: z.string().min(1).max(1024),
+    credentialBackend: z.enum([
+      "secret-service",
+      "restrictive-file",
+      "not-selected",
+    ]),
+    fallbackRiskConfirmedByThisPreview: z.boolean(),
+    components: z.array(z.string().min(1).max(64)).min(3).max(5),
+    volumes: z.array(z.string().min(1).max(128)).length(1),
+    retainedOnFailure: z.array(z.string().min(1).max(128)).min(1).max(8),
+    catalogChoice: z.literal("deferred"),
+  })
+  .strict();
+
 export const AdminResultSchema = z
   .object({
     schemaVersion: z.literal("skillwire.admin-result/v1"),
@@ -64,6 +96,7 @@ export const AdminResultSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .nullable(),
+    previewScope: SetupPreviewScopeSchema.optional(),
     changed: z.boolean(),
     summary: z.string().min(1).max(512),
     components: z.array(ComponentSchema).max(64),
@@ -113,5 +146,9 @@ export function renderAdminResult(
 ): string {
   const safe = AdminResultSchema.parse(redactOutput(result));
   if (format === "json") return `${JSON.stringify(safe)}\n`;
-  return `${safe.status}: ${safe.summary}\n`;
+  const lines = [`${safe.status}: ${safe.summary}`];
+  if (safe.previewHash !== null) lines.push(`approval: ${safe.previewHash}`);
+  if (safe.previewScope !== undefined)
+    lines.push(`scope: ${JSON.stringify(safe.previewScope)}`);
+  return `${lines.join("\n")}\n`;
 }

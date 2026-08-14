@@ -47,6 +47,7 @@ describe("credential bridge end-to-end deadline", () => {
           resolved += 1;
           return Promise.resolve({
             endpoint: new URL("http://127.0.0.1:3000/mcp"),
+            socketPath: "/tmp/disposable/mcp.sock",
             token: "fixture",
           });
         },
@@ -90,6 +91,7 @@ describe("credential bridge end-to-end deadline", () => {
         resolve: () =>
           Promise.resolve({
             endpoint: new URL("http://127.0.0.1:3000/mcp"),
+            socketPath: "/tmp/disposable/mcp.sock",
             token: "fixture",
           }),
         connect: () =>

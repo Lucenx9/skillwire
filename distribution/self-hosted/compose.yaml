@@ -57,8 +57,10 @@ services:
       SKILLWIRE_DATABASE_PASSWORD_FILE: /run/secrets/database_password
       SKILLWIRE_DATABASE_HOST: postgres
       SKILLWIRE_API_KEY_PEPPER_FILE: /run/secrets/application_pepper
-      SKILLWIRE_BIND_HOST: 0.0.0.0
-      SKILLWIRE_PORT: 3000
+      SKILLWIRE_BIND_HOST: localhost
+      SKILLWIRE_UNIX_SOCKET_PATH: /run/skillwire/mcp.sock
+      SKILLWIRE_RUNTIME_UID: ${SKILLWIRE_RUNTIME_UID:?runtime uid is required}
+      SKILLWIRE_RUNTIME_GID: ${SKILLWIRE_RUNTIME_GID:?runtime gid is required}
       SKILLWIRE_ALLOWED_HOSTS: localhost,127.0.0.1
       SKILLWIRE_CATALOG_ROOT: /app
       SKILLWIRE_CATALOG_RELEASE: launch-catalog-v1
@@ -70,12 +72,14 @@ services:
       - source: api_key_pepper
         target: application_pepper
         mode: 0400
+    volumes:
+      - ${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is
+        required}:/run/skillwire:rw
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    ports: ["127.0.0.1:${SKILLWIRE_PORT:-3000}:3000"]
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     cap_drop: ["ALL"]
@@ -89,7 +93,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "require('node:http').request({socketPath:'/run/skillwire/mcp.sock',path:'/health/ready',headers:{host:'localhost'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).end()",
         ]
       interval: 10s
       timeout: 3s

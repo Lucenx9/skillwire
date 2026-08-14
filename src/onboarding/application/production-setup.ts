@@ -1,6 +1,14 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, open, readFile, realpath } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+} from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
@@ -26,6 +34,7 @@ import { clientComponentIdentity } from "../adapters/clients/client-state.js";
 import { ensureServiceSecrets } from "../secrets/service-secrets.js";
 import type { ClientName } from "../cli/main.js";
 import { canonicalPreview } from "../cli/confirmation.js";
+import { ClientMutationNotStartedError } from "../domain/client-mutation.js";
 import type { ReleaseManifest } from "../domain/release-manifest.js";
 import {
   InstallationSchema,
@@ -108,12 +117,18 @@ export interface ProductionSetupPreview {
   readonly architecture: "amd64" | "arm64";
   readonly clients: GuidedSetupOptions["clients"];
   readonly endpoint: string;
+  readonly transport: "unix-domain-socket";
+  readonly port: null;
   readonly composeProjectPattern: "skillwire-<installation-id>";
   readonly postgresVolumePattern: "skillwire-<installation-id>_postgres_data";
   readonly serviceSecretRoot: string;
+  readonly runtimeSocketRoot: string;
   readonly credentialBackend: SetupCredentialBackend | "not-selected";
   readonly fallbackRiskConfirmedByThisPreview: boolean;
+  readonly components: readonly string[];
+  readonly volumes: readonly string[];
   readonly retainedOnFailure: readonly string[];
+  readonly catalogChoice: "deferred";
 }
 
 interface CandidatePaths {
@@ -243,13 +258,14 @@ async function candidatePaths(
 export async function selectCredentialBackend(
   clients: GuidedSetupOptions["clients"],
   environment: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<SetupCredentialBackend | "not-selected"> {
   if (clients === "none") return "not-selected";
   const store = new SecretToolCredentialStore(
     "/usr/bin/secret-tool",
     environment,
   );
-  return (await store.probe()) === "available"
+  return (await store.probe(signal)) === "available"
     ? "secret-service"
     : "restrictive-file";
 }
@@ -291,6 +307,7 @@ async function verifyCandidate(
   candidate: CandidatePaths,
   setupRoots: SetupRoots,
   trustOverrides: ProductionTrustOverrides = {},
+  signal?: AbortSignal,
 ): Promise<{
   readonly manifest: ReleaseManifest;
   readonly releaseVersion: string;
@@ -310,6 +327,7 @@ async function verifyCandidate(
     trustedRootPath: candidate.trustedRootPath,
     cosign: candidate.cosignPath,
     architecture: candidate.architecture,
+    signal,
     currentReleaseSequence: active?.releaseSequence ?? 0,
     currentTrustSequence: active?.trustPolicySequence ?? 0,
     ...(active === undefined
@@ -338,12 +356,41 @@ export async function previewProductionSetup(
   options: GuidedSetupOptions,
   environment: NodeJS.ProcessEnv = process.env,
   trustOverrides: ProductionTrustOverrides = {},
+  signal?: AbortSignal,
 ): Promise<ProductionSetupPreview> {
   const candidate = await candidatePaths(environment);
   const setupRoots = roots(environment);
-  const verified = await verifyCandidate(candidate, setupRoots, trustOverrides);
-  const backend = await selectCredentialBackend(options.clients, environment);
-  const port = setupPort(environment);
+  const verified = await verifyCandidate(
+    candidate,
+    setupRoots,
+    trustOverrides,
+    signal,
+  );
+  const backend = await selectCredentialBackend(
+    options.clients,
+    environment,
+    signal,
+  );
+  return setupPreviewScope(options, candidate, setupRoots, verified, backend);
+}
+
+function setupPreviewScope(
+  options: GuidedSetupOptions,
+  candidate: CandidatePaths,
+  setupRoots: SetupRoots,
+  verified: {
+    readonly releaseSequence: number;
+    readonly manifestSha256: string;
+    readonly archiveSha256: string;
+    readonly trustPolicySequence: number;
+  },
+  backend: SetupCredentialBackend | "not-selected",
+): ProductionSetupPreview {
+  const runtimeSocketRoot = resolve(
+    setupRoots.runtimeRoot,
+    "s-<installation-id-sha256-prefix>",
+  );
+  const clients = selectedClients(options.clients);
   return {
     releaseRoot: candidate.root,
     releaseVersion: candidate.releaseVersion,
@@ -353,16 +400,22 @@ export async function previewProductionSetup(
     trustPolicySequence: verified.trustPolicySequence,
     architecture: candidate.architecture,
     clients: options.clients,
-    endpoint: `http://127.0.0.1:${String(port)}/mcp`,
+    endpoint: `unix://${runtimeSocketRoot}/mcp.sock`,
+    transport: "unix-domain-socket",
+    port: null,
     composeProjectPattern: "skillwire-<installation-id>",
     postgresVolumePattern: "skillwire-<installation-id>_postgres_data",
     serviceSecretRoot: resolve(
       setupRoots.dataRoot,
       "installations/<installation-id>/secrets",
     ),
+    runtimeSocketRoot,
     credentialBackend: backend,
     fallbackRiskConfirmedByThisPreview: backend === "restrictive-file",
+    components: ["service", "postgres", "credential-bridge", ...clients],
+    volumes: ["skillwire-<installation-id>_postgres_data"],
     retainedOnFailure: ["verified release", "service data", "service secrets"],
+    catalogChoice: "deferred",
   };
 }
 
@@ -393,7 +446,7 @@ function composeEnvironment(options: {
   readonly postgresImage: string;
   readonly databasePasswordFile: string;
   readonly applicationPepperFile: string;
-  readonly port: number;
+  readonly runtimeSocketDirectory: string;
 }): NodeJS.ProcessEnv {
   return {
     ...options.environment,
@@ -403,7 +456,9 @@ function composeEnvironment(options: {
     SKILLWIRE_POSTGRES_IMAGE: options.postgresImage,
     SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE: options.databasePasswordFile,
     SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE: options.applicationPepperFile,
-    SKILLWIRE_PORT: String(options.port),
+    SKILLWIRE_RUNTIME_SOCKET_DIRECTORY: options.runtimeSocketDirectory,
+    SKILLWIRE_RUNTIME_UID: String(process.getuid?.() ?? 10001),
+    SKILLWIRE_RUNTIME_GID: String(process.getgid?.() ?? 10001),
   };
 }
 
@@ -417,29 +472,17 @@ function image(
   return `${entry.repository}@${entry.digest}`;
 }
 
-function setupPort(environment: NodeJS.ProcessEnv): number {
-  const raw = environment["SKILLWIRE_SETUP_PORT"] ?? "3000";
-  if (!/^[0-9]{4,5}$/.test(raw)) {
-    throw new Error("Configured loopback setup port is invalid");
-  }
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-    throw new Error("Configured loopback setup port is invalid");
-  }
-  return port;
-}
-
 async function runProductionSetupUnlocked(
   options: GuidedSetupOptions & {
     readonly credentialBackend: SetupCredentialBackend | "not-selected";
     readonly previewHash?: string | undefined;
   },
   signal: AbortSignal,
+  journal: OperationJournal,
   environment: NodeJS.ProcessEnv = process.env,
   trustOverrides: ProductionTrustOverrides = {},
 ): Promise<GuidedSetupResult> {
   if (signal.aborted) throw new Error("Setup cancelled before mutation");
-  let mutationStarted = false;
   try {
     const candidate = await candidatePaths(environment);
     const setupRoots = roots(environment);
@@ -450,32 +493,18 @@ async function runProductionSetupUnlocked(
       candidate,
       setupRoots,
       trustOverrides,
+      signal,
     );
-    const expectedPreview = canonicalPreview("setup", {
-      releaseRoot: candidate.root,
-      releaseVersion: candidate.releaseVersion,
-      releaseSequence: verified.releaseSequence,
-      manifestSha256: verified.manifestSha256,
-      archiveSha256: verified.archiveSha256,
-      trustPolicySequence: verified.trustPolicySequence,
-      architecture: candidate.architecture,
-      clients: options.clients,
-      endpoint: `http://127.0.0.1:${String(setupPort(environment))}/mcp`,
-      composeProjectPattern: "skillwire-<installation-id>",
-      postgresVolumePattern: "skillwire-<installation-id>_postgres_data",
-      serviceSecretRoot: resolve(
-        setupRoots.dataRoot,
-        "installations/<installation-id>/secrets",
+    const expectedPreview = canonicalPreview(
+      "setup",
+      setupPreviewScope(
+        options,
+        candidate,
+        setupRoots,
+        verified,
+        options.credentialBackend,
       ),
-      credentialBackend: options.credentialBackend,
-      fallbackRiskConfirmedByThisPreview:
-        options.credentialBackend === "restrictive-file",
-      retainedOnFailure: [
-        "verified release",
-        "service data",
-        "service secrets",
-      ],
-    } satisfies ProductionSetupPreview);
+    );
     if (
       options.previewHash !== undefined &&
       options.previewHash !== expectedPreview.hash
@@ -488,27 +517,50 @@ async function runProductionSetupUnlocked(
     const installationId = randomUUID();
     const projectName = `skillwire-${installationId.replaceAll("-", "").slice(0, 16)}`;
     const volumeName = `${projectName}_postgres_data`;
-    mutationStarted = true;
-    const installed = await installVerifiedRelease({
-      archivePath: candidate.archivePath,
-      manifest,
-      dataRoot: setupRoots.dataRoot,
-      stateRoot: setupRoots.stateRoot,
-      launcherRoot: setupRoots.launcherRoot,
-      launcherPath: setupRoots.launcherPath,
-      installationId,
-      manifestSha256: verified.manifestSha256,
-      trustPolicyPath: candidate.policyPath,
+    const runEffect = async <T>(effectOptions: {
+      readonly step: string;
+      readonly intent: Record<string, string | number | boolean | null>;
+      readonly action: () => Promise<T>;
+      readonly effectNotStarted?: (error: unknown) => boolean;
+      readonly verification: (
+        value: T,
+      ) => Record<string, string | number | boolean | null>;
+    }): Promise<T> => {
+      return journal.runEffect({ ...effectOptions, signal });
+    };
+    const installed = await runEffect({
+      step: "verified-release-install",
+      intent: {
+        installationId,
+        manifestSha256: verified.manifestSha256,
+      },
+      action: () =>
+        installVerifiedRelease({
+          archivePath: candidate.archivePath,
+          manifest,
+          dataRoot: setupRoots.dataRoot,
+          stateRoot: setupRoots.stateRoot,
+          launcherRoot: setupRoots.launcherRoot,
+          launcherPath: setupRoots.launcherPath,
+          installationId,
+          manifestSha256: verified.manifestSha256,
+          trustPolicyPath: candidate.policyPath,
+        }),
+      verification: (value) => ({
+        launcherInstalled: value.launcherPath === setupRoots.launcherPath,
+      }),
     });
     const installationRoot = resolve(
       setupRoots.dataRoot,
       "installations",
       installationId,
     );
-    const secretReferences = await ensureServiceSecrets(
-      installationRoot,
-      setupRoots.dataRoot,
-    );
+    const secretReferences = await runEffect({
+      step: "service-secrets",
+      intent: { installationId, componentCount: 2 },
+      action: () => ensureServiceSecrets(installationRoot, setupRoots.dataRoot),
+      verification: (value) => ({ secretReferenceCount: value.length }),
+    });
     const databasePasswordFile = resolve(
       installationRoot,
       "secrets/database-password",
@@ -523,7 +575,24 @@ async function runProductionSetupUnlocked(
     );
     const skillwireImage = image(manifest, "skillwire");
     const postgresImage = image(manifest, "postgres");
-    const port = setupPort(environment);
+    const runtimeSocketDirectory = resolve(
+      setupRoots.runtimeRoot,
+      `s-${createHash("sha256").update(installationId).digest("hex").slice(0, 24)}`,
+    );
+    await mkdir(runtimeSocketDirectory, { recursive: true, mode: 0o700 });
+    await chmod(runtimeSocketDirectory, 0o700);
+    const runtimeDirectoryStats = await lstat(runtimeSocketDirectory);
+    if (
+      !runtimeDirectoryStats.isDirectory() ||
+      runtimeDirectoryStats.isSymbolicLink() ||
+      runtimeDirectoryStats.uid !== process.getuid?.() ||
+      (runtimeDirectoryStats.mode & 0o777) !== 0o700
+    ) {
+      throw new Error("Runtime socket directory is unsafe");
+    }
+    const socketPath = resolve(runtimeSocketDirectory, "mcp.sock");
+    if (socketPath.length > 103)
+      throw new Error("Runtime socket path exceeds the Linux boundary");
     const dockerEnvironment = composeEnvironment({
       environment,
       projectName,
@@ -532,7 +601,7 @@ async function runProductionSetupUnlocked(
       postgresImage,
       databasePasswordFile,
       applicationPepperFile,
-      port,
+      runtimeSocketDirectory,
     });
     const deployment = new DeploymentAdapter({
       dockerExecutable: "/usr/bin/docker",
@@ -543,10 +612,18 @@ async function runProductionSetupUnlocked(
       postgresImage,
       databasePasswordFile,
       applicationPepperFile,
-      port,
+      runtimeSocketDirectory,
+      socketPath,
     });
-    await deployment.probe();
-    await deployment.deploy(signal);
+    await runEffect({
+      step: "deployment",
+      intent: { projectName, volumeName },
+      action: async () => {
+        await deployment.probe(signal);
+        await deployment.deploy(signal);
+      },
+      verification: () => ({ composeReady: true }),
+    });
     const database = new ServiceDatabase({
       dockerExecutable: "/usr/bin/docker",
       projectName,
@@ -554,13 +631,20 @@ async function runProductionSetupUnlocked(
       composePath,
       environment: dockerEnvironment,
     });
-    await database.verifyVolume();
-    await database.verifySchemaAndReadiness();
-    const accountId = await createAccountInAdminContainer({
-      dockerExecutable: "/usr/bin/docker",
-      composePath,
-      projectName,
-      environment: dockerEnvironment,
+    await database.verifyVolume(signal);
+    await database.verifySchemaAndReadiness(signal);
+    const accountId = await runEffect({
+      step: "account-create",
+      intent: { projectName },
+      action: () =>
+        createAccountInAdminContainer({
+          dockerExecutable: "/usr/bin/docker",
+          composePath,
+          projectName,
+          environment: dockerEnvironment,
+          signal,
+        }),
+      verification: (value) => ({ accountId: value }),
     });
     const bridgeStateRoot = resolve(
       setupRoots.stateRoot,
@@ -576,12 +660,19 @@ async function runProductionSetupUnlocked(
         {
           schemaVersion: "skillwire.bridge-state/v1",
           installationId,
-          endpoint: `http://127.0.0.1:${String(port)}/mcp`,
+          transport: "unix-domain-socket",
+          endpoint: "http://localhost/mcp",
+          socketPath,
           clients: bridgeClients,
         },
         setupRoots.stateRoot,
       );
-    await persistBridgeState();
+    await runEffect({
+      step: "bridge-state-initial",
+      intent: { installationId, clientCount: 0 },
+      action: persistBridgeState,
+      verification: () => ({ published: true }),
+    });
 
     const clientResults: SetupClientResult[] = [];
     const clientOwnership: {
@@ -601,15 +692,16 @@ async function runProductionSetupUnlocked(
         installationId,
       );
       let currentReference: string | undefined;
+      const vendorExecutable = await executable(client, environment);
       const adapter =
         client === "codex"
-          ? new CodexClientAdapter(
-              await executable("codex", environment),
-              environment,
-            )
+          ? new CodexClientAdapter(vendorExecutable, environment, signal)
           : new ClaudeClientAdapter(
-              await executable("claude", environment),
+              vendorExecutable,
               environment,
+              undefined,
+              undefined,
+              signal,
             );
       const marketplacePath = resolve(
         installed.releaseRoot,
@@ -672,59 +764,94 @@ async function runProductionSetupUnlocked(
           };
         },
         provisionCredential: async () => {
-          const key = await createClientKeyInAdminContainer({
-            client,
-            dockerExecutable: "/usr/bin/docker",
-            composePath,
-            projectName,
-            accountId,
-            runtimeRoot: setupRoots.runtimeRoot,
-            environment: dockerEnvironment,
-          }).catch((error: unknown) => {
-            if (error instanceof ClientKeyHandoffRecoveryError) {
-              throw new ClientProvisioningRecoveryError(error.message);
-            }
-            throw error;
+          const key = await runEffect({
+            step: `client-${client}-key`,
+            intent: { client, accountId },
+            action: () =>
+              createClientKeyInAdminContainer({
+                client,
+                dockerExecutable: "/usr/bin/docker",
+                composePath,
+                projectName,
+                accountId,
+                runtimeRoot: setupRoots.runtimeRoot,
+                environment: dockerEnvironment,
+                signal,
+              }).catch((error: unknown) => {
+                if (error instanceof ClientKeyHandoffRecoveryError) {
+                  throw new ClientProvisioningRecoveryError(error.message);
+                }
+                throw error;
+              }),
+            verification: (value) => ({ client, keyId: value.keyId }),
           });
           try {
-            if (options.credentialBackend === "not-selected") {
-              throw new Error(
-                "A selected client requires a credential backend",
-              );
-            }
-            if (options.credentialBackend === "secret-service") {
-              currentReference = (
-                await secretService.store(installationId, client, key.token)
-              ).reference;
-              const stored = await secretService.lookup(
-                installationId,
+            return await runEffect({
+              step: `client-${client}-credential`,
+              intent: { client, backend: options.credentialBackend },
+              action: async () => {
+                if (options.credentialBackend === "not-selected") {
+                  throw new Error(
+                    "A selected client requires a credential backend",
+                  );
+                }
+                if (options.credentialBackend === "secret-service") {
+                  currentReference = (
+                    await secretService.store(
+                      installationId,
+                      client,
+                      key.token,
+                      signal,
+                    )
+                  ).reference;
+                  const stored = await secretService.lookup(
+                    installationId,
+                    client,
+                    currentReference,
+                    signal,
+                  );
+                  if (
+                    stored.length !== key.token.length ||
+                    !timingSafeEqual(
+                      Buffer.from(stored),
+                      Buffer.from(key.token),
+                    )
+                  ) {
+                    throw new Error(
+                      "Secret Service credential readback failed",
+                    );
+                  }
+                } else {
+                  currentReference = await fallback.store(
+                    client,
+                    key.token,
+                    true,
+                  );
+                  const stored = await fallback.lookup(
+                    currentReference as RestrictiveFileReference,
+                  );
+                  if (
+                    stored.length !== key.token.length ||
+                    !timingSafeEqual(
+                      Buffer.from(stored),
+                      Buffer.from(key.token),
+                    )
+                  ) {
+                    throw new Error("Restrictive credential readback failed");
+                  }
+                }
+                bridgeClients.push({
+                  client,
+                  credentialReference: currentReference,
+                });
+                await persistBridgeState();
+                return { keyId: key.keyId, reference: currentReference };
+              },
+              verification: (value) => ({
                 client,
-                currentReference,
-              );
-              if (
-                stored.length !== key.token.length ||
-                !timingSafeEqual(Buffer.from(stored), Buffer.from(key.token))
-              ) {
-                throw new Error("Secret Service credential readback failed");
-              }
-            } else {
-              currentReference = await fallback.store(client, key.token, true);
-              const stored = await fallback.lookup(
-                currentReference as RestrictiveFileReference,
-              );
-              if (
-                stored.length !== key.token.length ||
-                !timingSafeEqual(Buffer.from(stored), Buffer.from(key.token))
-              ) {
-                throw new Error("Restrictive credential readback failed");
-              }
-            }
-            bridgeClients.push({
-              client,
-              credentialReference: currentReference,
+                credentialReference: value.reference,
+              }),
             });
-            await persistBridgeState();
-            return { keyId: key.keyId, reference: currentReference };
           } catch (error) {
             const index = bridgeClients.findIndex(
               (entry) => entry.client === client,
@@ -756,12 +883,30 @@ async function runProductionSetupUnlocked(
             throw error;
           }
         },
-        addMcp: () => adapter.addMcp(installed.launcherPath, installationId),
-        addPlugin: () => adapter.addPlugin(marketplacePath),
+        addMcp: () =>
+          runEffect({
+            step: `client-${client}-mcp-profile`,
+            intent: { client, component: "mcp" },
+            action: () =>
+              adapter.addMcp(installed.launcherPath, installationId),
+            effectNotStarted: (error) =>
+              error instanceof ClientMutationNotStartedError,
+            verification: () => ({ client, installed: true }),
+          }),
+        addPlugin: () =>
+          adapter.addPlugin(marketplacePath, (component, action) =>
+            runEffect({
+              step: `client-${client}-${component}`,
+              intent: { client, component },
+              action,
+              verification: () => ({ client, component, installed: true }),
+            }),
+          ),
         verify: async () => {
           const registration = await adapter.readMcp();
           await verifyClientIntegration({
             client,
+            vendorExecutable,
             installationId,
             registration,
             expectedLauncher: installed.launcherPath,
@@ -770,7 +915,7 @@ async function runProductionSetupUnlocked(
             signal,
           });
         },
-        removePlugin: () => adapter.removePlugin(),
+        removePlugin: () => adapter.removePlugin(marketplacePath),
         removeMcp: () => adapter.removeMcp(),
         revokeCredential: async (keyId, reference) => {
           const index = bridgeClients.findIndex(
@@ -800,6 +945,12 @@ async function runProductionSetupUnlocked(
               ? [".codex/config.toml"]
               : [".claude.json", ".claude/settings.json"],
         },
+        mcpProfilePaths:
+          client === "codex" ? [".codex/config.toml"] : [".claude.json"],
+        pluginProfilePaths:
+          client === "codex"
+            ? [".codex/config.toml"]
+            : [".claude.json", ".claude/settings.json"],
       });
       clientResults.push(result);
       clientOwnership.push({
@@ -825,12 +976,12 @@ async function runProductionSetupUnlocked(
     const installation = InstallationSchema.parse({
       schemaVersion: "skillwire.installation/v1",
       installationId,
-      ownerUid: process.getuid?.() ?? 0,
+      ownerUid: process.getuid(),
       accountId,
       activeReleaseId: `${String(manifest.releaseSequence)}-${manifest.architecture}`,
       highestAcceptedReleaseSequence: verified.releaseSequence,
       activeTrustPolicySequence: verified.trustPolicySequence,
-      endpoint: `http://127.0.0.1:${String(port)}/mcp`,
+      endpoint: `unix://${socketPath}`,
       composeProject: projectName,
       postgresVolume: volumeName,
       selectedClients: selected,
@@ -950,30 +1101,37 @@ async function runProductionSetupUnlocked(
         });
       }
     }
-    await atomicWriteJson(
-      resolve(setupRoots.stateRoot, "installation.json"),
-      installation,
-      setupRoots.stateRoot,
-    );
-    await atomicWriteJson(
-      resolve(setupRoots.stateRoot, "service-secret-set.json"),
-      serviceSecretSet,
-      setupRoots.stateRoot,
-    );
-    await atomicWriteJson(
-      resolve(setupRoots.stateRoot, "ownership.json"),
-      ownership.record,
-      setupRoots.stateRoot,
-    );
-    await atomicWriteJson(
-      resolve(setupRoots.stateRoot, "external-integrations.json"),
-      {
-        schemaVersion: "skillwire.external-integrations/v1",
-        installationId,
-        dependencies: ownership.externalIntegrations,
+    await runEffect({
+      step: "final-state-publication",
+      intent: { installationId, status },
+      action: async () => {
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "installation.json"),
+          installation,
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "service-secret-set.json"),
+          serviceSecretSet,
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "ownership.json"),
+          ownership.record,
+          setupRoots.stateRoot,
+        );
+        await atomicWriteJson(
+          resolve(setupRoots.stateRoot, "external-integrations.json"),
+          {
+            schemaVersion: "skillwire.external-integrations/v1",
+            installationId,
+            dependencies: ownership.externalIntegrations,
+          },
+          setupRoots.stateRoot,
+        );
       },
-      setupRoots.stateRoot,
-    );
+      verification: () => ({ installationId, published: true }),
+    });
     return {
       status,
       installationId,
@@ -981,7 +1139,11 @@ async function runProductionSetupUnlocked(
       clients: clientResults,
     };
   } catch (error) {
-    if (mutationStarted && !(error instanceof ProductionSetupMutationError)) {
+    if (
+      journal.entries.some(
+        ({ phase }) => phase === "effect" || phase === "compensate",
+      )
+    ) {
       throw new ProductionSetupMutationError(
         "Setup failed after owned installation mutation began",
         { cause: error },
@@ -1033,22 +1195,17 @@ export async function runProductionSetup(
     const result = await runProductionSetupUnlocked(
       options,
       signal,
+      journal,
       environment,
       trustOverrides,
     );
-    await journal.effect("setup", {
-      installationId: result.installationId,
-      status: result.status,
-    });
-    await journal.verify("setup", {
-      serviceReady: result.serviceReady,
-      clientCount: result.clients.length,
-    });
     await journal.commit({ status: result.status });
     return result;
   } catch (error) {
     if (signal.aborted) {
-      await journal.cancel({ status: "cancelled" });
+      await journal.cancel({
+        status: journal.hasUnprovenEffect() ? "recovery-required" : "cancelled",
+      });
     } else {
       await journal.compensate("setup", { status: "recovery-required" });
     }

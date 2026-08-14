@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
 import { parseApiKeyToken } from "../authentication/api-key-token.js";
@@ -15,12 +15,21 @@ import {
   validateOwnedPath,
 } from "../onboarding/adapters/filesystem/safe-paths.js";
 import { BridgeFailure } from "./bridge-errors.js";
+import { validateLocalPeerSocket } from "./upstream-client.js";
 
 const BridgeStateSchema = z
   .object({
     schemaVersion: z.literal("skillwire.bridge-state/v1"),
     installationId: z.uuid(),
-    endpoint: z.url(),
+    transport: z.literal("unix-domain-socket"),
+    endpoint: z.literal("http://localhost/mcp"),
+    socketPath: z
+      .string()
+      .max(103)
+      .refine(
+        (value) => isAbsolute(value) && value.endsWith("/mcp.sock"),
+        "bridge socket path is invalid",
+      ),
     clients: z
       .array(
         z
@@ -40,6 +49,7 @@ const BridgeStateSchema = z
 
 export interface ResolvedBridgeCredential {
   readonly endpoint: URL;
+  readonly socketPath: string;
   readonly token: string;
 }
 
@@ -48,11 +58,15 @@ export class CredentialResolver {
     private readonly stateRoot: string,
     private readonly dataRoot: string,
     private readonly secretService = new SecretToolCredentialStore(),
+    private readonly peerValidator: (
+      socketPath: string,
+    ) => Promise<void> = validateLocalPeerSocket,
   ) {}
 
   private async resolveUnsafe(
     installationId: string,
     client: ClientName,
+    signal?: AbortSignal,
   ): Promise<ResolvedBridgeCredential> {
     const installationRoot = await validateOwnedPath(
       resolve(this.stateRoot, "installations", installationId),
@@ -97,6 +111,7 @@ export class CredentialResolver {
     ) {
       throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");
     }
+    await this.peerValidator(state.socketPath);
     let token: string;
     try {
       token = entry.credentialReference.startsWith("secret-service:")
@@ -104,6 +119,7 @@ export class CredentialResolver {
             installationId,
             client,
             entry.credentialReference,
+            signal,
           )
         : await new RestrictiveFileCredentialStore(
             this.dataRoot,
@@ -123,15 +139,16 @@ export class CredentialResolver {
     } catch (error) {
       throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID", { cause: error });
     }
-    return { endpoint, token };
+    return { endpoint, socketPath: state.socketPath, token };
   }
 
   async resolve(
     installationId: string,
     client: ClientName,
+    signal?: AbortSignal,
   ): Promise<ResolvedBridgeCredential> {
     try {
-      return await this.resolveUnsafe(installationId, client);
+      return await this.resolveUnsafe(installationId, client, signal);
     } catch (error) {
       if (error instanceof BridgeFailure) throw error;
       throw new BridgeFailure("BRIDGE_STATE_UNAVAILABLE", { cause: error });

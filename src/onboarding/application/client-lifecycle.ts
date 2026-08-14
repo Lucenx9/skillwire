@@ -3,9 +3,9 @@ import type { ClientComponentClassification } from "../adapters/clients/client-s
 import { ClientMutationNotStartedError } from "../domain/client-mutation.js";
 import {
   captureProfileSnapshot,
-  profileMatchesSnapshotBefore,
+  profileMatchesExpectedPostContent,
+  profileMatchesExpectedPostImage,
   recordExpectedProfilePostImage,
-  restoreProfileSnapshot,
   type CaptureProfileSnapshotOptions,
   type ProtectedProfileSnapshot,
 } from "../domain/profile-snapshot.js";
@@ -40,6 +40,8 @@ export interface ClientLifecycleDependencies {
   removeMcp(): Promise<void>;
   revokeCredential(keyId: string, reference: string): Promise<void>;
   readonly profileSnapshot?: CaptureProfileSnapshotOptions | undefined;
+  readonly mcpProfilePaths?: readonly string[] | undefined;
+  readonly pluginProfilePaths?: readonly string[] | undefined;
 }
 
 export interface ClientLifecycleResult {
@@ -128,6 +130,8 @@ export async function installClientLifecycle(
     plugin: "none",
   };
   let snapshot: ProtectedProfileSnapshot | undefined;
+  let mcpPostSnapshot: ProtectedProfileSnapshot | undefined;
+  let pluginPostSnapshot: ProtectedProfileSnapshot | undefined;
   try {
     const decision = (await dependencies.preflight()) ?? {
       action: "proceed" as const,
@@ -179,13 +183,19 @@ export async function installClientLifecycle(
     if (createsMcp) {
       mcpMutationAttempted = true;
       await dependencies.addMcp();
+      if (snapshot !== undefined) {
+        snapshot = await recordExpectedProfilePostImage(snapshot);
+        mcpPostSnapshot = snapshot;
+      }
     }
     if (createsPlugin) {
       pluginMutationAttempted = true;
       await dependencies.addPlugin();
+      if (snapshot !== undefined) {
+        snapshot = await recordExpectedProfilePostImage(snapshot);
+        pluginPostSnapshot = snapshot;
+      }
     }
-    if (snapshot !== undefined)
-      snapshot = await recordExpectedProfilePostImage(snapshot);
     await dependencies.verify();
     return {
       client,
@@ -209,29 +219,69 @@ export async function installClientLifecycle(
     ) {
       try {
         snapshot = await recordExpectedProfilePostImage(snapshot);
+        if (pluginMutationAttempted) pluginPostSnapshot = snapshot;
+        else if (mcpMutationAttempted) mcpPostSnapshot = snapshot;
       } catch {
         compensationFailed = true;
       }
     }
-    if (pluginMutationAttempted)
-      await dependencies
-        .removePlugin()
-        .catch(() => (compensationFailed = true));
-    if (mcpMutationAttempted)
-      await dependencies.removeMcp().catch(() => (compensationFailed = true));
+    const guardedInverse = async (
+      expected: ProtectedProfileSnapshot | undefined,
+      inverse: () => Promise<void>,
+      trustedPreviousInverse = false,
+      relativePaths?: readonly string[],
+    ): Promise<boolean> => {
+      if (
+        expected !== undefined &&
+        !(await (
+          trustedPreviousInverse
+            ? profileMatchesExpectedPostContent(expected, relativePaths)
+            : profileMatchesExpectedPostImage(expected, relativePaths)
+        ).catch(() => false))
+      ) {
+        compensationFailed = true;
+        return false;
+      }
+      try {
+        await inverse();
+        return true;
+      } catch {
+        compensationFailed = true;
+        return false;
+      }
+    };
+    let clientInverseSafe = true;
+    if (pluginMutationAttempted) {
+      clientInverseSafe = await guardedInverse(
+        pluginPostSnapshot,
+        () => dependencies.removePlugin(),
+        false,
+        dependencies.pluginProfilePaths,
+      );
+      if (
+        clientInverseSafe &&
+        mcpPostSnapshot !== undefined &&
+        !(await profileMatchesExpectedPostContent(
+          mcpPostSnapshot,
+          dependencies.mcpProfilePaths,
+        ).catch(() => false))
+      ) {
+        clientInverseSafe = false;
+        compensationFailed = true;
+      }
+    }
+    if (mcpMutationAttempted && clientInverseSafe) {
+      await guardedInverse(
+        mcpPostSnapshot,
+        () => dependencies.removeMcp(),
+        pluginMutationAttempted,
+        dependencies.mcpProfilePaths,
+      );
+    }
     if (credential !== undefined) {
       await dependencies
         .revokeCredential(credential.keyId, credential.reference)
         .catch(() => (compensationFailed = true));
-    }
-    if (
-      snapshot !== undefined &&
-      !(await profileMatchesSnapshotBefore(snapshot).catch(() => false))
-    ) {
-      const restored = await restoreProfileSnapshot(snapshot).catch(
-        () => undefined,
-      );
-      if (restored?.restorationState !== "restored") compensationFailed = true;
     }
     return compensationFailed
       ? {

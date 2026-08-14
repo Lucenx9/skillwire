@@ -6,6 +6,7 @@ import { ClientMutationNotStartedError } from "../../domain/client-mutation.js";
 import {
   classifyClientComponent,
   clientComponentIdentity,
+  type ClientPluginMutationRunner,
   type ClientComponentState,
 } from "./client-state.js";
 
@@ -132,6 +133,7 @@ export class CodexClientAdapter {
   public constructor(
     private readonly executable: string,
     private readonly environment: NodeJS.ProcessEnv,
+    private readonly signal?: AbortSignal,
   ) {
     if (!isAbsolute(executable))
       throw new Error("Codex executable must be absolute");
@@ -150,6 +152,7 @@ export class CodexClientAdapter {
       acceptExitCodes,
       deadlineMilliseconds: 15_000,
       maximumOutputBytes: 256 * 1024,
+      signal: this.signal,
     });
   }
 
@@ -338,7 +341,11 @@ export class CodexClientAdapter {
     };
   }
 
-  async addPlugin(marketplacePath: string): Promise<void> {
+  async addPlugin(
+    marketplacePath: string,
+    runMutation: ClientPluginMutationRunner = async (_component, action) =>
+      action(),
+  ): Promise<void> {
     if (!isAbsolute(marketplacePath))
       throw new Error("Codex marketplace path must be absolute");
     const state = await this.reconcilePlugin(marketplacePath);
@@ -347,19 +354,23 @@ export class CodexClientAdapter {
         "plugin",
         "Refusing to replace or duplicate an existing Codex skillwire plugin integration",
       );
-    await this.run([
-      "plugin",
-      "marketplace",
-      "add",
-      resolve(marketplacePath),
-      "--json",
-    ]);
-    await this.run([
-      "plugin",
-      "add",
-      "skillwire-autonomous-activation@skillwire",
-      "--json",
-    ]);
+    await runMutation("marketplace-install", async () => {
+      await this.run([
+        "plugin",
+        "marketplace",
+        "add",
+        resolve(marketplacePath),
+        "--json",
+      ]);
+    });
+    await runMutation("plugin-install", async () => {
+      await this.run([
+        "plugin",
+        "add",
+        "skillwire-autonomous-activation@skillwire",
+        "--json",
+      ]);
+    });
     await this.readPlugin(marketplacePath);
     await this.readMcp();
   }
@@ -408,7 +419,7 @@ export class CodexClientAdapter {
     return { mcp, plugin };
   }
 
-  async removePlugin(): Promise<void> {
+  async removePlugin(marketplacePath?: string): Promise<void> {
     await this.run([
       "plugin",
       "remove",
@@ -416,9 +427,21 @@ export class CodexClientAdapter {
       "--json",
     ]);
     await this.run(["plugin", "marketplace", "remove", "skillwire", "--json"]);
+    if (
+      marketplacePath !== undefined &&
+      (await this.reconcilePlugin(marketplacePath)).classification !== "absent"
+    ) {
+      throw new Error("Codex did not remove the owned plugin integration");
+    }
   }
 
   async removeMcp(): Promise<void> {
     await this.run(["mcp", "remove", "skillwire"]);
+    const remaining = await this.run(
+      ["mcp", "get", "skillwire", "--json"],
+      [0, 1],
+    );
+    if (remaining.code === 0)
+      throw new Error("Codex did not remove the MCP registration");
   }
 }

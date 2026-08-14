@@ -20,10 +20,12 @@ RUN pnpm build
 
 FROM dependencies AS test
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git \
+    && apt-get install --yes --no-install-recommends git zstd \
     && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN pnpm build && chmod -R a+rX /app
+RUN pnpm build \
+    && chmod -R a+rX /app \
+    && chmod 0555 /app/dist/src/onboarding/cli/main.js
 CMD ["pnpm", "test"]
 
 FROM toolchain AS production-dependencies

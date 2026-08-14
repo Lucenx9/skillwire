@@ -10,6 +10,7 @@ import {
 import { ClaudeClientAdapter } from "../../../src/onboarding/adapters/clients/claude.js";
 
 describe("Claude Code 2.1.229 clean normal-profile onboarding", () => {
+  const claudeExecutable = resolve("node_modules/.bin/claude");
   let fixture: OnboardingEnvironment | undefined;
   afterEach(async () => fixture?.close());
 
@@ -22,7 +23,7 @@ describe("Claude Code 2.1.229 clean normal-profile onboarding", () => {
     });
     await writeFile(launcher, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     const adapter = new ClaudeClientAdapter(
-      "/usr/bin/claude",
+      claudeExecutable,
       fixture.environment,
     );
     const before = await adapter.preflight();
@@ -49,7 +50,7 @@ describe("Claude Code 2.1.229 clean normal-profile onboarding", () => {
   it("installs, enables, reads, disables, and removes the release-local user plugin", async () => {
     fixture = await createOnboardingEnvironment();
     const adapter = new ClaudeClientAdapter(
-      "/usr/bin/claude",
+      claudeExecutable,
       fixture.environment,
     );
     const launcher = resolve(fixture.root, "owned/bin/skillwire");

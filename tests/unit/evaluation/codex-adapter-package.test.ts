@@ -79,10 +79,27 @@ function immutablePluginCheckout(): string {
   const root = mkdtempSync(join(tmpdir(), "skillwire-adapter-checkout-"));
   temporaryRoots.push(root);
   const checkout = join(root, "source");
+  const gitConfig = join(root, "gitconfig");
+  writeFileSync(
+    gitConfig,
+    `[safe]\n\tdirectory = ${join(projectRoot, ".git")}\n`,
+    { mode: 0o600 },
+  );
   const clone = spawnSync(
     "git",
     ["clone", "--no-local", "--no-checkout", projectRoot, checkout],
-    { encoding: "utf8" },
+    {
+      encoding: "utf8",
+      env: {
+        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+        HOME: root,
+        LANG: "C",
+        LC_ALL: "C",
+        GIT_CONFIG_GLOBAL: gitConfig,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    },
   );
   expect(clone.status, clone.stderr).toBe(0);
   const checkedOut = spawnSync(

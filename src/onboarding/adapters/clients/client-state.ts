@@ -36,6 +36,14 @@ export interface ClientComponentState {
   readonly mutationAllowed: boolean;
 }
 
+export type ClientPluginMutationComponent =
+  "marketplace-install" | "plugin-install" | "plugin-enable";
+
+export type ClientPluginMutationRunner = (
+  component: ClientPluginMutationComponent,
+  action: () => Promise<void>,
+) => Promise<void>;
+
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string")
     return JSON.stringify(value);

@@ -130,6 +130,7 @@ export async function createAccountInAdminContainer(options: {
   readonly composePath: string;
   readonly projectName: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal | undefined;
 }): Promise<string> {
   const secretFiles = secretFilePaths(options.environment);
   const result = await runCommand({
@@ -143,6 +144,7 @@ export async function createAccountInAdminContainer(options: {
     environment: options.environment,
     deadlineMilliseconds: 30_000,
     maximumOutputBytes: 16 * 1024,
+    signal: options.signal,
   });
   const metadata = z
     .object({ accountId: z.uuid() })
@@ -157,6 +159,7 @@ export async function revokeClientKeyInAdminContainer(options: {
   readonly projectName: string;
   readonly keyId: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal | undefined;
 }): Promise<void> {
   if (!z.uuid().safeParse(options.keyId).success) {
     throw new Error("Client key identity is invalid");
@@ -183,6 +186,7 @@ export async function revokeClientKeyInAdminContainer(options: {
     environment: options.environment,
     deadlineMilliseconds: 30_000,
     maximumOutputBytes: 16 * 1024,
+    signal: options.signal,
   });
   z.object({ revoked: z.literal(true) })
     .strict()
@@ -210,6 +214,7 @@ export async function createClientKeyInAdminContainer(options: {
   readonly accountId: string;
   readonly runtimeRoot: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal | undefined;
 }): Promise<BootstrappedClientKey> {
   const secretFiles = secretFilePaths(options.environment);
   const keyId = randomUUID();
@@ -225,6 +230,7 @@ export async function createClientKeyInAdminContainer(options: {
       args: ["--mode=0600", fifo],
       environment: { PATH: "/usr/bin:/bin", LANG: "C" },
       deadlineMilliseconds: 2_000,
+      signal: options.signal,
     });
     channel = await PrivateTokenChannel.open(fifo);
     const result = await runCommand({
@@ -241,6 +247,7 @@ export async function createClientKeyInAdminContainer(options: {
       environment: options.environment,
       deadlineMilliseconds: 30_000,
       maximumOutputBytes: 16 * 1024,
+      signal: options.signal,
     });
     const token = await channel.receive();
     if (parseApiKeyToken(token) === undefined)

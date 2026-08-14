@@ -25,7 +25,10 @@ export class ServiceDatabase {
     this.run = options.run ?? runCommand;
   }
 
-  private command(args: readonly string[]): Promise<CommandResult> {
+  private command(
+    args: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<CommandResult> {
     return this.run({
       executable: resolve(this.options.dockerExecutable),
       args,
@@ -36,46 +39,47 @@ export class ServiceDatabase {
       },
       deadlineMilliseconds: 15_000,
       maximumOutputBytes: 64 * 1024,
+      signal,
     });
   }
 
-  async verifyVolume(): Promise<void> {
-    const result = await this.command([
-      "volume",
-      "inspect",
-      this.options.volumeName,
-      "--format",
-      "{{.Name}}",
-    ]);
+  async verifyVolume(signal?: AbortSignal): Promise<void> {
+    const result = await this.command(
+      ["volume", "inspect", this.options.volumeName, "--format", "{{.Name}}"],
+      signal,
+    );
     if (result.stdout.trim() !== this.options.volumeName)
       throw new Error("Stable PostgreSQL volume is unavailable");
   }
 
-  async verifySchemaAndReadiness(): Promise<{
+  async verifySchemaAndReadiness(signal?: AbortSignal): Promise<{
     version: string;
     latestMigration: string;
   }> {
     const query =
       "SELECT current_setting('server_version'), (SELECT max(version) FROM schema_migrations)";
-    const result = await this.command([
-      "compose",
-      "--project-name",
-      this.options.projectName,
-      "--file",
-      this.options.composePath,
-      "exec",
-      "-T",
-      "postgres",
-      "psql",
-      "--username",
-      "skillwire",
-      "--dbname",
-      "skillwire",
-      "--tuples-only",
-      "--no-align",
-      "--command",
-      query,
-    ]);
+    const result = await this.command(
+      [
+        "compose",
+        "--project-name",
+        this.options.projectName,
+        "--file",
+        this.options.composePath,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "--username",
+        "skillwire",
+        "--dbname",
+        "skillwire",
+        "--tuples-only",
+        "--no-align",
+        "--command",
+        query,
+      ],
+      signal,
+    );
     const [version, latestMigration] = result.stdout.trim().split("|");
     if (
       version === undefined ||

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { createFakeExecutables } from "../../helpers/onboarding-executables.js";
 import { createOnboardingEnvironment } from "../../helpers/onboarding-environment.js";
 import { createSecretServiceSession } from "../../helpers/secret-service-session.js";
+import { runCommand } from "../../../src/onboarding/adapters/process/command-runner.js";
 
 describe("disposable onboarding infrastructure", () => {
   it("isolates all normal profiles and rejects real profile/workspace targets", async () => {
@@ -48,6 +49,13 @@ describe("disposable onboarding infrastructure", () => {
     expect(
       Object.values(executables).every((path) => path.startsWith(root)),
     ).toBe(true);
+    await expect(
+      runCommand({
+        executable: executables.cosign,
+        args: ["verify-blob"],
+        environment: { PATH: "/nonexistent", LANG: "C" },
+      }),
+    ).resolves.toMatchObject({ code: 0 });
   });
 
   it.skipIf(!existsSync("/usr/bin/gnome-keyring-daemon"))(

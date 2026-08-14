@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 
 export interface ApplicationConfig {
   readonly host: string;
+  readonly unixSocketPath?: string | undefined;
   readonly allowedHosts?: readonly string[] | undefined;
   readonly port: number;
   readonly databaseUrl: string;
@@ -239,6 +240,15 @@ export function loadConfig(
   }
 
   const host = environment["SKILLWIRE_BIND_HOST"] ?? "127.0.0.1";
+  const unixSocketPath = environment["SKILLWIRE_UNIX_SOCKET_PATH"];
+  if (
+    unixSocketPath !== undefined &&
+    (!isAbsolute(unixSocketPath) ||
+      unixSocketPath.length > 103 ||
+      !unixSocketPath.endsWith("/mcp.sock"))
+  ) {
+    throw new Error("SKILLWIRE_UNIX_SOCKET_PATH is invalid");
+  }
   const catalogRoot = environment["SKILLWIRE_CATALOG_ROOT"] ?? process.cwd();
   if (!isAbsolute(catalogRoot)) {
     throw new Error("SKILLWIRE_CATALOG_ROOT must be an absolute path");
@@ -276,6 +286,7 @@ export function loadConfig(
   }
   const config: ApplicationConfig = {
     host,
+    ...(unixSocketPath === undefined ? {} : { unixSocketPath }),
     allowedHosts: readAllowedHosts(
       host,
       environment["SKILLWIRE_ALLOWED_HOSTS"],

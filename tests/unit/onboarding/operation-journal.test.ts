@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,6 +48,102 @@ describe("operation journal and installation lock", () => {
     );
   });
 
+  it("records every external effect boundary and stops after cancellation", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "setup",
+    );
+    const controller = new AbortController();
+    await expect(
+      journal.runEffect({
+        step: "deployment",
+        intent: { component: "compose" },
+        signal: controller.signal,
+        action: async () => {
+          await Promise.resolve();
+          controller.abort();
+          throw new Error("cancelled subprocess");
+        },
+        verification: () => ({ ready: true }),
+      }),
+    ).rejects.toMatchObject({ effectMayHaveBegun: true });
+    expect(journal.entries.map(({ phase }) => phase)).toEqual([
+      "intent",
+      "compensate",
+    ]);
+    await journal.cancel({ status: "recovery-required" });
+    expect(journal.entries.at(-1)?.phase).toBe("cancel");
+  });
+
+  it("preserves a proven mutation-not-started failure without inventing recovery", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "setup",
+    );
+    const notStarted = new Error("preflight conflict");
+
+    await expect(
+      journal.runEffect({
+        step: "client-claude-mcp-profile",
+        intent: { client: "claude" },
+        signal: new AbortController().signal,
+        action: () => Promise.reject(notStarted),
+        effectNotStarted: (error) => error === notStarted,
+        verification: () => ({ installed: true }),
+      }),
+    ).rejects.toBe(notStarted);
+    expect(journal.entries.map(({ phase }) => phase)).toEqual([
+      "intent",
+      "compensate",
+    ]);
+    expect(journal.entries.at(-1)?.detail).toEqual({
+      completion: "not-started",
+      recoveryRequired: false,
+    });
+    expect(journal.hasUnprovenEffect()).toBe(false);
+  });
+
+  it("persists the required setup effect inventory as intent/effect/verify triplets", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "setup",
+    );
+    const signal = new AbortController().signal;
+    const steps = [
+      "deployment",
+      "service-secrets",
+      "account-create",
+      "client-codex-key",
+      "client-codex-credential",
+      "client-codex-mcp-profile",
+      "client-codex-marketplace-install",
+      "client-codex-plugin-install",
+      "client-claude-plugin-enable",
+      "final-state-publication",
+    ];
+    for (const step of steps)
+      await journal.runEffect({
+        step,
+        intent: { component: step },
+        signal,
+        action: () => Promise.resolve(step),
+        verification: () => ({ completed: true }),
+      });
+    await journal.commit({ status: "success" });
+    for (const step of steps)
+      expect(
+        journal.entries
+          .filter((entry) => entry.step === step)
+          .map(({ phase }) => phase),
+      ).toEqual(["intent", "effect", "verify"]);
+  });
+
   it("rejects false success and reclaims only a proven stale process identity", async () => {
     fixture = await createOnboardingEnvironment();
     const lockRoot = resolve(fixture.root, "locks");
@@ -77,5 +173,33 @@ describe("operation journal and installation lock", () => {
       identity,
     );
     await reclaimed.release();
+  });
+
+  it("uses a persistent kernel lock so two contenders cannot unlink each other's ownership", async () => {
+    fixture = await createOnboardingEnvironment();
+    const lockRoot = resolve(fixture.root, "locks");
+    const identity = await currentProcessIdentity();
+    const attempts = await Promise.allSettled([
+      InstallationLock.acquire(lockRoot, "installation", identity),
+      InstallationLock.acquire(lockRoot, "installation", identity),
+    ]);
+    const acquired = attempts.filter(
+      (entry): entry is PromiseFulfilledResult<InstallationLock> =>
+        entry.status === "fulfilled",
+    );
+    expect(acquired).toHaveLength(1);
+    expect(attempts.filter(({ status }) => status === "rejected")).toHaveLength(
+      1,
+    );
+    await acquired[0]?.value.release();
+    expect((await stat(resolve(lockRoot, "installation.lock"))).isFile()).toBe(
+      true,
+    );
+    const next = await InstallationLock.acquire(
+      lockRoot,
+      "installation",
+      identity,
+    );
+    await next.release();
   });
 });

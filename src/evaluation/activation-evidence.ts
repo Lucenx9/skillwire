@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { z } from "zod";
 
@@ -664,6 +664,10 @@ function readImmutableAdapterRelease(
       [
         "-C",
         projectRoot,
+        "-c",
+        `safe.directory=${projectRoot}`,
+        "-c",
+        `safe.directory=${resolve(projectRoot, ".git")}`,
         "cat-file",
         "blob",
         `${sourceCommit}:${sourceRoot}/${path}`,

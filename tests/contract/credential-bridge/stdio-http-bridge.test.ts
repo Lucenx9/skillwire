@@ -61,8 +61,10 @@ describe("transparent STDIO-to-loopback HTTP bridge", () => {
     };
     upstream = await connectUpstream({
       endpoint: new URL("http://localhost/mcp"),
+      socketPath: "/tmp/disposable/mcp.sock",
       token,
       fetch: appFetch,
+      peerValidator: () => Promise.resolve(),
       deadlineMilliseconds: 3_000,
       signal: bridgeController.signal,
     });

@@ -1,7 +1,14 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   captureProfileSnapshot,
@@ -12,6 +19,7 @@ import {
   ProfileTransactionRecoveryError,
   runProfileTransaction,
 } from "../../../src/onboarding/application/profile-transaction.js";
+import { installClientLifecycle } from "../../../src/onboarding/application/client-lifecycle.js";
 import {
   concurrentProfileEdit,
   createClientProfileFixture,
@@ -167,4 +175,112 @@ describe("profile snapshot and repository safety", () => {
       "concurrent during verification",
     );
   });
+
+  it("uses exact per-effect checkpoints for an uncontended client rollback", async () => {
+    fixture = await createClientProfileFixture();
+    const before = await readFile(fixture.claudeConfig);
+    const mcpPost = Buffer.from(
+      `${JSON.stringify({
+        ...JSON.parse(before.toString("utf8")),
+        skillwireMcpFixture: true,
+      })}\n`,
+    );
+    const pluginPost = Buffer.from(
+      `${JSON.stringify({
+        ...JSON.parse(mcpPost.toString("utf8")),
+        skillwirePluginFixture: true,
+      })}\n`,
+    );
+    const inverses: string[] = [];
+
+    const result = await installClientLifecycle("claude", {
+      preflight: () => Promise.resolve(),
+      provisionCredential: () =>
+        Promise.resolve({ keyId: "fixture", reference: "fixture" }),
+      addMcp: () => writeFile(fixture?.claudeConfig ?? "", mcpPost),
+      addPlugin: () => writeFile(fixture?.claudeConfig ?? "", pluginPost),
+      verify: () => Promise.reject(new Error("readback failure")),
+      removePlugin: async () => {
+        inverses.push("plugin");
+        await writeFile(fixture?.claudeConfig ?? "", mcpPost);
+      },
+      removeMcp: async () => {
+        inverses.push("mcp");
+        await writeFile(fixture?.claudeConfig ?? "", before);
+      },
+      revokeCredential: () => Promise.resolve(),
+      profileSnapshot: {
+        client: "claude",
+        profileRoot: fixture.home,
+        stateRoot: fixture.xdgStateHome,
+        relativePaths: [".claude.json"],
+      },
+    });
+
+    expect(result).toMatchObject({ status: "failed", compensated: true });
+    expect(inverses).toEqual(["plugin", "mcp"]);
+    expect(await readFile(fixture.claudeConfig)).toEqual(before);
+  });
+
+  it.each(["field", "inode", "mode"] as const)(
+    "refuses client inverses after a concurrent %s change",
+    async (change) => {
+      fixture = await createClientProfileFixture();
+      const before = await readFile(fixture.claudeConfig);
+      const owned = Buffer.from(
+        `${JSON.stringify({
+          ...JSON.parse(before.toString("utf8")),
+          skillwireFixture: true,
+        })}\n`,
+      );
+      const removeMcp = vi.fn(() => Promise.resolve());
+      const removePlugin = vi.fn(() => Promise.resolve());
+      const result = await installClientLifecycle("claude", {
+        preflight: () => Promise.resolve(),
+        provisionCredential: () =>
+          Promise.resolve({ keyId: "fixture", reference: "fixture" }),
+        addMcp: () => writeFile(fixture?.claudeConfig ?? "", owned),
+        addPlugin: () => Promise.resolve(),
+        verify: async () => {
+          const path = fixture?.claudeConfig ?? "";
+          if (change === "field") {
+            await writeFile(
+              path,
+              `${JSON.stringify({
+                ...JSON.parse(owned.toString("utf8")),
+                concurrentFixture: true,
+              })}\n`,
+            );
+          } else if (change === "inode") {
+            const replacement = `${path}.replacement`;
+            await writeFile(replacement, owned, { mode: 0o600 });
+            await rename(replacement, path);
+          } else {
+            await chmod(path, 0o640);
+          }
+          throw new Error("readback failure");
+        },
+        removePlugin,
+        removeMcp,
+        revokeCredential: () => Promise.resolve(),
+        profileSnapshot: {
+          client: "claude",
+          profileRoot: fixture.home,
+          stateRoot: fixture.xdgStateHome,
+          relativePaths: [".claude.json"],
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: "recovery-required",
+        compensated: false,
+      });
+      expect(removePlugin).not.toHaveBeenCalled();
+      expect(removeMcp).not.toHaveBeenCalled();
+      if (change === "field")
+        expect(await readFile(fixture.claudeConfig, "utf8")).toContain(
+          "concurrentFixture",
+        );
+    },
+  );
 });

@@ -10,7 +10,8 @@ build/
 coverage/
 benchmarks/results/*
 !benchmarks/results/.gitkeep
-docs/
+docs/*
+!docs/api-keys.md
 *.log*
 *.tmp
 *.swp

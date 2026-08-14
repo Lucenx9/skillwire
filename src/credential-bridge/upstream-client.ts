@@ -5,6 +5,10 @@ import {
   type ListToolsResult,
   type Tool,
 } from "@modelcontextprotocol/client";
+import { request as httpRequest } from "node:http";
+import { lstat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { Readable } from "node:stream";
 
 import { parseApiKeyToken } from "../authentication/api-key-token.js";
 import { BridgeFailure } from "./bridge-errors.js";
@@ -21,7 +25,7 @@ export const SKILLWIRE_TOOL_NAMES = [
 function validateEndpoint(endpoint: URL): void {
   if (endpoint.protocol !== "http:")
     throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname))
+  if (endpoint.hostname !== "localhost" || endpoint.port !== "")
     throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
   if (
     endpoint.pathname !== "/mcp" ||
@@ -32,6 +36,95 @@ function validateEndpoint(endpoint: URL): void {
   ) {
     throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
   }
+}
+
+export async function validateLocalPeerSocket(
+  rawSocketPath: string,
+): Promise<void> {
+  const socketPath = resolve(rawSocketPath);
+  if (
+    !isAbsolute(socketPath) ||
+    socketPath.length > 103 ||
+    basename(socketPath) !== "mcp.sock"
+  ) {
+    throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
+  }
+  try {
+    const parentPath = dirname(socketPath);
+    const parts = relative("/", parentPath).split("/").filter(Boolean);
+    let current = "/";
+    for (const part of parts) {
+      current = resolve(current, part);
+      const ancestor = await lstat(current);
+      if (ancestor.isSymbolicLink() || !ancestor.isDirectory())
+        throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
+    }
+    const [parent, socket] = await Promise.all([
+      lstat(parentPath),
+      lstat(socketPath),
+    ]);
+    if (
+      !parent.isDirectory() ||
+      parent.isSymbolicLink() ||
+      parent.uid !== process.getuid?.() ||
+      (parent.mode & 0o777) !== 0o700 ||
+      !socket.isSocket() ||
+      socket.isSymbolicLink() ||
+      socket.nlink !== 1 ||
+      socket.uid !== process.getuid() ||
+      (socket.mode & 0o777) !== 0o600
+    ) {
+      throw new BridgeFailure("BRIDGE_ENDPOINT_INVALID");
+    }
+  } catch (error) {
+    if (error instanceof BridgeFailure) throw error;
+    throw new BridgeFailure("BRIDGE_TRANSPORT_UNAVAILABLE", { cause: error });
+  }
+}
+
+function unixSocketFetch(socketPath: string): FetchLike {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    const target = new URL(request.url);
+    validateEndpoint(target);
+    await validateLocalPeerSocket(socketPath);
+    return new Promise<Response>((resolveResponse, rejectResponse) => {
+      const upstream = httpRequest(
+        {
+          socketPath,
+          path: `${target.pathname}${target.search}`,
+          method: request.method,
+          headers: Object.fromEntries(request.headers.entries()),
+          signal: request.signal,
+        },
+        (response) => {
+          const headers = new Headers();
+          for (const [key, value] of Object.entries(response.headers)) {
+            if (Array.isArray(value))
+              value.forEach((entry) => {
+                headers.append(key, entry);
+              });
+            else if (value !== undefined) headers.set(key, value);
+          }
+          resolveResponse(
+            new Response(Readable.toWeb(response) as ReadableStream, {
+              status: response.statusCode ?? 500,
+              ...(response.statusMessage === undefined
+                ? {}
+                : { statusText: response.statusMessage }),
+              headers,
+            }),
+          );
+        },
+      );
+      upstream.once("error", rejectResponse);
+      if (request.body === null) upstream.end();
+      else
+        Readable.fromWeb(
+          request.body as Parameters<typeof Readable.fromWeb>[0],
+        ).pipe(upstream);
+    });
+  };
 }
 
 function validateTools(result: ListToolsResult): void {
@@ -58,8 +151,10 @@ export interface UpstreamConnection {
 
 export interface ConnectUpstreamOptions {
   readonly endpoint: URL;
+  readonly socketPath: string;
   readonly token: string;
   readonly fetch?: FetchLike | undefined;
+  readonly peerValidator?: ((socketPath: string) => Promise<void>) | undefined;
   readonly deadlineMilliseconds: number;
   readonly signal?: AbortSignal | undefined;
 }
@@ -72,7 +167,9 @@ export async function connectUpstream(
     throw new BridgeFailure("BRIDGE_CREDENTIAL_UNAVAILABLE");
   if (options.deadlineMilliseconds < 1 || options.deadlineMilliseconds > 10_000)
     throw new Error("Bridge deadline is invalid");
-  const sourceFetch = options.fetch ?? fetch;
+  const peerValidator = options.peerValidator ?? validateLocalPeerSocket;
+  await peerValidator(options.socketPath);
+  const sourceFetch = options.fetch ?? unixSocketFetch(options.socketPath);
   const startedAt = performance.now();
   const deadlineSignal = AbortSignal.timeout(options.deadlineMilliseconds);
   let initializing = true;
@@ -107,6 +204,7 @@ export async function connectUpstream(
         : signals.length === 1
           ? signals[0]
           : undefined;
+    await peerValidator(options.socketPath);
     const response = await sourceFetch(input, {
       ...init,
       redirect: "error",

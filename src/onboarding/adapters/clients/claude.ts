@@ -1,6 +1,5 @@
-import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, rename, unlink } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
@@ -9,6 +8,7 @@ import { ClientMutationNotStartedError } from "../../domain/client-mutation.js";
 import {
   classifyClientComponent,
   clientComponentIdentity,
+  type ClientPluginMutationRunner,
   type ClientComponentState,
 } from "./client-state.js";
 
@@ -110,6 +110,7 @@ export class ClaudeClientAdapter {
     private readonly environment: NodeJS.ProcessEnv,
     private readonly observationRoot: string = process.cwd(),
     private readonly managedMcpPath = "/etc/claude-code/managed-mcp.json",
+    private readonly signal?: AbortSignal,
   ) {
     if (!isAbsolute(executable))
       throw new Error("Claude executable must be absolute");
@@ -130,6 +131,7 @@ export class ClaudeClientAdapter {
       acceptExitCodes,
       deadlineMilliseconds: 15_000,
       maximumOutputBytes: 256 * 1024,
+      signal: this.signal,
     });
   }
 
@@ -145,32 +147,6 @@ export class ClaudeClientAdapter {
     if (home === undefined || !isAbsolute(home))
       throw new Error("Claude onboarding requires an absolute HOME");
     return resolve(home, ".claude/settings.json");
-  }
-
-  private async cleanEmptyMarketplaceSetting(): Promise<void> {
-    const settings = await this.settingsRecord();
-    const marketplaces = settings["extraKnownMarketplaces"];
-    if (
-      typeof marketplaces !== "object" ||
-      marketplaces === null ||
-      Object.keys(marketplaces).length !== 0
-    ) {
-      return;
-    }
-    delete settings["extraKnownMarketplaces"];
-    const path = this.settingsPath();
-    const stage = resolve(
-      path,
-      `../.settings-${randomBytes(8).toString("hex")}.stage`,
-    );
-    const handle = await open(stage, "wx", 0o600);
-    try {
-      await handle.writeFile(`${JSON.stringify(settings, null, 2)}\n`);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(stage, path);
   }
 
   private async settingsRecord(): Promise<Record<string, unknown>> {
@@ -286,45 +262,6 @@ export class ClaudeClientAdapter {
         return null;
       throw error;
     }
-  }
-
-  private async writeProfile(bytes: Buffer | null): Promise<void> {
-    const path = this.profilePath();
-    if (bytes === null) {
-      await unlink(path).catch((error: unknown) => {
-        if (!(
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ))
-          throw error;
-      });
-      return;
-    }
-    await mkdir(resolve(path, ".."), { recursive: true, mode: 0o700 });
-    const stage = resolve(
-      path,
-      `../.claude-${randomBytes(8).toString("hex")}.stage`,
-    );
-    const handle = await open(stage, "wx", 0o600);
-    try {
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(stage, path);
-  }
-
-  private async restoreProfileIfChanged(before: Buffer | null): Promise<void> {
-    const after = await this.profileBytes();
-    if (
-      (before === null && after === null) ||
-      (before !== null && after !== null && before.equals(after))
-    ) {
-      return;
-    }
-    await this.writeProfile(before);
   }
 
   async preflight(): Promise<{ version: string; mcp: "absent" | "present" }> {
@@ -500,82 +437,42 @@ export class ClaudeClientAdapter {
         "Refusing to replace an existing Claude skillwire MCP entry",
       );
     }
-    try {
-      if (
-        (await this.reconcileMcp(launcher, installationId)).classification !==
-        "absent"
-      ) {
-        throw new ClientMutationNotStartedError(
-          "mcp",
-          "Refusing to replace or duplicate an existing Claude SkillWire MCP integration",
-        );
-      }
-      await this.run([
+    if (
+      (await this.reconcileMcp(launcher, installationId)).classification !==
+      "absent"
+    ) {
+      throw new ClientMutationNotStartedError(
         "mcp",
-        "add",
-        "--transport",
-        "stdio",
-        "--scope",
-        "user",
-        "skillwire",
-        "--",
-        resolve(launcher),
-        "bridge",
-        "--installation",
-        installationId,
-        "--client",
-        "claude",
-      ]);
-      const mutatedBytes = await this.profileBytes();
-      if (mutatedBytes === null)
-        throw new Error("Claude did not create its profile");
-      const mutated = JSON.parse(mutatedBytes.toString("utf8")) as Record<
-        string,
-        unknown
-      >;
-      const mutatedServers = mutated["mcpServers"];
-      if (typeof mutatedServers !== "object" || mutatedServers === null)
-        throw new Error("Claude did not persist the MCP registration");
-      const skillwire = (mutatedServers as Record<string, unknown>)[
-        "skillwire"
-      ];
-      if (skillwire === undefined)
-        throw new Error("Claude did not persist the MCP registration");
-      const preservedServers =
-        typeof beforeServers === "object" && beforeServers !== null
-          ? beforeServers
-          : {};
-      await this.writeProfile(
-        Buffer.from(
-          `${JSON.stringify(
-            {
-              ...beforeProfile,
-              mcpServers: { ...preservedServers, skillwire },
-            },
-            null,
-            2,
-          )}\n`,
-        ),
+        "Refusing to replace or duplicate an existing Claude SkillWire MCP integration",
       );
-      const registration = await this.readMcp();
-      if (
-        registration.command !== resolve(launcher) ||
-        registration.args.join("\0") !==
-          [
-            "bridge",
-            "--installation",
-            installationId,
-            "--client",
-            "claude",
-          ].join("\0")
-      ) {
-        throw new Error(
-          "Claude effective MCP readback does not match the owned bridge",
-        );
-      }
-    } catch (error) {
-      await this.writeProfile(beforeBytes);
-      throw error;
+    }
+    await this.run([
+      "mcp",
+      "add",
+      "--transport",
+      "stdio",
+      "--scope",
+      "user",
+      "skillwire",
+      "--",
+      resolve(launcher),
+      "bridge",
+      "--installation",
+      installationId,
+      "--client",
+      "claude",
+    ]);
+    const registration = await this.readMcp();
+    if (
+      registration.command !== resolve(launcher) ||
+      registration.args.join("\0") !==
+        ["bridge", "--installation", installationId, "--client", "claude"].join(
+          "\0",
+        )
+    ) {
+      throw new Error(
+        "Claude effective MCP readback does not match the owned bridge",
+      );
     }
   }
 
@@ -611,7 +508,11 @@ export class ClaudeClientAdapter {
     };
   }
 
-  async addPlugin(marketplacePath: string): Promise<void> {
+  async addPlugin(
+    marketplacePath: string,
+    runMutation: ClientPluginMutationRunner = async (_component, action) =>
+      action(),
+  ): Promise<void> {
     if (!isAbsolute(marketplacePath))
       throw new Error("Claude marketplace path must be absolute");
     const state = await this.reconcilePlugin(marketplacePath);
@@ -620,8 +521,7 @@ export class ClaudeClientAdapter {
         "plugin",
         "Refusing to replace or duplicate an existing Claude skillwire plugin integration",
       );
-    const profileBefore = await this.profileBytes();
-    try {
+    await runMutation("marketplace-install", async () => {
       await this.run([
         "plugin",
         "marketplace",
@@ -630,6 +530,8 @@ export class ClaudeClientAdapter {
         "user",
         resolve(marketplacePath),
       ]);
+    });
+    await runMutation("plugin-install", async () => {
       await this.run([
         "plugin",
         "install",
@@ -637,6 +539,8 @@ export class ClaudeClientAdapter {
         "--scope",
         "user",
       ]);
+    });
+    await runMutation("plugin-enable", async () => {
       const enabled = await this.run(
         [
           "plugin",
@@ -650,11 +554,9 @@ export class ClaudeClientAdapter {
       if (enabled.code !== 0 && !/already enabled/i.test(enabled.stderr)) {
         throw new Error("Claude plugin could not be enabled at user scope");
       }
-      await this.readPlugin(marketplacePath);
-      await this.readMcp();
-    } finally {
-      await this.restoreProfileIfChanged(profileBefore);
-    }
+    });
+    await this.readPlugin(marketplacePath);
+    await this.readMcp();
   }
 
   async readPlugin(marketplacePath: string): Promise<ClaudePluginRegistration> {
@@ -698,33 +600,40 @@ export class ClaudeClientAdapter {
   }
 
   async removePlugin(): Promise<void> {
-    const profileBefore = await this.profileBytes();
-    try {
-      await this.run([
-        "plugin",
-        "disable",
-        "skillwire-autonomous-activation@skillwire",
-        "--scope",
-        "user",
-      ]);
-      await this.run([
-        "plugin",
-        "uninstall",
-        "skillwire-autonomous-activation@skillwire",
-        "--scope",
-        "user",
-      ]);
-      await this.run([
-        "plugin",
-        "marketplace",
-        "remove",
-        "skillwire",
-        "--scope",
-        "user",
-      ]);
-      await this.cleanEmptyMarketplaceSetting();
-    } finally {
-      await this.restoreProfileIfChanged(profileBefore);
+    await this.run([
+      "plugin",
+      "disable",
+      "skillwire-autonomous-activation@skillwire",
+      "--scope",
+      "user",
+    ]);
+    await this.run([
+      "plugin",
+      "uninstall",
+      "skillwire-autonomous-activation@skillwire",
+      "--scope",
+      "user",
+    ]);
+    await this.run([
+      "plugin",
+      "marketplace",
+      "remove",
+      "skillwire",
+      "--scope",
+      "user",
+    ]);
+    const settings = await this.settingsRecord();
+    const enabled = settings["enabledPlugins"];
+    const marketplaces = settings["extraKnownMarketplaces"];
+    if (
+      (typeof enabled === "object" &&
+        enabled !== null &&
+        Object.hasOwn(enabled, "skillwire-autonomous-activation@skillwire")) ||
+      (typeof marketplaces === "object" &&
+        marketplaces !== null &&
+        Object.hasOwn(marketplaces, "skillwire"))
+    ) {
+      throw new Error("Claude did not remove the owned plugin integration");
     }
   }
 
@@ -750,20 +659,20 @@ export class ClaudeClientAdapter {
         "Claude skillwire MCP entry is absent",
       );
     }
-    const { skillwire: _removed, ...remaining } = servers as Record<
+    await this.run(["mcp", "remove", "skillwire", "--scope", "user"]);
+    const afterBytes = await this.profileBytes();
+    if (afterBytes === null) return;
+    const after = JSON.parse(afterBytes.toString("utf8")) as Record<
       string,
       unknown
     >;
-    try {
-      await this.run(["mcp", "remove", "skillwire", "--scope", "user"]);
-      await this.writeProfile(
-        Buffer.from(
-          `${JSON.stringify({ ...before, mcpServers: remaining }, null, 2)}\n`,
-        ),
-      );
-    } catch (error) {
-      await this.writeProfile(beforeBytes);
-      throw error;
+    const afterServers = after["mcpServers"];
+    if (
+      typeof afterServers === "object" &&
+      afterServers !== null &&
+      Object.hasOwn(afterServers, "skillwire")
+    ) {
+      throw new Error("Claude did not remove the MCP registration");
     }
   }
 }

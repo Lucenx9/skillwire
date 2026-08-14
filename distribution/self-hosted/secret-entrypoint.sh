@@ -3,6 +3,11 @@ set -eu
 
 kind="${1:-}"
 shift || true
+runtime_uid="${SKILLWIRE_RUNTIME_UID:-10001}"
+runtime_gid="${SKILLWIRE_RUNTIME_GID:-10001}"
+case "$runtime_uid:$runtime_gid" in
+  *[!0-9:]*|:*|*:|*:*:*) echo "invalid runtime uid/gid" >&2; exit 64 ;;
+esac
 
 case "$kind" in
   database)
@@ -23,14 +28,14 @@ case "$kind" in
     ;;
 esac
 
-chown 10001:10001 /tmp/database-password
+chown "$runtime_uid:$runtime_gid" /tmp/database-password
 if [ "$kind" = application ]; then
-  chown 10001:10001 /tmp/application-pepper
+  chown "$runtime_uid:$runtime_gid" /tmp/application-pepper
 fi
 
 exec /usr/bin/setpriv \
-  --reuid=10001 \
-  --regid=10001 \
+  --reuid="$runtime_uid" \
+  --regid="$runtime_gid" \
   --clear-groups \
   --no-new-privs \
   --bounding-set=-all \
