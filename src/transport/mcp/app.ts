@@ -27,7 +27,6 @@ export interface CreateAppOptions {
   readonly allowedHosts: readonly string[];
   readonly authenticator: ApiKeyAuthenticator;
   readonly readiness: ReadinessState;
-  readonly checkReadiness?: (() => Promise<boolean>) | undefined;
   readonly useCases: McpUseCases;
   readonly logger: SecurityLogger;
   readonly maximumRequestBodyBytes: number;
@@ -44,9 +43,6 @@ export function createApp(options: CreateAppOptions) {
     options.rateLimit,
     now,
   );
-  const isReady =
-    options.checkReadiness ??
-    (() => Promise.resolve(options.readiness.isReady()));
 
   app.use("*", requestContext(options.requestDeadlineMilliseconds, now));
   app.use("*", async (context, next) => {
@@ -123,14 +119,14 @@ export function createApp(options: CreateAppOptions) {
   });
 
   app.get("/health/live", (context) => context.json({ status: "ok" }));
-  app.get("/health/ready", async (context) =>
-    (await isReady())
+  app.get("/health/ready", (context) =>
+    options.readiness.isReady()
       ? context.json({ status: "ready" })
       : context.json({ status: "not-ready" }, 503),
   );
 
   app.use("/mcp", async (context, next) => {
-    if (!(await isReady())) {
+    if (!options.readiness.isReady()) {
       return context.json(
         safeErrorEnvelope(
           new SkillWireError("INTERNAL"),

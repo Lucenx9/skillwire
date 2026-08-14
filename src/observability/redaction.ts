@@ -1,5 +1,5 @@
 const FORBIDDEN_KEY =
-  /authorization|credential|token|secret|digest|pepper|repository|query|task|content|body|path|sql|source|instruction|resource/i;
+  /authorization|credential|token|secret|digest|pepper|repository|owner|query|task|content|body|path|sql|source(?!Id)|instruction|resource|commit|blob|manifest|frontmatter|license|attribution|url|header/i;
 const BEARER_VALUE = /\bbearer\s+\S+/i;
 const API_KEY_VALUE = /\bskillwire_[A-Za-z0-9_-]+\b/;
 const REPOSITORY_HASH_VALUE = /\b[0-9a-f]{64}\b/;

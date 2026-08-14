@@ -1,0 +1,17 @@
+{
+  "origin": "https://api.github.com",
+  "apiVersion": "2026-03-10",
+  "commitSha": "84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+  "checksums": {
+    "expected-inventory.json": "bf13aa9aae40c020a6ce788e8b7cbe1d7288bc068a5872e71dfc5acbd9713cf5",
+    "responses/recording.json.gz.b64": "f78adc8dde1023d24148dec07dd962e6897ae5b175674f57aba736040df2963b"
+  },
+  "routes": [
+    "GET /repos/mattpocock/skills",
+    "GET /repos/mattpocock/skills/git/ref/heads/main",
+    "GET /repos/mattpocock/skills/git/commits/84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+    "GET /repos/mattpocock/skills/git/trees/5c5d817a09c3ac2cbad66c0d09db3fce3455a440?recursive=1",
+    "GET /repos/mattpocock/skills/git/blobs/{tree-listed-sha}"
+  ],
+  "responseFixture": "responses/recording.json.gz.b64"
+}

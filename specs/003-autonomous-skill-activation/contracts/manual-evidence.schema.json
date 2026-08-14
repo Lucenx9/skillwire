@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/autonomous-activation-manual-evidence.v1.json",
+  "title": "SkillWire Manual Autonomous Activation Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceId",
+    "recordedAt",
+    "policyVersion",
+    "corpusId",
+    "catalogRelease",
+    "protocolVersion",
+    "harness",
+    "model",
+    "environmentProfile",
+    "localInventoryVersion",
+    "evaluatorVersion",
+    "traceSource",
+    "instructionsSha256",
+    "privacyDeclaration",
+    "observations",
+    "metrics"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "evidenceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policyVersion": {
+      "const": "skillwire-activation-v1"
+    },
+    "corpusId": {
+      "const": "autonomous-activation-v1"
+    },
+    "catalogRelease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "protocolVersion": {
+      "enum": ["2025-11-25", "2026-07-28"]
+    },
+    "harness": {
+      "$ref": "#/$defs/namedVersion"
+    },
+    "model": {
+      "$ref": "#/$defs/namedVersion"
+    },
+    "environmentProfile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "localInventoryVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "evaluatorVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "traceSource": {
+      "enum": ["harness-export", "observer-proxy"]
+    },
+    "instructionsSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "privacyDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containsRawPrompts",
+        "containsTaskSummaries",
+        "containsRepositoryHashes",
+        "containsLocalPaths",
+        "containsSkillContent",
+        "containsCredentialsOrHeaders"
+      ],
+      "properties": {
+        "containsRawPrompts": {
+          "const": false
+        },
+        "containsTaskSummaries": {
+          "const": false
+        },
+        "containsRepositoryHashes": {
+          "const": false
+        },
+        "containsLocalPaths": {
+          "const": false
+        },
+        "containsSkillContent": {
+          "const": false
+        },
+        "containsCredentialsOrHeaders": {
+          "const": false
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/observation"
+      }
+    },
+    "metrics": {
+      "$ref": "#/$defs/metrics"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "namedVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "skillIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skillId", "revision", "revisionSha256"],
+      "properties": {
+        "skillId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revisionSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "toolCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "toolName", "result"],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "toolName": {
+          "enum": [
+            "search_skills",
+            "load_skill",
+            "read_skill_resource",
+            "list_repo_memory",
+            "record_skill_outcome",
+            "forget_repo_memory"
+          ]
+        },
+        "invocationContext": {
+          "enum": ["automatic", "user-requested"]
+        },
+        "skill": {
+          "$ref": "#/$defs/skillIdentity"
+        },
+        "resourcePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+        },
+        "result": {
+          "enum": ["success", "error"]
+        },
+        "errorCode": {
+          "enum": [
+            "UNAUTHENTICATED",
+            "RATE_LIMITED",
+            "INVALID_ARGUMENT",
+            "NOT_FOUND",
+            "REVISION_UNAVAILABLE",
+            "RESOURCE_REJECTED",
+            "MEMORY_CONFLICT",
+            "ERASURE_INCOMPLETE",
+            "INTERNAL"
+          ]
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "instructionsObserved",
+        "instructionMethod",
+        "status",
+        "toolCalls",
+        "guidanceSource",
+        "verifiedSkillWireLoad",
+        "completionEvidence",
+        "positiveOutcomeRecorded",
+        "clientTreeWrites",
+        "githubRequests",
+        "diagnosticCodes"
+      ],
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "instructionsObserved": {
+          "type": "boolean"
+        },
+        "instructionMethod": {
+          "enum": ["initialize", "server/discover", "not-observed"]
+        },
+        "status": {
+          "enum": ["completed", "failed", "incomplete"]
+        },
+        "toolCalls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolCall"
+          }
+        },
+        "guidanceSource": {
+          "enum": ["none", "local", "skillwire", "local-and-skillwire"]
+        },
+        "selectedLocalFixtureId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "verifiedSkillWireLoad": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/skillIdentity"
+            }
+          ]
+        },
+        "completionEvidence": {
+          "enum": ["none", "observed-completion", "explicit-user-feedback"]
+        },
+        "positiveOutcomeRecorded": {
+          "type": "boolean"
+        },
+        "clientTreeWrites": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "githubRequests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnosticCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "EXPECTED_SEARCH_MISSING",
+              "UNNECESSARY_SEARCH",
+              "REPEATED_SEARCH",
+              "WRONG_INVOCATION_CONTEXT",
+              "USER_ONLY_LEAK",
+              "WRONG_SKILL",
+              "REPEATED_LOAD",
+              "LOAD_WITHOUT_PREVIEW",
+              "RESOURCE_WITHOUT_LOAD",
+              "UNDECLARED_RESOURCE",
+              "DUPLICATE_RESOURCE",
+              "UNNECESSARY_RESOURCE",
+              "LOCAL_PRECEDENCE_VIOLATION",
+              "EXPLICIT_LOCAL_OVERRIDE",
+              "RETRY_AFTER_FAILURE",
+              "UNATTRIBUTABLE_OUTCOME",
+              "UNSUPPORTED_POSITIVE_OUTCOME",
+              "CLIENT_TREE_WRITE",
+              "AGENT_FACING_GITHUB_REQUEST",
+              "INSTRUCTIONS_NOT_OBSERVED",
+              "INCOMPLETE_TRACE"
+            ]
+          }
+        }
+      }
+    },
+    "ratioMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "rate"],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spontaneousActivation",
+        "correctSelectionAfterSearch",
+        "unnecessaryActivation",
+        "userRequestedIsolation",
+        "progressiveLoadingConformance",
+        "zeroClientWrites",
+        "zeroAgentFacingGithubRequests",
+        "localOverlap"
+      ],
+      "properties": {
+        "spontaneousActivation": {
+          "$ref": "#/$defs/ratioMetric"
+        },
+        "correctSelectionAfterSearch": {
+          "$ref": "#/$defs/ratioMetric"
+        },
+        "unnecessaryActivation": {
+          "$ref": "#/$defs/ratioMetric"
+        },
+        "userRequestedIsolation": {
+          "$ref": "#/$defs/ratioMetric"
+        },
+        "progressiveLoadingConformance": {
+          "$ref": "#/$defs/ratioMetric"
+        },
+        "zeroClientWrites": {
+          "type": "boolean"
+        },
+        "zeroAgentFacingGithubRequests": {
+          "type": "boolean"
+        },
+        "localOverlap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["equivalentCases", "overlappingCases", "violations"],
+          "properties": {
+            "equivalentCases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "overlappingCases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "violations": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

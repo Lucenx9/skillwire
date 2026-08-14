@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "evidencePairId": "paired-activation-structural-v1",
+  "preservedBaseline": {
+    "condition": "historical-server-only",
+    "path": "evaluation/evidence/003/candidate-v1.json",
+    "sha256": "04cd236d6ddd27f30c21f7d332577ef3a91a3f55fc6ab79d1fd1f02d4900db2d",
+    "completedSpontaneousActivations": 0,
+    "relevantCases": 7
+  },
+  "experiment": {
+    "skillWireCommit": "1111111111111111111111111111111111111111",
+    "codexCliVersion": "0.147.0",
+    "model": {
+      "name": "fixture-model",
+      "version": "1.0.0"
+    },
+    "reasoningSetting": "fixture",
+    "serverPolicyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "releaseSubsetId": "activation-release-candidate-pilot-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "evaluatorVersion": "activation-pair-evaluator-v1",
+    "cleanProfileProcedureVersion": "clean-profile-v1",
+    "endpointUrlSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authenticationMechanism": "ephemeral-bearer-env",
+    "caseIds": [
+      "auto-dependency-upgrade-planning-1",
+      "auto-dependency-upgrade-planning-2",
+      "auto-dependency-upgrade-planning-3",
+      "auto-dockerfile-hardening-1",
+      "auto-dockerfile-hardening-2",
+      "auto-dockerfile-hardening-3",
+      "auto-github-actions-ci-1",
+      "auto-github-actions-ci-2",
+      "irrelevant-01",
+      "irrelevant-02",
+      "irrelevant-03",
+      "ask-matt-explicit-01",
+      "ask-matt-explicit-02",
+      "ask-matt-without-intent-01",
+      "ask-matt-without-intent-02"
+    ],
+    "serverOnlyInventory": {
+      "platformBaselineSkills": ["codex-system-baseline"],
+      "userSkills": [],
+      "repositorySkills": [],
+      "adminSkills": [],
+      "pluginSkills": [],
+      "mcpServers": ["skillwire"],
+      "inventorySha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "adapterInventory": {
+      "platformBaselineSkills": ["codex-system-baseline"],
+      "userSkills": [],
+      "repositorySkills": [],
+      "adminSkills": [],
+      "pluginSkills": [
+        "skillwire-autonomous-activation:autonomous-skill-activation"
+      ],
+      "mcpServers": ["skillwire"],
+      "inventorySha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "adapter": {
+    "condition": "server-plus-adapter",
+    "pluginId": "skillwire-autonomous-activation@skillwire",
+    "pluginVersion": "0.1.0",
+    "adapterPolicyVersion": "skillwire-codex-adapter-v1",
+    "marketplaceName": "skillwire",
+    "sourceCommit": "1111111111111111111111111111111111111111",
+    "packageSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "dependencyUrlSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencyState": "equivalent-existing",
+    "effectivePluginCount": 1
+  },
+  "serverOnlyRun": {
+    "schemaVersion": 1,
+    "evidenceId": "paired-server-only-structural-v1",
+    "recordedAt": "2026-08-12T12:00:00.000Z",
+    "policyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "harness": { "name": "fixture-harness", "version": "1.0.0" },
+    "model": { "name": "fixture-model", "version": "1.0.0" },
+    "environmentProfile": "paired-server-only-v1",
+    "localInventoryVersion": "activation-local-v1",
+    "evaluatorVersion": "activation-evaluator-v1",
+    "traceSource": "observer-proxy",
+    "instructionsSha256": "d1e923bf6c80b6c41070cc6ffc1678e6caa738f1427ac2e9dfda6c00ceb1091e",
+    "privacyDeclaration": {
+      "containsRawPrompts": false,
+      "containsTaskSummaries": false,
+      "containsRepositoryHashes": false,
+      "containsLocalPaths": false,
+      "containsSkillContent": false,
+      "containsCredentialsOrHeaders": false
+    },
+    "observations": [
+      {
+        "caseId": "auto-typescript-code-review-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "invocationContext": "automatic",
+            "result": "success"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "skill": {
+              "skillId": "typescript-code-review",
+              "revision": "1.0.0",
+              "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+            },
+            "result": "success"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "typescript-code-review",
+          "revision": "1.0.0",
+          "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      }
+    ],
+    "metrics": {
+      "spontaneousActivation": { "numerator": 1, "denominator": 1, "rate": 1 },
+      "correctSelectionAfterSearch": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "unnecessaryActivation": { "numerator": 0, "denominator": 0, "rate": 0 },
+      "userRequestedIsolation": { "numerator": 0, "denominator": 0, "rate": 0 },
+      "progressiveLoadingConformance": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "zeroClientWrites": true,
+      "zeroAgentFacingGithubRequests": true,
+      "localOverlap": {
+        "equivalentCases": 0,
+        "overlappingCases": 0,
+        "violations": 0
+      }
+    }
+  },
+  "adapterRun": {
+    "schemaVersion": 1,
+    "evidenceId": "paired-adapter-structural-v1",
+    "recordedAt": "2026-08-12T12:00:00.000Z",
+    "policyVersion": "skillwire-activation-v1",
+    "corpusId": "autonomous-activation-v1",
+    "catalogRelease": "activation-catalog-v1",
+    "protocolVersion": "2026-07-28",
+    "harness": { "name": "fixture-harness", "version": "1.0.0" },
+    "model": { "name": "fixture-model", "version": "1.0.0" },
+    "environmentProfile": "paired-adapter-v1",
+    "localInventoryVersion": "activation-local-v1",
+    "evaluatorVersion": "activation-evaluator-v1",
+    "traceSource": "observer-proxy",
+    "instructionsSha256": "d1e923bf6c80b6c41070cc6ffc1678e6caa738f1427ac2e9dfda6c00ceb1091e",
+    "privacyDeclaration": {
+      "containsRawPrompts": false,
+      "containsTaskSummaries": false,
+      "containsRepositoryHashes": false,
+      "containsLocalPaths": false,
+      "containsSkillContent": false,
+      "containsCredentialsOrHeaders": false
+    },
+    "observations": [
+      {
+        "caseId": "auto-typescript-code-review-1",
+        "instructionsObserved": true,
+        "instructionMethod": "server/discover",
+        "status": "completed",
+        "toolCalls": [
+          {
+            "sequence": 1,
+            "toolName": "search_skills",
+            "invocationContext": "automatic",
+            "result": "success"
+          },
+          {
+            "sequence": 2,
+            "toolName": "load_skill",
+            "skill": {
+              "skillId": "typescript-code-review",
+              "revision": "1.0.0",
+              "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+            },
+            "result": "success"
+          }
+        ],
+        "guidanceSource": "skillwire",
+        "verifiedSkillWireLoad": {
+          "skillId": "typescript-code-review",
+          "revision": "1.0.0",
+          "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+        },
+        "completionEvidence": "observed-completion",
+        "positiveOutcomeRecorded": false,
+        "clientTreeWrites": 0,
+        "githubRequests": 0,
+        "diagnosticCodes": []
+      }
+    ],
+    "metrics": {
+      "spontaneousActivation": { "numerator": 1, "denominator": 1, "rate": 1 },
+      "correctSelectionAfterSearch": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "unnecessaryActivation": { "numerator": 0, "denominator": 0, "rate": 0 },
+      "userRequestedIsolation": { "numerator": 0, "denominator": 0, "rate": 0 },
+      "progressiveLoadingConformance": {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1
+      },
+      "zeroClientWrites": true,
+      "zeroAgentFacingGithubRequests": true,
+      "localOverlap": {
+        "equivalentCases": 0,
+        "overlappingCases": 0,
+        "violations": 0
+      }
+    }
+  },
+  "claimEligibility": {
+    "eligible": false,
+    "evaluatedRelevantCases": 1,
+    "diagnosticCodes": ["insufficient-relevant-cases"]
+  }
+}

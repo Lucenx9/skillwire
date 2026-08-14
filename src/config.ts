@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 
 export interface ApplicationConfig {
   readonly host: string;
+  readonly unixSocketPath?: string | undefined;
   readonly allowedHosts?: readonly string[] | undefined;
   readonly port: number;
   readonly databaseUrl: string;
@@ -32,6 +33,35 @@ export interface ApplicationConfig {
         readonly authenticationBurst?: number;
       }
     | undefined;
+  readonly githubIngestion?: GitHubIngestionConfig | undefined;
+}
+
+export interface GitHubIngestionConfig {
+  readonly enabled: boolean;
+  readonly token?: string | undefined;
+  readonly schedulerIntervalMilliseconds: number;
+  readonly discoveryCadenceMilliseconds: number;
+  readonly sourceCadenceMilliseconds: number;
+  readonly leaseDurationMilliseconds: number;
+  readonly maximumSourcesPerTick: number;
+  readonly maximumRequests: number;
+  readonly maximumResponseBytes: number;
+  readonly maximumResults: number;
+  readonly maximumPagesPerQuery: number;
+  readonly resultsPerPage: number;
+  readonly discoveryQueries: readonly string[];
+  readonly maximumQueries: number;
+  readonly maximumTreeEntries: number;
+  readonly maximumCandidates: number;
+  readonly maximumResourcesPerSkill: number;
+  readonly maximumDependenciesPerSkill: number;
+  readonly maximumTextBytes: number;
+  readonly maximumBundleBytes: number;
+  readonly maximumRepositoryBytes: number;
+  readonly requestTimeoutMilliseconds: number;
+  readonly operationTimeoutMilliseconds: number;
+  readonly maximumAttempts: number;
+  readonly globalJobs: number;
 }
 
 const DEFAULT_PORT = 3000;
@@ -97,6 +127,20 @@ function readPositiveInteger(
   return parsed;
 }
 
+function readBoolean(name: string, value: string | undefined): boolean {
+  if (value === undefined || value === "false") return false;
+  if (value === "true") return true;
+  throw new Error(`${name} must be true or false`);
+}
+
+function hasAsciiControl(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 function readAllowedHosts(host: string, value: string | undefined): string[] {
   const configured = (value ?? "")
     .split(",")
@@ -123,6 +167,37 @@ function readAllowedHosts(host: string, value: string | undefined): string[] {
   return [...new Set(hosts)];
 }
 
+function readDiscoveryQueries(value: string | undefined): readonly string[] {
+  const defaults = [
+    "filename:plugin.json path:.claude-plugin",
+    "filename:SKILL.md",
+  ];
+  if (value === undefined) return defaults;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error(
+      "SKILLWIRE_GITHUB_DISCOVERY_QUERIES must be a JSON string array",
+    );
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length < 1 ||
+    parsed.length > 16 ||
+    parsed.some(
+      (query) =>
+        typeof query !== "string" ||
+        query.length < 1 ||
+        query.length > 256 ||
+        hasAsciiControl(query),
+    )
+  ) {
+    throw new Error("SKILLWIRE_GITHUB_DISCOVERY_QUERIES is invalid");
+  }
+  return [...new Set(parsed as string[])];
+}
+
 function readDatabaseUrl(value: string | undefined): string {
   if (value === undefined) throw new Error("DATABASE_URL is required");
   const url = new URL(value);
@@ -130,6 +205,29 @@ function readDatabaseUrl(value: string | undefined): string {
     throw new Error("DATABASE_URL must use postgres or postgresql");
   }
   return value;
+}
+
+export function readDatabaseConfiguration(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  if (
+    environment["DATABASE_URL"] !== undefined ||
+    environment["DATABASE_URL_FILE"] !== undefined
+  ) {
+    return readDatabaseUrl(
+      readRequiredConfiguration(environment, "DATABASE_URL"),
+    );
+  }
+  const password = readRequiredConfiguration(
+    environment,
+    "SKILLWIRE_DATABASE_PASSWORD",
+  );
+  const host = environment["SKILLWIRE_DATABASE_HOST"] ?? "postgres";
+  const port = environment["SKILLWIRE_DATABASE_PORT"] ?? "5432";
+  if (!/^[a-z0-9.-]+$/i.test(host) || !/^\d{1,5}$/.test(port)) {
+    throw new Error("SkillWire database host or port is invalid");
+  }
+  return `postgresql://skillwire:${encodeURIComponent(password)}@${host}:${port}/skillwire`;
 }
 
 export function loadConfig(
@@ -144,6 +242,15 @@ export function loadConfig(
   }
 
   const host = environment["SKILLWIRE_BIND_HOST"] ?? "127.0.0.1";
+  const unixSocketPath = environment["SKILLWIRE_UNIX_SOCKET_PATH"];
+  if (
+    unixSocketPath !== undefined &&
+    (!isAbsolute(unixSocketPath) ||
+      unixSocketPath.length > 103 ||
+      !unixSocketPath.endsWith("/mcp.sock"))
+  ) {
+    throw new Error("SKILLWIRE_UNIX_SOCKET_PATH is invalid");
+  }
   const catalogRoot = environment["SKILLWIRE_CATALOG_ROOT"] ?? process.cwd();
   if (!isAbsolute(catalogRoot)) {
     throw new Error("SKILLWIRE_CATALOG_ROOT must be an absolute path");
@@ -169,16 +276,25 @@ export function loadConfig(
   ) {
     throw new Error("LOG_LEVEL is invalid");
   }
-  return {
+  const githubEnabled = readBoolean(
+    "SKILLWIRE_GITHUB_INGESTION_ENABLED",
+    environment["SKILLWIRE_GITHUB_INGESTION_ENABLED"],
+  );
+  const githubToken = githubEnabled
+    ? readRequiredConfiguration(environment, "SKILLWIRE_GITHUB_TOKEN")
+    : undefined;
+  if (githubToken !== undefined && githubToken.length < 20) {
+    throw new Error("SKILLWIRE_GITHUB_TOKEN is invalid");
+  }
+  const config: ApplicationConfig = {
     host,
+    ...(unixSocketPath === undefined ? {} : { unixSocketPath }),
     allowedHosts: readAllowedHosts(
       host,
       environment["SKILLWIRE_ALLOWED_HOSTS"],
     ),
     port: readPort(environment["SKILLWIRE_PORT"]),
-    databaseUrl: readDatabaseUrl(
-      readRequiredConfiguration(environment, "DATABASE_URL"),
-    ),
+    databaseUrl: readDatabaseConfiguration(environment),
     apiKeyPepper,
     catalogRoot,
     catalogRelease,
@@ -241,5 +357,163 @@ export function loadConfig(
         10_000,
       ),
     },
+    githubIngestion: {
+      enabled: githubEnabled,
+      ...(githubToken === undefined ? {} : { token: githubToken }),
+      schedulerIntervalMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_SCHEDULER_INTERVAL_SECONDS",
+          environment["SKILLWIRE_GITHUB_SCHEDULER_INTERVAL_SECONDS"],
+          60,
+          3600,
+        ) * 1000,
+      discoveryCadenceMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_DISCOVERY_CADENCE_SECONDS",
+          environment["SKILLWIRE_GITHUB_DISCOVERY_CADENCE_SECONDS"],
+          3600,
+          604_800,
+        ) * 1000,
+      sourceCadenceMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_SYNC_CADENCE_SECONDS",
+          environment["SKILLWIRE_GITHUB_SYNC_CADENCE_SECONDS"],
+          3600,
+          604_800,
+        ) * 1000,
+      leaseDurationMilliseconds:
+        readPositiveInteger(
+          "SKILLWIRE_GITHUB_LEASE_SECONDS",
+          environment["SKILLWIRE_GITHUB_LEASE_SECONDS"],
+          60,
+          3600,
+        ) * 1000,
+      maximumSourcesPerTick: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_SOURCES_PER_TICK",
+        environment["SKILLWIRE_GITHUB_MAX_SOURCES_PER_TICK"],
+        10,
+        100,
+      ),
+      maximumRequests: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_REQUESTS_PER_RUN",
+        environment["SKILLWIRE_GITHUB_MAX_REQUESTS_PER_RUN"] ??
+          environment["SKILLWIRE_GITHUB_MAX_REQUESTS"],
+        1000,
+        2000,
+      ),
+      maximumResponseBytes: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_RESPONSE_BYTES",
+        environment["SKILLWIRE_GITHUB_MAX_RESPONSE_BYTES"],
+        8 * 1024 * 1024,
+        32 * 1024 * 1024,
+      ),
+      maximumResults: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_RESULTS_PER_RUN",
+        environment["SKILLWIRE_GITHUB_MAX_RESULTS_PER_RUN"] ??
+          environment["SKILLWIRE_GITHUB_MAX_RESULTS"],
+        1000,
+        4000,
+      ),
+      maximumPagesPerQuery: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_PAGES_PER_QUERY",
+        environment["SKILLWIRE_GITHUB_MAX_PAGES_PER_QUERY"],
+        5,
+        10,
+      ),
+      resultsPerPage: readPositiveInteger(
+        "SKILLWIRE_GITHUB_RESULTS_PER_PAGE",
+        environment["SKILLWIRE_GITHUB_RESULTS_PER_PAGE"],
+        100,
+        100,
+      ),
+      discoveryQueries: readDiscoveryQueries(
+        environment["SKILLWIRE_GITHUB_DISCOVERY_QUERIES"],
+      ),
+      maximumQueries: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_QUERIES",
+        environment["SKILLWIRE_GITHUB_MAX_QUERIES"],
+        8,
+        16,
+      ),
+      maximumTreeEntries: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_TREE_ENTRIES",
+        environment["SKILLWIRE_GITHUB_MAX_TREE_ENTRIES"],
+        20_000,
+        50_000,
+      ),
+      maximumCandidates: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_CANDIDATES",
+        environment["SKILLWIRE_GITHUB_MAX_CANDIDATES"],
+        256,
+        256,
+      ),
+      maximumResourcesPerSkill: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_RESOURCES_PER_SKILL",
+        environment["SKILLWIRE_GITHUB_MAX_RESOURCES_PER_SKILL"],
+        64,
+        64,
+      ),
+      maximumDependenciesPerSkill: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_DEPENDENCIES_PER_SKILL",
+        environment["SKILLWIRE_GITHUB_MAX_DEPENDENCIES_PER_SKILL"],
+        32,
+        32,
+      ),
+      maximumTextBytes: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_TEXT_BYTES",
+        environment["SKILLWIRE_GITHUB_MAX_TEXT_BYTES"],
+        256 * 1024,
+        256 * 1024,
+      ),
+      maximumBundleBytes: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_BUNDLE_BYTES",
+        environment["SKILLWIRE_GITHUB_MAX_BUNDLE_BYTES"],
+        2 * 1024 * 1024,
+        2 * 1024 * 1024,
+      ),
+      maximumRepositoryBytes: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_REPOSITORY_BYTES",
+        environment["SKILLWIRE_GITHUB_MAX_REPOSITORY_BYTES"],
+        32 * 1024 * 1024,
+        64 * 1024 * 1024,
+      ),
+      requestTimeoutMilliseconds: readPositiveInteger(
+        "SKILLWIRE_GITHUB_REQUEST_TIMEOUT_MS",
+        environment["SKILLWIRE_GITHUB_REQUEST_TIMEOUT_MS"],
+        30_000,
+        120_000,
+      ),
+      operationTimeoutMilliseconds: readPositiveInteger(
+        "SKILLWIRE_GITHUB_OPERATION_TIMEOUT_MS",
+        environment["SKILLWIRE_GITHUB_OPERATION_TIMEOUT_MS"],
+        300_000,
+        900_000,
+      ),
+      maximumAttempts: readPositiveInteger(
+        "SKILLWIRE_GITHUB_MAX_ATTEMPTS",
+        environment["SKILLWIRE_GITHUB_MAX_ATTEMPTS"],
+        3,
+        4,
+      ),
+      globalJobs: readPositiveInteger(
+        "SKILLWIRE_GITHUB_GLOBAL_JOBS",
+        environment["SKILLWIRE_GITHUB_GLOBAL_JOBS"],
+        2,
+        4,
+      ),
+    },
   };
+  const github = config.githubIngestion;
+  if (
+    github !== undefined &&
+    (github.requestTimeoutMilliseconds >= github.operationTimeoutMilliseconds ||
+      github.discoveryQueries.length > github.maximumQueries ||
+      github.maximumResults >
+        github.maximumPagesPerQuery *
+          github.resultsPerPage *
+          github.maximumQueries)
+  ) {
+    throw new Error("GitHub ingestion budgets are inconsistent");
+  }
+  return config;
 }

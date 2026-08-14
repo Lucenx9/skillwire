@@ -37,9 +37,10 @@ jobs:
           mkdir -p .secrets benchmarks/results
           openssl rand -hex 32 > .secrets/postgres-password
           openssl rand -hex 32 > .secrets/api-key-pepper
+          : > .secrets/github-token
           node -e "const fs=require('fs'); const p=fs.readFileSync('.secrets/postgres-password','utf8').trim(); fs.writeFileSync('.secrets/database-url', 'postgresql://skillwire:'+p+'@postgres:5432/skillwire\n', {mode:0o600})"
           : > .secrets/api-key
-          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/api-key
+          chmod 0444 .secrets/database-url .secrets/api-key-pepper .secrets/github-token .secrets/api-key
       - name: Build fixed benchmark images
         run: |
           docker build --target runtime --tag skillwire:local .
@@ -57,7 +58,23 @@ jobs:
           fi
           for state in $states; do
             project="skillwire-benchmark-${GITHUB_RUN_ID}-${state}"
+            private_directory=""
+            token_fifo=""
+            metadata_file=""
+            admin_pid=""
+            cleanup_key_channel() {
+              if [ -n "$admin_pid" ]; then
+                kill "$admin_pid" 2>/dev/null || true
+                wait "$admin_pid" 2>/dev/null || true
+                admin_pid=""
+              fi
+              [ -z "$token_fifo" ] || rm -f "$token_fifo"
+              [ -z "$metadata_file" ] || rm -f "$metadata_file"
+              [ -z "$private_directory" ] || rmdir "$private_directory" 2>/dev/null || true
+              chmod 0600 .secrets/api-key
+            }
             cleanup() {
+              cleanup_key_channel
               docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark down --volumes --remove-orphans || true
             }
             trap cleanup EXIT
@@ -65,9 +82,32 @@ jobs:
             docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark up --detach --wait --no-build postgres migrate skillwire
             account_json=$(docker compose -p "$project" exec -T skillwire node dist/src/authentication/admin-cli.js account:create)
             account_id=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).accountId)" "$account_json")
-            key_json=$(docker compose -p "$project" exec -T skillwire node dist/src/authentication/admin-cli.js key:create --account-id "$account_id")
+            key_id=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+            private_directory=$(mktemp -d "${RUNNER_TEMP}/skillwire-key.XXXXXX")
+            token_fifo="${private_directory}/token"
+            metadata_file="${private_directory}/metadata.json"
             chmod 0600 .secrets/api-key
-            node -e "const fs=require('fs'); fs.writeFileSync('.secrets/api-key', JSON.parse(process.argv[1]).token+'\n', {mode:0o600})" "$key_json"
+            mkfifo --mode=0600 "$token_fifo"
+            docker compose -p "$project" -f compose.yaml -f compose.benchmark.yaml --profile benchmark \
+              run --rm --no-TTY --no-deps \
+              --user "$(id -u):$(id -g)" \
+              --entrypoint node \
+              --volume "${private_directory}:/run/skillwire-private:rw" \
+              skillwire dist/src/authentication/admin-cli.js key:create \
+              --account-id "$account_id" \
+              --key-id "$key_id" \
+              --token-output /run/skillwire-private/token > "$metadata_file" &
+            admin_pid=$!
+            if ! timeout 30s sh -c 'cat "$1" > "$2"' _ "$token_fifo" .secrets/api-key; then
+              kill "$admin_pid" 2>/dev/null || true
+              wait "$admin_pid" 2>/dev/null || true
+              admin_pid=""
+              exit 1
+            fi
+            wait "$admin_pid"
+            admin_pid=""
+            node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if(m.keyId!==process.argv[2]||m.tokenDelivery!=='private-file-descriptor')process.exit(1)" "$metadata_file" "$key_id"
+            cleanup_key_channel
             chmod 0444 .secrets/api-key
             SKILLWIRE_BENCHMARK_COMMIT="$GITHUB_SHA"
             SKILLWIRE_BENCHMARK_DOCKER_VERSION="$(docker version --format '{{.Server.Version}}')"

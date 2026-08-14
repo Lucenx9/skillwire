@@ -6,6 +6,11 @@ import {
   createTestMcpClient,
   type TestMcpClient,
 } from "../../helpers/mcp-client.js";
+import { importedCatalogFixture } from "../../helpers/imported-catalog-provider.js";
+import {
+  loadActivationFixtures,
+  validateActivationFixtures,
+} from "../../../src/evaluation/activation-corpus-runner.js";
 
 describe("search_skills MCP contract", () => {
   let testClient: TestMcpClient | undefined;
@@ -116,14 +121,20 @@ describe("search_skills MCP contract", () => {
   });
 
   it("returns an empty list when no catalog text is relevant", async () => {
-    const result = await client().client.callTool({
-      name: "search_skills",
-      arguments: { task: "quasar xylophone zephyr", limit: 10 },
-    });
+    for (const task of [
+      "quasar xylophone zephyr",
+      "Alphabetize apple, banana, and cherry.",
+      "Replace commas with semicolons.",
+    ]) {
+      const result = await client().client.callTool({
+        name: "search_skills",
+        arguments: { task, limit: 10 },
+      });
 
-    expect(
-      searchSkillsOutputSchema.parse(result.structuredContent).skills,
-    ).toEqual([]);
+      expect(
+        searchSkillsOutputSchema.parse(result.structuredContent).skills,
+      ).toEqual([]);
+    }
   });
 
   it("rejects unknown input properties", async () => {
@@ -134,5 +145,124 @@ describe("search_skills MCP contract", () => {
 
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toBeUndefined();
+  });
+
+  it("defaults to automatic invocation and requires explicit user intent for user-only imports", async () => {
+    await testClient?.close();
+    const { app } = createTestApplication({
+      importedCatalogProvider: importedCatalogFixture.provider,
+    });
+    const appFetch: typeof fetch = async (input, init) => {
+      const source = new Request(input, init);
+      const headers = new Headers(source.headers);
+      headers.set("host", "localhost");
+      return app.fetch(new Request(source, { headers }));
+    };
+    testClient = await createTestMcpClient(
+      new URL("http://localhost/mcp"),
+      appFetch,
+    );
+
+    const automatic = await client().client.callTool({
+      name: "search_skills",
+      arguments: { task: "ask matt", limit: 10 },
+    });
+    expect(
+      searchSkillsOutputSchema.parse(automatic.structuredContent).skills,
+    ).toEqual([]);
+
+    const requested = await client().client.callTool({
+      name: "search_skills",
+      arguments: {
+        task: "ask matt",
+        invocationContext: "user-requested",
+        limit: 10,
+      },
+    });
+    expect(
+      searchSkillsOutputSchema.parse(requested.structuredContent).skills[0],
+    ).toMatchObject({
+      skillId: importedCatalogFixture.userOnlyId,
+      trustAtPublication: "structurally-verified",
+      currentClassification: "verified",
+      invocationMode: "user-only",
+      catalogOrigin: {
+        kind: "github",
+        owner: "mattpocock",
+        repository: "skills",
+      },
+    });
+  });
+
+  it("enforces every frozen explicit/no-intent isolation pair", async () => {
+    await testClient?.close();
+    const { app } = createTestApplication({
+      importedCatalogProvider: importedCatalogFixture.provider,
+    });
+    const appFetch: typeof fetch = async (input, init) => {
+      const source = new Request(input, init);
+      const headers = new Headers(source.headers);
+      headers.set("host", "localhost");
+      return app.fetch(new Request(source, { headers }));
+    };
+    testClient = await createTestMcpClient(
+      new URL("http://localhost/mcp"),
+      appFetch,
+    );
+    const { corpus } = validateActivationFixtures(
+      loadActivationFixtures(process.cwd()),
+    );
+
+    for (const explicit of corpus.cases.filter(
+      ({ scenarioClass }) => scenarioClass === "user-requested-explicit",
+    )) {
+      const withoutIntent = corpus.cases.find(
+        ({ pairId, scenarioClass }) =>
+          pairId === explicit.pairId &&
+          scenarioClass === "user-requested-without-intent",
+      );
+      expect(withoutIntent).toBeDefined();
+
+      for (const invocationContext of [undefined, "automatic"] as const) {
+        const result = searchSkillsOutputSchema.parse(
+          (
+            await client().client.callTool({
+              name: "search_skills",
+              arguments: {
+                task: withoutIntent?.prompt,
+                limit: 10,
+                ...(invocationContext === undefined
+                  ? {}
+                  : { invocationContext }),
+              },
+            })
+          ).structuredContent,
+        );
+        expect(
+          result.skills.some(
+            ({ skillId }) => skillId === explicit.expectedCatalogMatch?.skillId,
+          ),
+        ).toBe(false);
+      }
+
+      const requested = searchSkillsOutputSchema.parse(
+        (
+          await client().client.callTool({
+            name: "search_skills",
+            arguments: {
+              task: explicit.prompt,
+              invocationContext: "user-requested",
+              limit: 10,
+            },
+          })
+        ).structuredContent,
+      );
+      expect(requested.skills[0]).toMatchObject({
+        skillId: explicit.expectedCatalogMatch?.skillId,
+        revision: explicit.expectedCatalogMatch?.revision,
+        invocationMode: "user-only",
+        currentClassification: "verified",
+      });
+    }
   });
 });

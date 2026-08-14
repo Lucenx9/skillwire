@@ -1,0 +1,20 @@
+{
+  "name": "skillwire",
+  "interface": {
+    "displayName": "SkillWire"
+  },
+  "plugins": [
+    {
+      "name": "skillwire-autonomous-activation",
+      "source": {
+        "source": "local",
+        "path": "./plugins/skillwire-autonomous-activation"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -8,6 +8,10 @@ services:
     command:
       - export TEST_DATABASE_URL="$$(cat /run/secrets/database_url)"; exec pnpm
         test
+    environment:
+      SKILLWIRE_GITHUB_INGESTION_ENABLED: "false"
+      SKILLWIRE_BLOCK_GITHUB_NETWORK: "true"
+      SKILLWIRE_PREBUILT_TEST_IMAGE: "true"
     secrets:
       - database_url
     depends_on:
@@ -16,9 +20,11 @@ services:
       migrate:
         condition: service_completed_successfully
     read_only: true
+    volumes:
+      - ./.git:/app/.git:ro
     tmpfs:
-      - /tmp:rw,nosuid,size=128m
-      - /app/node_modules/.vite-temp:rw,noexec,nosuid,size=16m
+      - /tmp:rw,exec,nosuid,mode=1777,size=128m
+      - /app/node_modules/.vite-temp:rw,noexec,nosuid,mode=1777,size=16m
     cap_drop:
       - ALL
     security_opt:

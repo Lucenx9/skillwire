@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/autonomous-activation-release-subset.v1.json",
+  "title": "SkillWire Autonomous Activation Release Candidate Pilot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "subsetId",
+    "sourceCorpusId",
+    "sourceCorpusSha256",
+    "selectionRule",
+    "purpose",
+    "strata",
+    "caseIds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "subsetId": { "const": "activation-release-candidate-pilot-v1" },
+    "sourceCorpusId": { "const": "autonomous-activation-v1" },
+    "sourceCorpusSha256": {
+      "const": "a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28"
+    },
+    "selectionRule": { "const": "corpus-order-first-n-per-stratum" },
+    "purpose": { "const": "pilot-release-candidate-evidence" },
+    "strata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cleanAutomatic",
+        "irrelevant",
+        "userRequestedExplicit",
+        "userRequestedWithoutIntent"
+      ],
+      "properties": {
+        "cleanAutomatic": { "$ref": "#/$defs/eightCases" },
+        "irrelevant": { "$ref": "#/$defs/threeCases" },
+        "userRequestedExplicit": { "$ref": "#/$defs/twoCases" },
+        "userRequestedWithoutIntent": { "$ref": "#/$defs/twoCases" }
+      }
+    },
+    "caseIds": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/caseId" }
+    }
+  },
+  "$defs": {
+    "caseId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "twoCases": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/caseId" }
+    },
+    "threeCases": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/caseId" }
+    },
+    "eightCases": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/caseId" }
+    }
+  }
+}

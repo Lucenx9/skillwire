@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "integrityId": "skillwire-codex-adapter-release-v1",
+  "pluginName": "skillwire-autonomous-activation",
+  "pluginVersion": "0.1.1",
+  "adapterPolicyVersion": "skillwire-codex-adapter-v1",
+  "source": {
+    "url": "https://github.com/Lucenx9/skillwire.git",
+    "path": "./integrations/codex/skillwire-autonomous-activation",
+    "commit": "7d9fd5fd130c9e66dfb739c599fd84ad9d962d5a"
+  },
+  "files": [
+    {
+      "path": ".codex-plugin/plugin.json",
+      "sha256": "d8fcd3120470637bfe362b32ca64fb8a2c21164d57a44f0aac04c13005f93489"
+    },
+    {
+      "path": "skills/autonomous-skill-activation/SKILL.md",
+      "sha256": "1c4ba275a53e0695350f2aceb9424156bc9769ee315b7a3639f672309af884ba"
+    },
+    {
+      "path": "skills/autonomous-skill-activation/agents/openai.yaml",
+      "sha256": "77ea5aa5d36b1a1e9943ffb5470bddcd5fcb64c578c70c64997b44c38fcdbb06"
+    }
+  ],
+  "packageSha256": "f4e2e1cca7b4c99d41d585d2816b44b4203297ad15809e3c1b87bedb8b6e805e",
+  "validatorVersion": "codex-adapter-validator-v1",
+  "managerVersion": "0.147.0"
+}

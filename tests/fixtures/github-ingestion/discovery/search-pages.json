@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "origin": "https://api.github.com",
+  "querySetId": "recognized-layouts-v1",
+  "queries": [
+    {
+      "query": "path:.claude-plugin filename:plugin.json",
+      "pages": [
+        {
+          "page": 1,
+          "etag": "\"manifest-page-1\"",
+          "incompleteResults": false,
+          "items": [
+            {
+              "repositoryId": 1148788086,
+              "owner": "mattpocock",
+              "repository": "skills",
+              "path": ".claude-plugin/plugin.json"
+            },
+            {
+              "repositoryId": 2001,
+              "owner": "fixture-org",
+              "repository": "plugin-skills",
+              "path": ".claude-plugin/plugin.json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "filename:SKILL.md",
+      "pages": [
+        {
+          "page": 1,
+          "etag": "\"skills-page-1\"",
+          "incompleteResults": false,
+          "items": [
+            {
+              "repositoryId": 1148788086,
+              "owner": "MATTPocock",
+              "repository": "Skills",
+              "path": "skills/engineering/tdd/SKILL.md"
+            },
+            {
+              "repositoryId": 2002,
+              "owner": "fixture-org",
+              "repository": "nested-skills",
+              "path": "agents/review/SKILL.md"
+            }
+          ]
+        },
+        {
+          "page": 2,
+          "etag": "\"skills-page-2\"",
+          "incompleteResults": true,
+          "items": []
+        }
+      ]
+    }
+  ]
+}

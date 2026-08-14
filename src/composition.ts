@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
 
 import type { RepositoryMemoryStore } from "./application/ports/repository-memory-store.js";
+import type { AsyncSkillCatalogProvider } from "./application/ports/async-skill-catalog-provider.js";
 import { AuditExpirationService } from "./application/services/audit-expiration-service.js";
 import { createForgetRepoMemory } from "./application/use-cases/forget-repo-memory.js";
 import { createListRepoMemory } from "./application/use-cases/list-repo-memory.js";
@@ -15,10 +16,13 @@ import {
   type ApiKeyAuthenticator,
 } from "./authentication/api-key-authenticator.js";
 import { loadVerifiedCatalogProvider } from "./catalog/version-controlled-provider.js";
+import { adaptStaticCatalogProvider } from "./catalog/static-catalog-adapter.js";
+import { UnifiedCatalogProvider } from "./catalog/unified-catalog-provider.js";
 import type { CatalogCacheMode } from "./catalog/version-controlled-provider.js";
 import type { VerifiedRevisionCache } from "./catalog/verified-revision-cache.js";
 import type { ApplicationConfig } from "./config.js";
 import { AuditCleanupScheduler } from "./lifecycle/audit-cleanup-scheduler.js";
+import type { GitHubSyncScheduler } from "./lifecycle/github-sync-scheduler.js";
 import { ReadinessState } from "./lifecycle/readiness-state.js";
 import {
   createSecurityLogger,
@@ -30,6 +34,8 @@ import { createPostgresPool } from "./persistence/postgres/client.js";
 import { PostgresErasureAuditStore } from "./persistence/postgres/erasure-audit-store.js";
 import { runMigrations } from "./persistence/postgres/migration-runner.js";
 import { PostgresRepositoryMemoryStore } from "./persistence/postgres/repository-memory-store.js";
+import { PostgresImportedSkillCatalogProvider } from "./persistence/postgres/imported-skill-catalog-provider.js";
+import { createGitHubIngestionScheduler } from "./ingestion/runtime-composition.js";
 import { createApp } from "./transport/mcp/app.js";
 import type { McpUseCases } from "./transport/mcp/server-factory.js";
 
@@ -43,8 +49,9 @@ function assembleUseCases(
   memoryStore: RepositoryMemoryStore,
   catalogCache?: VerifiedRevisionCache,
   catalogCacheMode: CatalogCacheMode = "catalog-warm",
+  importedProvider?: AsyncSkillCatalogProvider,
 ): McpUseCases {
-  const provider =
+  const staticProvider =
     catalogCache === undefined
       ? loadVerifiedCatalogProvider(
           projectRoot,
@@ -58,6 +65,13 @@ function assembleUseCases(
           catalogCache,
           catalogCacheMode,
         );
+  const provider =
+    importedProvider === undefined
+      ? adaptStaticCatalogProvider(staticProvider)
+      : new UnifiedCatalogProvider([
+          adaptStaticCatalogProvider(staticProvider),
+          importedProvider,
+        ]);
   return {
     searchSkills: createSearchSkills(provider, memoryStore),
     loadSkill: createLoadSkill(provider, memoryStore),
@@ -111,20 +125,32 @@ async function probeRequiredDatabaseSchema(pool: Pool): Promise<void> {
     apiKeys: string | null;
     repositoryUsage: string | null;
     erasureAudit: string | null;
+    githubSources: string | null;
+    externalRevisions: string | null;
+    externalAdvisories: string | null;
   }>(
     `
       SELECT
         to_regclass('public.accounts')::text AS accounts,
         to_regclass('public.api_keys')::text AS "apiKeys",
         to_regclass('public.repository_skill_usage')::text AS "repositoryUsage",
-        to_regclass('public.repository_erasure_audit')::text AS "erasureAudit"
+        to_regclass('public.repository_erasure_audit')::text AS "erasureAudit",
+        to_regclass('public.github_sources')::text AS "githubSources",
+        to_regclass('public.external_skill_revisions')::text AS "externalRevisions",
+        to_regclass('public.external_revision_advisory_events')::text AS "externalAdvisories"
     `,
   );
   const row = result.rows[0];
   if (
-    [row?.accounts, row?.apiKeys, row?.repositoryUsage, row?.erasureAudit].some(
-      (value) => value === null || value === undefined,
-    )
+    [
+      row?.accounts,
+      row?.apiKeys,
+      row?.repositoryUsage,
+      row?.erasureAudit,
+      row?.githubSources,
+      row?.externalRevisions,
+      row?.externalAdvisories,
+    ].some((value) => value === null || value === undefined)
   ) {
     throw new Error("Required database schema is unavailable");
   }
@@ -139,8 +165,9 @@ export async function createApplication(
   const pool = createPostgresPool(config.databaseUrl);
   const readiness = new ReadinessState();
   const logger = createSecurityLogger(undefined, config.logLevel ?? "info");
+  let githubScheduler: GitHubSyncScheduler | undefined;
   try {
-    await runMigrations(pool, `${catalogRoot}/migrations`);
+    await runMigrations(pool, `${projectRoot}/migrations`);
     const memoryStore = new PostgresRepositoryMemoryStore(pool);
     const auditStore = new PostgresErasureAuditStore(pool);
     const expiration = new AuditExpirationService(auditStore);
@@ -154,17 +181,21 @@ export async function createApplication(
       new PostgresApiKeyStore(pool, config.apiKeyPepper),
       config.apiKeyPepper,
     );
+    const github = config.githubIngestion;
+    if (github?.enabled === true) {
+      githubScheduler = createGitHubIngestionScheduler(pool, github);
+    }
     const app = createApp({
       allowedHosts: config.allowedHosts ?? [config.host],
       authenticator,
       readiness,
-      checkReadiness: () => scheduler.checkReadiness(),
       useCases: assembleUseCases(
         catalogRoot,
         catalogRelease,
         memoryStore,
         undefined,
         config.catalogCacheMode,
+        new PostgresImportedSkillCatalogProvider(pool),
       ),
       logger,
       maximumRequestBodyBytes: config.maximumRequestBodyBytes ?? 65_536,
@@ -176,18 +207,23 @@ export async function createApplication(
       },
     });
     await scheduler.start();
+    githubScheduler?.start(
+      config.githubIngestion?.schedulerIntervalMilliseconds ?? 60_000,
+    );
     return {
       app,
       pool,
       readiness,
       checkReadiness: () => scheduler.checkReadiness(),
       close: async () => {
+        await githubScheduler?.stop();
         scheduler.stop();
         await pool.end();
       },
     };
   } catch (error) {
     readiness.markNotReady();
+    await githubScheduler?.stop();
     await pool.end();
     throw error;
   }
@@ -211,6 +247,7 @@ export interface TestApplicationOptions {
       }
     | undefined;
   readonly now?: (() => number) | undefined;
+  readonly importedCatalogProvider?: AsyncSkillCatalogProvider | undefined;
 }
 
 export function createTestApplication(
@@ -229,6 +266,8 @@ export function createTestApplication(
         "launch-catalog-v1",
         options.memoryStore ?? unconfiguredMemoryStore,
         options.catalogCache,
+        "catalog-warm",
+        options.importedCatalogProvider,
       ),
       logger: options.logger ?? silentSecurityLogger,
       maximumRequestBodyBytes: options.maximumRequestBodyBytes ?? 65_536,

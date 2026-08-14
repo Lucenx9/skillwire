@@ -1,0 +1,14 @@
+interface:
+  display_name: "SkillWire Activation"
+  short_description: "Find verified skill guidance"
+policy:
+  products:
+    - CODEX
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "skillwire"
+      description: "Search and load verified SkillWire guidance"
+      transport: "streamable_http"
+      url: "https://skillwire.dev/mcp"

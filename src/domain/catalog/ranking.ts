@@ -3,6 +3,32 @@ import { memoryBoostForOutcome } from "../repository-memory/outcome.js";
 import type { RepositoryUsageProjection } from "../repository-memory/types.js";
 
 const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
+const NON_DISCRIMINATING_TOKENS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "in",
+  "into",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "with",
+]);
+
+export const MINIMUM_RELEVANCE_SCORE = 1;
 
 function normalizeToken(token: string): string {
   const normalized = token.normalize("NFKD").toLocaleLowerCase("en-US");
@@ -14,7 +40,9 @@ function normalizeToken(token: string): string {
 
 function tokenize(value: string): Set<string> {
   return new Set(
-    (value.match(TOKEN_PATTERN) ?? []).map((token) => normalizeToken(token)),
+    (value.match(TOKEN_PATTERN) ?? [])
+      .map((token) => normalizeToken(token))
+      .filter((token) => !NON_DISCRIMINATING_TOKENS.has(token)),
   );
 }
 
@@ -75,7 +103,7 @@ export function rankSkills(
         memoryByRevision.get(`${skill.id}\0${skill.revision}`) ?? 0,
       ),
     )
-    .filter((result) => result.score > 0)
+    .filter((result) => result.score >= MINIMUM_RELEVANCE_SCORE)
     .sort((left, right) => {
       const relevance = right.score - left.score;
       if (relevance !== 0) return relevance;

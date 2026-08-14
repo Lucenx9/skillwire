@@ -1,0 +1,8 @@
+{
+  "name": "skillwire-autonomous-activation",
+  "version": "0.1.0",
+  "description": "Helps Claude Code consult relevant verified SkillWire guidance for specialized tasks.",
+  "author": {
+    "name": "SkillWire"
+  }
+}

@@ -178,6 +178,9 @@ describe("catalog:verify", () => {
     const relativeGraph = graph.map((path) => relative(PROJECT_ROOT, path));
     expect(relativeGraph).not.toContain("src/catalog/catalog-publisher.ts");
     expect(
+      relativeGraph.some((path) => path.startsWith("src/ingestion/")),
+    ).toBe(false);
+    expect(
       relativeGraph.some((path) =>
         /(?:^|\/)(?:persistence|migrations)(?:\/|$)/.test(path),
       ),
@@ -195,7 +198,36 @@ describe("catalog:verify", () => {
     const buildRoot = join(workspace, "verifier-build");
     const build = spawnSync(
       join(PROJECT_ROOT, "node_modules/.bin/tsc"),
-      ["-p", join(PROJECT_ROOT, "tsconfig.json"), "--outDir", buildRoot],
+      [
+        "--ignoreConfig",
+        "--target",
+        "ES2024",
+        "--lib",
+        "ES2024,DOM,DOM.Iterable",
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--strict",
+        "--noUncheckedIndexedAccess",
+        "--exactOptionalPropertyTypes",
+        "--noImplicitOverride",
+        "--noFallthroughCasesInSwitch",
+        "--noImplicitReturns",
+        "--noPropertyAccessFromIndexSignature",
+        "--useUnknownInCatchVariables",
+        "--verbatimModuleSyntax",
+        "--resolveJsonModule",
+        "--forceConsistentCasingInFileNames",
+        "--skipLibCheck",
+        "--types",
+        "node",
+        "--rootDir",
+        PROJECT_ROOT,
+        "--outDir",
+        buildRoot,
+        join(PROJECT_ROOT, "src/catalog/verify-cli.ts"),
+      ],
       { cwd: PROJECT_ROOT, encoding: "utf8" },
     );
     expect(build.status, build.stderr).toBe(0);

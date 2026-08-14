@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "local-overlap-v1",
+  "recordedAt": "2026-08-12T16:18:15Z",
+  "sourceCommit": "bd7de55fefc602a7ad8fdaf1683f6dbb9eab07f9",
+  "corpusId": "autonomous-activation-v1",
+  "corpusSha256": "a06e1ced82026bf007e0f1d9ee53c0a57c526cf59784285098a2840cb13e8b28",
+  "localInventoryVersion": "activation-local-v1",
+  "harness": { "name": "Codex CLI", "version": "0.147.0" },
+  "model": { "name": "gpt-5.6-sol", "version": "gpt-5.6-sol" },
+  "reasoningSetting": "xhigh",
+  "timeoutSeconds": 180,
+  "oneAttempt": true,
+  "privacyDeclaration": {
+    "containsRawPrompts": false,
+    "containsRepositoryHashes": false,
+    "containsLocalPaths": false,
+    "containsSkillContent": false,
+    "containsCredentialsOrHeaders": false
+  },
+  "conditions": [
+    {
+      "condition": "server-only",
+      "observations": [
+        {
+          "caseId": "auto-overlap-1",
+          "fixtureId": "local-typescript-review",
+          "relationship": "equivalent",
+          "explicitlySelected": true,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-2",
+          "fixtureId": "local-threat-model",
+          "relationship": "equivalent",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-3",
+          "fixtureId": "local-api-review",
+          "relationship": "overlapping",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-4",
+          "fixtureId": "local-accessibility",
+          "relationship": "equivalent",
+          "explicitlySelected": true,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-5",
+          "fixtureId": "local-test-design",
+          "relationship": "overlapping",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        }
+      ],
+      "metrics": {
+        "completed": 5,
+        "equivalentCases": 3,
+        "overlappingCases": 2,
+        "skillWireOperations": 0,
+        "remoteOverrideViolations": 0,
+        "clientTreeWrites": 0,
+        "localInventoryWrites": 0
+      }
+    },
+    {
+      "condition": "server-plus-adapter",
+      "observations": [
+        {
+          "caseId": "auto-overlap-1",
+          "fixtureId": "local-typescript-review",
+          "relationship": "equivalent",
+          "explicitlySelected": true,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-2",
+          "fixtureId": "local-threat-model",
+          "relationship": "equivalent",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-3",
+          "fixtureId": "local-api-review",
+          "relationship": "overlapping",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-4",
+          "fixtureId": "local-accessibility",
+          "relationship": "equivalent",
+          "explicitlySelected": true,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        },
+        {
+          "caseId": "auto-overlap-5",
+          "fixtureId": "local-test-design",
+          "relationship": "overlapping",
+          "explicitlySelected": false,
+          "status": "completed",
+          "instructionsObserved": true,
+          "skillWireOperations": [],
+          "verifiedSkillWireLoad": false,
+          "clientTreeWrites": 0,
+          "localInventoryWrites": 0
+        }
+      ],
+      "metrics": {
+        "completed": 5,
+        "equivalentCases": 3,
+        "overlappingCases": 2,
+        "skillWireOperations": 0,
+        "remoteOverrideViolations": 0,
+        "clientTreeWrites": 0,
+        "localInventoryWrites": 0
+      }
+    }
+  ]
+}

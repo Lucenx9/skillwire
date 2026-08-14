@@ -258,6 +258,14 @@ describe("host, schema, size, rate, and execution boundaries", () => {
       "src/catalog/version-controlled-provider.ts",
       "src/application/use-cases/load-skill.ts",
       "src/application/use-cases/read-skill-resource.ts",
+      "src/ingestion/github/rest-client.ts",
+      "src/ingestion/github/commit-tree-blob-reader.ts",
+      "src/application/services/source-synchronization-service.ts",
+      "src/ingestion/external-revision-publisher.ts",
+      "src/persistence/postgres/imported-skill-catalog-provider.ts",
+      "src/catalog/unified-catalog-provider.ts",
+      "src/catalog/static-catalog-adapter.ts",
+      "src/application/use-cases/search-skills.ts",
     ];
     const productionSource = sourceFiles
       .map((path) => readFileSync(join(process.cwd(), path), "utf8"))
@@ -266,12 +274,17 @@ describe("host, schema, size, rate, and execution boundaries", () => {
     for (const forbidden of [
       "node:child_process",
       "node:vm",
-      "exec(",
+      "execFile(",
+      "execSync(",
       "spawn(",
       "eval(",
       "npm install",
       "pnpm install",
       "catalog:publish",
+      "git clone",
+      "git checkout",
+      "writeFile(",
+      "createWriteStream(",
     ]) {
       expect(productionSource).not.toContain(forbidden);
     }

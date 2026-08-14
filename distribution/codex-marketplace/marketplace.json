@@ -1,0 +1,22 @@
+{
+  "name": "skillwire",
+  "interface": {
+    "displayName": "SkillWire"
+  },
+  "plugins": [
+    {
+      "name": "skillwire-autonomous-activation",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/Lucenx9/skillwire.git",
+        "path": "./integrations/codex/skillwire-autonomous-activation",
+        "sha": "7d9fd5fd130c9e66dfb739c599fd84ad9d962d5a"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

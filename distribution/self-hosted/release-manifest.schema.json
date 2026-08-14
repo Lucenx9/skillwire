@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/skillwire.release.v1.json",
+  "title": "SkillWire self-hosted release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseVersion",
+    "releaseSequence",
+    "publishedAt",
+    "sourceCommit",
+    "trustPolicySequence",
+    "trustPolicy",
+    "signatureBundles",
+    "architecture",
+    "archive",
+    "payload",
+    "images",
+    "compatibility",
+    "feature003Integrity",
+    "components"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "skillwire.release/v1" },
+    "releaseVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "releaseSequence": { "type": "integer", "minimum": 1 },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "trustPolicySequence": { "type": "integer", "minimum": 1 },
+    "trustPolicy": {
+      "allOf": [
+        { "$ref": "#/$defs/fileIdentity" },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "pattern": "^skillwire-trust-policy-v[1-9][0-9]*\\.json$"
+            },
+            "size": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        }
+      ]
+    },
+    "signatureBundles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signerId", "path"],
+        "properties": {
+          "signerId": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^skillwire-[0-9A-Za-z][0-9A-Za-z.+-]*-linux-(amd64|arm64)\\.release(?:\\.[a-z0-9][a-z0-9._-]{0,63})?\\.sigstore\\.json$"
+          }
+        }
+      }
+    },
+    "architecture": { "enum": ["amd64", "arm64"] },
+    "archive": {
+      "allOf": [
+        { "$ref": "#/$defs/fileIdentity" },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "pattern": "^skillwire-[0-9A-Za-z][0-9A-Za-z.+-]*-linux-(amd64|arm64)\\.tar\\.zst$"
+            }
+          }
+        }
+      ]
+    },
+    "payload": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/payloadIdentity" }
+    },
+    "images": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "repository", "digest", "platform"],
+        "properties": {
+          "role": { "enum": ["skillwire", "postgres"] },
+          "repository": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 255,
+            "pattern": "^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]{1,5})?/)[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$"
+          },
+          "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "platform": { "enum": ["linux/amd64", "linux/arm64"] }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "postgresql", "schemaMinimum", "schemaMaximum"],
+      "properties": {
+        "node": { "type": "string", "pattern": "^24\\.[0-9]+\\.[0-9]+$" },
+        "postgresql": { "type": "string", "pattern": "^17\\.[0-9]+$" },
+        "schemaMinimum": { "type": "integer", "minimum": 0 },
+        "schemaMaximum": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "feature003Integrity": { "$ref": "#/$defs/fileIdentity" },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose", "migrations", "catalog", "adapters"],
+      "properties": {
+        "compose": { "$ref": "#/$defs/fileIdentity" },
+        "migrations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256", "count", "latest", "forwardOnly"],
+          "properties": {
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "count": { "const": 10 },
+            "latest": { "const": "010" },
+            "forwardOnly": { "const": ["010"] }
+          }
+        },
+        "catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256", "advisorySha256", "firstPartyRevisionCount"],
+          "properties": {
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "advisorySha256": { "$ref": "#/$defs/sha256" },
+            "firstPartyRevisionCount": { "const": 10 }
+          }
+        },
+        "adapters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["codexSha256", "claudeSha256"],
+          "properties": {
+            "codexSha256": { "$ref": "#/$defs/sha256" },
+            "claudeSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "size": { "type": "integer", "minimum": 0, "maximum": 17179869184 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "payloadIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256", "mode"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "size": { "type": "integer", "minimum": 0, "maximum": 1073741824 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "mode": { "enum": ["0600", "0644", "0700", "0755"] }
+      }
+    }
+  }
+}
