@@ -253,6 +253,31 @@ describe("registered obra/superpowers nested fallback", () => {
         treeSha: TREE_SHA,
         candidateTraces: published.candidateTraces,
       });
+      await database.pool.query(
+        "ALTER TABLE external_verification_reports DISABLE TRIGGER external_reports_immutable",
+      );
+      await database.pool.query(
+        `UPDATE external_verification_reports
+         SET input_sha256=$2
+         WHERE candidate_id=(
+           SELECT id FROM external_import_candidates
+           WHERE snapshot_id=$1
+           ORDER BY skill_document_path
+           LIMIT 1
+         )`,
+        [published.snapshotId, "0".repeat(64)],
+      );
+      await database.pool.query(
+        "ALTER TABLE external_verification_reports ENABLE TRIGGER external_reports_immutable",
+      );
+      const revalidated = await synchronization.sync(registration.sourceId);
+      expect(revalidated).toMatchObject({
+        created: true,
+        commitSha: COMMIT_SHA,
+        treeSha: TREE_SHA,
+        candidateTraces: published.candidateTraces,
+      });
+      expect(revalidated.snapshotId).not.toBe(published.snapshotId);
       expect(await snapshotTree(clientTree)).toBe(beforeClientTree);
     } finally {
       await database.close();

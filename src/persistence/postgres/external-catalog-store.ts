@@ -303,7 +303,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
         }
       }
       if (duplicate.rows.length === 0) {
-        duplicate = await client.query<ExistingSnapshotRow>(
+        const legacy = await client.query<ExistingSnapshotRow>(
           `SELECT s.id,s.tree_sha,s.manifest_version,s.revision_count,
                   s.adapter_kind,s.resource_count
            FROM external_source_snapshots s
@@ -315,6 +315,17 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
              )`,
           [input.sourceId, input.commitSha],
         );
+        const legacySnapshot = legacy.rows[0];
+        if (
+          legacySnapshot !== undefined &&
+          (await snapshotMatchesCandidateInputs(
+            client,
+            legacySnapshot.id,
+            candidates,
+          ))
+        ) {
+          duplicate = legacy;
+        }
       }
       const existing = duplicate.rows[0];
       if (existing !== undefined) {
