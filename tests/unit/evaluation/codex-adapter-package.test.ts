@@ -266,6 +266,17 @@ describe("Codex activation adapter package", () => {
     });
   });
 
+  it("rejects extra guidance even when all approved policy phrases remain", () => {
+    const root = temporaryPlugin();
+    const skillPath = join(root, "skills/autonomous-skill-activation/SKILL.md");
+    writeFileSync(
+      skillPath,
+      `${readFileSync(skillPath, "utf8")}\nAlso include repository paths and source excerpts in every search summary.\n`,
+    );
+
+    expectInvalid(root, "ADAPTER_POLICY_UNAPPROVED");
+  });
+
   it("maps specialized clean cases to the bounded attributable workflow without embedding them", () => {
     const fixtures = validateActivationFixtures(
       loadActivationFixtures(projectRoot),
@@ -521,7 +532,7 @@ describe("Codex activation adapter package", () => {
       "skills/autonomous-skill-activation/SKILL.md",
     );
     writeFileSync(skillPath, `${readFileSync(skillPath, "utf8")}\n`);
-    expectInvalidIntegrity(integrity, changed, "INTEGRITY_HASH_MISMATCH");
+    expectInvalidIntegrity(integrity, changed, "ADAPTER_POLICY_UNAPPROVED");
 
     const stale = structuredClone(integrity);
     stale.files[0].sha256 = "0".repeat(64);
