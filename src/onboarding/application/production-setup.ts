@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
+import { request as httpRequest } from "node:http";
 import {
   access,
   chmod,
@@ -12,6 +13,7 @@ import {
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
+import { CredentialResolver } from "../../credential-bridge/credential-resolver.js";
 import { atomicWriteJson } from "../adapters/filesystem/atomic-state.js";
 import {
   installVerifiedRelease,
@@ -19,7 +21,10 @@ import {
 } from "../adapters/filesystem/release-installer.js";
 import { verifySelfHostedRelease } from "../adapters/filesystem/release-verifier.js";
 import { DeploymentAdapter } from "../adapters/docker/deployment.js";
-import { dockerProcessEnvironment } from "../adapters/docker/environment.js";
+import {
+  assertLocalDockerContext,
+  dockerProcessEnvironment,
+} from "../adapters/docker/environment.js";
 import { ServiceDatabase } from "../adapters/postgres/service-database.js";
 import {
   ClientKeyHandoffRecoveryError,
@@ -53,8 +58,10 @@ import {
 } from "../domain/operation-journal.js";
 import {
   createOwnershipLedger,
+  ExternalIntegrationDependencySchema,
   recordExternalIntegration,
   recordOwnedAsset,
+  verifyOwnershipRecord,
 } from "../domain/ownership.js";
 import {
   clientConflictFinding,
@@ -110,6 +117,31 @@ const ClientIntegrationsStateSchema = z
   })
   .strict();
 
+const ExternalIntegrationsStateSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.external-integrations/v1"),
+    installationId: z.uuid(),
+    dependencies: z.array(ExternalIntegrationDependencySchema).max(6),
+  })
+  .strict();
+
+const DeploymentStateSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.deployment/v1"),
+    installationId: z.uuid(),
+    releaseRoot: z.string().refine(isAbsolute),
+    composePath: z.string().refine(isAbsolute),
+    skillwireImage: z.string().min(1),
+    postgresImage: z.string().min(1),
+    databasePasswordFile: z.string().refine(isAbsolute),
+    applicationPepperFile: z.string().refine(isAbsolute),
+    runtimeSocketDirectory: z.string().refine(isAbsolute),
+    socketPath: z.string().refine(isAbsolute),
+    projectName: z.string().min(1),
+    volumeName: z.string().min(1),
+  })
+  .strict();
+
 export function unchangedSetupClientResults(
   requested: readonly ClientName[],
   installationId: string,
@@ -139,6 +171,24 @@ export function unchangedSetupClientResults(
     });
   }
   return results;
+}
+
+function repeatedSetupRequiresManagedCredential(
+  state: "verified" | "external-verified",
+): boolean {
+  return state === "verified";
+}
+
+export async function runRepeatedSetupClientVerification(
+  state: "verified" | "external-verified",
+  verification: {
+    readonly verifyManaged: () => Promise<void>;
+    readonly verifyExternal: () => Promise<void>;
+  },
+): Promise<void> {
+  await (repeatedSetupRequiresManagedCredential(state)
+    ? verification.verifyManaged()
+    : verification.verifyExternal());
 }
 
 export async function ownedLauncherIdentity(path: string): Promise<string> {
@@ -178,6 +228,282 @@ async function readProtectedSetupJson(path: string): Promise<unknown> {
     return JSON.parse(await handle.readFile("utf8")) as unknown;
   } finally {
     await handle.close();
+  }
+}
+
+async function requireLiveReadiness(
+  socketPath: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+  const ready = await new Promise<boolean>((done, reject) => {
+    const request = httpRequest(
+      {
+        socketPath,
+        path: "/health/ready",
+        method: "GET",
+        headers: { host: "localhost" },
+        signal: boundedSignal,
+      },
+      (response) => {
+        response.resume();
+        done(response.statusCode === 200);
+      },
+    );
+    request.once("error", reject);
+    request.end();
+  });
+  if (!ready) throw new Error("Installed SkillWire service is not ready");
+}
+
+async function verifyUnchangedProductionSetup(options: {
+  readonly installation: z.infer<typeof InstallationSchema>;
+  readonly integrations: z.infer<typeof ClientIntegrationsStateSchema>;
+  readonly clientsToVerify: readonly ClientName[];
+  readonly roots: SetupRoots;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly signal: AbortSignal;
+}): Promise<void> {
+  const { installation, clientsToVerify, environment, signal } = options;
+  const deployment = DeploymentStateSchema.parse(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "deployment.json"),
+    ),
+  );
+  const ownership = verifyOwnershipRecord(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "ownership.json"),
+    ),
+  );
+  const externalIntegrations = ExternalIntegrationsStateSchema.parse(
+    await readProtectedSetupJson(
+      resolve(options.roots.stateRoot, "external-integrations.json"),
+    ),
+  );
+  if (
+    deployment.installationId !== installation.installationId ||
+    ownership.installationId !== installation.installationId ||
+    externalIntegrations.installationId !== installation.installationId ||
+    deployment.projectName !== installation.composeProject ||
+    deployment.volumeName !== installation.postgresVolume ||
+    installation.endpoint !== `unix://${deployment.socketPath}`
+  ) {
+    throw new Error("Repeated setup service ownership state is inconsistent");
+  }
+  if (
+    ownership.externalDependencies.length !==
+      externalIntegrations.dependencies.length ||
+    externalIntegrations.dependencies.some(
+      ({ externalDependencyId }) =>
+        !ownership.externalDependencies.includes(externalDependencyId),
+    )
+  )
+    throw new Error(
+      "Repeated setup external integration ownership state is inconsistent",
+    );
+
+  const deploymentAdapter = new DeploymentAdapter({
+    dockerExecutable: "/usr/bin/docker",
+    composePath: deployment.composePath,
+    projectName: deployment.projectName,
+    volumeName: deployment.volumeName,
+    skillwireImage: deployment.skillwireImage,
+    postgresImage: deployment.postgresImage,
+    databasePasswordFile: deployment.databasePasswordFile,
+    applicationPepperFile: deployment.applicationPepperFile,
+    runtimeSocketDirectory: deployment.runtimeSocketDirectory,
+    socketPath: deployment.socketPath,
+    hostEnvironment: environment,
+  });
+  await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
+    environment,
+    signal,
+  });
+  const [skillwirePresent, postgresPresent] = await Promise.all([
+    deploymentAdapter.observeOwnedService("skillwire", signal),
+    deploymentAdapter.observeOwnedService("postgres", signal),
+  ]);
+  if (!skillwirePresent || !postgresPresent)
+    throw new Error("Installed SkillWire services are not live");
+  const database = new ServiceDatabase({
+    dockerExecutable: "/usr/bin/docker",
+    projectName: deployment.projectName,
+    volumeName: deployment.volumeName,
+    composePath: deployment.composePath,
+    environment: composeEnvironment({
+      environment,
+      projectName: deployment.projectName,
+      volumeName: deployment.volumeName,
+      skillwireImage: deployment.skillwireImage,
+      postgresImage: deployment.postgresImage,
+      databasePasswordFile: deployment.databasePasswordFile,
+      applicationPepperFile: deployment.applicationPepperFile,
+      runtimeSocketDirectory: deployment.runtimeSocketDirectory,
+    }),
+  });
+  await database.verifyVolume(signal);
+  await database.verifySchemaAndReadiness(signal);
+  await requireLiveReadiness(deployment.socketPath, signal);
+
+  const launcherIdentity = await ownedLauncherIdentity(
+    options.roots.launcherPath,
+  );
+  const launcherAsset = ownership.assets.find(
+    ({ kind, locator, disposition }) =>
+      kind === "path" &&
+      locator === options.roots.launcherPath &&
+      disposition === "present",
+  );
+  if (launcherAsset?.expectedIdentitySha256 !== launcherIdentity)
+    throw new Error("Repeated setup launcher ownership identity drifted");
+  const installedReleaseIdentity = await releaseDirectoryIdentity(
+    deployment.releaseRoot,
+  );
+  const releaseAsset = ownership.assets.find(
+    ({ kind, locator, disposition }) =>
+      kind === "release" &&
+      locator === deployment.releaseRoot &&
+      disposition === "present",
+  );
+  if (releaseAsset?.expectedIdentitySha256 !== installedReleaseIdentity)
+    throw new Error("Repeated setup release ownership identity drifted");
+
+  for (const client of clientsToVerify) {
+    const integration = options.integrations.integrations.find(
+      (entry) => entry.client === client,
+    );
+    if (integration === undefined)
+      throw new Error(`Repeated setup ${client} integration state is absent`);
+    if (
+      integration.state !== "verified" &&
+      integration.state !== "external-verified"
+    )
+      throw new Error(`Repeated setup ${client} integration is not verified`);
+    const vendorExecutable = await executable(client, environment);
+    const adapter =
+      client === "codex"
+        ? new CodexClientAdapter(vendorExecutable, environment, signal)
+        : new ClaudeClientAdapter(
+            vendorExecutable,
+            environment,
+            undefined,
+            undefined,
+            signal,
+          );
+    const marketplacePath = resolve(
+      deployment.releaseRoot,
+      client === "codex"
+        ? "distribution/codex-release-marketplace"
+        : "distribution/claude-marketplace",
+    );
+    const mcpIdentity = clientComponentIdentity({
+      command: options.roots.launcherPath,
+      args: [
+        "bridge",
+        "--installation",
+        installation.installationId,
+        "--client",
+        client,
+      ],
+      scope: "user",
+    });
+    const pluginIdentity = clientComponentIdentity({
+      plugin: "skillwire-autonomous-activation@skillwire",
+      marketplacePath,
+    });
+    if (
+      integration.mcpIdentitySha256 !== mcpIdentity ||
+      integration.adapterIdentitySha256 !== pluginIdentity
+    )
+      throw new Error(`Repeated setup ${client} integration identity drifted`);
+    for (const [kind, identity] of [
+      ["mcp-entry", mcpIdentity],
+      ["marketplace", pluginIdentity],
+      ["plugin", pluginIdentity],
+    ] as const) {
+      const owned = ownership.assets.filter(
+        (candidate) =>
+          candidate.kind === kind &&
+          candidate.client === client &&
+          candidate.disposition === "present" &&
+          candidate.expectedIdentitySha256 === identity,
+      );
+      const external = externalIntegrations.dependencies.filter(
+        (candidate) =>
+          candidate.kind === kind &&
+          candidate.client === client &&
+          candidate.verification === "equivalent" &&
+          candidate.observedIdentitySha256 === identity,
+      );
+      if (owned.length + external.length !== 1)
+        throw new Error(
+          `Repeated setup ${client} ${kind} ownership identity drifted`,
+        );
+    }
+    if (
+      integration.credentialReferenceId !== null &&
+      !ownership.assets.some(
+        ({ kind, client: assetClient, disposition }) =>
+          kind === "credential" &&
+          assetClient === client &&
+          disposition === "present",
+      )
+    )
+      throw new Error(
+        `Repeated setup ${client} credential ownership is absent`,
+      );
+    const registration = await adapter.readMcp();
+    await runRepeatedSetupClientVerification(integration.state, {
+      verifyManaged: async () => {
+        const resolvedCredential = await new CredentialResolver(
+          options.roots.stateRoot,
+          options.roots.dataRoot,
+          new SecretToolCredentialStore("/usr/bin/secret-tool", environment),
+        ).resolve(installation.installationId, client, signal);
+        if (
+          resolvedCredential.socketPath !== deployment.socketPath ||
+          resolvedCredential.endpoint.href !== "http://localhost/mcp"
+        )
+          throw new Error(
+            `Repeated setup ${client} credential bridge identity drifted`,
+          );
+        await verifyClientIntegration({
+          client,
+          vendorExecutable,
+          installationId: installation.installationId,
+          registration,
+          expectedLauncher: options.roots.launcherPath,
+          environment,
+          inventory: () => adapter.readInventory(marketplacePath),
+          signal,
+        });
+      },
+      verifyExternal: async () => {
+        const expectedArguments = [
+          "bridge",
+          "--installation",
+          installation.installationId,
+          "--client",
+          client,
+        ];
+        if (
+          registration.command !== options.roots.launcherPath ||
+          registration.args.join("\0") !== expectedArguments.join("\0")
+        )
+          throw new Error(
+            `Repeated setup ${client} external MCP identity drifted`,
+          );
+        const inventory = await adapter.readInventory(marketplacePath);
+        if (
+          inventory.mcp.command !== registration.command ||
+          inventory.mcp.args.join("\0") !== registration.args.join("\0")
+        )
+          throw new Error(
+            `Repeated setup ${client} external profile inventory drifted`,
+          );
+      },
+    });
   }
 }
 
@@ -1464,35 +1790,59 @@ export async function runProductionSetup(
   trustOverrides: ProductionTrustOverrides = {},
 ): Promise<GuidedSetupResult> {
   const setupRoots = roots(environment);
-  let existingInstallation: z.infer<typeof InstallationSchema> | undefined;
-  // Preserve the durable cancellation contract: even an already-aborted fresh
-  // setup records intent/cancel before returning. Installed-state inspection is
-  // therefore skipped until after the journal is available in that case.
-  if (!signal.aborted) {
-    try {
-      const existing = await inspectInstalledStatus({
-        stateRoot: setupRoots.stateRoot,
-        signal,
-      });
-      existingInstallation = existing.installation;
+  await mkdir(setupRoots.stateRoot, { recursive: true, mode: 0o700 });
+  await mkdir(setupRoots.runtimeRoot, { recursive: true, mode: 0o700 });
+  const identity = await currentProcessIdentity();
+  const lock = await InstallationLock.acquire(
+    resolve(setupRoots.runtimeRoot, "locks"),
+    "installation",
+    identity,
+  );
+  let journal: OperationJournal | undefined;
+  try {
+    let existingInstallation: z.infer<typeof InstallationSchema> | undefined;
+    // Preserve the durable cancellation contract: even an already-aborted
+    // fresh setup records intent/cancel before returning. Live installed-state
+    // inspection is skipped until after that journal exists in this case.
+    if (!signal.aborted) {
+      try {
+        existingInstallation = (
+          await inspectInstalledStatus({
+            stateRoot: setupRoots.stateRoot,
+            signal,
+          })
+        ).installation;
+      } catch (error) {
+        if (!(
+          error instanceof Error &&
+          (("code" in error && error.code === "ENOENT") ||
+            error.message.includes("ENOENT"))
+        ))
+          throw error;
+      }
+      if (existingInstallation?.status === "recovery-required")
+        throw new Error(
+          "Setup cannot bypass an installation that requires journal recovery",
+        );
       const requested = selectedClients(options.clients);
+      const installed = existingInstallation;
       if (
-        (existing.installation.status === "service-ready" ||
-          existing.installation.status === "complete") &&
-        requested.every((client) =>
-          existing.installation.selectedClients.includes(client),
-        )
+        installed !== undefined &&
+        (installed.status === "service-ready" ||
+          installed.status === "complete") &&
+        requested.every((client) => installed.selectedClients.includes(client))
       ) {
-        const unchangedClients = unchangedSetupClientResults(
-          requested,
-          existing.installation.installationId,
+        const integrations = ClientIntegrationsStateSchema.parse(
           await readProtectedSetupJson(
             resolve(setupRoots.stateRoot, "client-integrations.json"),
           ),
         );
-        if (unchangedClients === undefined) {
-          existingInstallation = existing.installation;
-        } else {
+        const unchangedClients = unchangedSetupClientResults(
+          requested,
+          installed.installationId,
+          integrations,
+        );
+        if (unchangedClients !== undefined) {
           const candidate = await candidatePaths(environment);
           const verified = await verifyCandidate(
             candidate,
@@ -1502,69 +1852,51 @@ export async function runProductionSetup(
           );
           if (
             verified.releaseSequence !==
-              existing.installation.highestAcceptedReleaseSequence ||
-            verified.trustPolicySequence !==
-              existing.installation.activeTrustPolicySequence
+              installed.highestAcceptedReleaseSequence ||
+            verified.trustPolicySequence !== installed.activeTrustPolicySequence
           ) {
             throw new Error(
               "Unchanged setup candidate differs from the installed release state",
             );
           }
+          await verifyUnchangedProductionSetup({
+            installation: installed,
+            integrations,
+            clientsToVerify: installed.selectedClients,
+            roots: setupRoots,
+            environment,
+            signal,
+          });
           return {
             status: "success",
-            installationId: existing.installation.installationId,
+            installationId: installed.installationId,
             serviceReady: true,
             clients: unchangedClients,
             changed: false,
           };
         }
       }
-      if (existing.installation.status === "recovery-required")
-        throw new Error(
-          "Setup cannot bypass an installation that requires journal recovery",
-        );
-    } catch (error) {
-      if (
-        !(
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ) &&
-        !(error instanceof Error && error.message.includes("ENOENT"))
-      ) {
-        throw error;
-      }
     }
-  }
-  await mkdir(setupRoots.stateRoot, { recursive: true, mode: 0o700 });
-  await mkdir(setupRoots.runtimeRoot, { recursive: true, mode: 0o700 });
-  const identity = await currentProcessIdentity();
-  const lock = await InstallationLock.acquire(
-    resolve(setupRoots.runtimeRoot, "locks"),
-    "installation",
-    identity,
-  );
-  const operationId = randomUUID();
-  const journal = await OperationJournal.create(
-    resolve(setupRoots.stateRoot, "operations"),
-    operationId,
-    "setup",
-  );
-  const previewHash =
-    options.previewHash ??
-    createHash("sha256")
-      .update(
-        JSON.stringify({
-          clients: options.clients,
-          credentialBackend: options.credentialBackend,
-        }),
-      )
-      .digest("hex");
-  await journal.intent("setup", {
-    clients: options.clients,
-    previewHash,
-  });
-  try {
+
+    journal = await OperationJournal.create(
+      resolve(setupRoots.stateRoot, "operations"),
+      randomUUID(),
+      "setup",
+    );
+    const previewHash =
+      options.previewHash ??
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            clients: options.clients,
+            credentialBackend: options.credentialBackend,
+          }),
+        )
+        .digest("hex");
+    await journal.intent("setup", {
+      clients: options.clients,
+      previewHash,
+    });
     if (
       existingInstallation !== undefined &&
       existingInstallation.status !== "purged"
@@ -1623,12 +1955,16 @@ export async function runProductionSetup(
     await journal.commit({ status: result.status });
     return result;
   } catch (error) {
-    if (signal.aborted) {
-      await journal.cancel({
-        status: journal.hasUnprovenEffect() ? "recovery-required" : "cancelled",
-      });
-    } else {
-      await journal.compensate("setup", { status: "recovery-required" });
+    if (journal !== undefined) {
+      if (signal.aborted) {
+        await journal.cancel({
+          status: journal.hasUnprovenEffect()
+            ? "recovery-required"
+            : "cancelled",
+        });
+      } else {
+        await journal.compensate("setup", { status: "recovery-required" });
+      }
     }
     throw error;
   } finally {

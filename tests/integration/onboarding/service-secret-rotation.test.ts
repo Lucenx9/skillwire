@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Async fakes mirror production rotation interfaces. */
 import { randomUUID } from "node:crypto";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +31,12 @@ describe("explicit service-secret rotation", () => {
         "installations",
         installationId,
       );
-      await ensureServiceSecrets(installationRoot, fixture.stateRoot);
+      const references = await ensureServiceSecrets(
+        installationRoot,
+        fixture.stateRoot,
+      );
+      const reference = references.find((entry) => entry.kind === kind);
+      if (reference === undefined) throw new Error("Missing service secret");
       const currentPath = resolve(installationRoot, "secrets", kind);
       const before = await readFile(currentPath, "utf8");
       const siblingKind =
@@ -40,7 +45,11 @@ describe("explicit service-secret rotation", () => {
           : "database-password";
       const siblingPath = resolve(installationRoot, "secrets", siblingKind);
       const siblingBefore = await readFile(siblingPath, "utf8");
-      const preview = previewServiceSecretRotation({ installationId, kind });
+      const preview = previewServiceSecretRotation({
+        installationId,
+        kind,
+        currentIdentitySha256: reference.identitySha256,
+      });
       const events: string[] = [];
 
       const result = await rotateServiceSecret({
@@ -91,6 +100,165 @@ describe("explicit service-secret rotation", () => {
     expect(await snapshotTree(fixture.root)).toEqual(before);
   });
 
+  it("rejects current-secret identity drift before any rotation effect", async () => {
+    fixture = await createOnboardingEnvironment();
+    const installationId = randomUUID();
+    const installationRoot = resolve(
+      fixture.stateRoot,
+      "installations",
+      installationId,
+    );
+    const references = await ensureServiceSecrets(
+      installationRoot,
+      fixture.stateRoot,
+    );
+    const reference = references.find(
+      ({ kind }) => kind === "database-password",
+    );
+    if (reference === undefined) throw new Error("Missing database secret");
+    const currentPath = resolve(installationRoot, "secrets/database-password");
+    const driftedValue = "D".repeat(43);
+    await writeFile(currentPath, driftedValue, "ascii");
+    const beforeNames = await readdir(resolve(installationRoot, "secrets"));
+    const preview = previewServiceSecretRotation({
+      installationId,
+      kind: "database-password",
+      currentIdentitySha256: reference.identitySha256,
+    });
+    const apply = vi.fn(async () => undefined);
+    const publish = vi.fn(async () => undefined);
+
+    await expect(
+      rotateServiceSecret({
+        installationRoot,
+        stateRoot: fixture.stateRoot,
+        kind: "database-password",
+        confirmation: preview.previewHash,
+        preview,
+        signal: new AbortController().signal,
+        apply,
+        readiness: async () => undefined,
+        publish,
+      }),
+    ).rejects.toThrow(/identity|drift|changed/i);
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(await readFile(currentPath, "ascii")).toBe(driftedValue);
+    expect(await readdir(resolve(installationRoot, "secrets"))).toEqual(
+      beforeNames,
+    );
+  });
+
+  it("preserves a pre-existing candidate residue when exclusive creation fails", async () => {
+    fixture = await createOnboardingEnvironment();
+    const installationId = randomUUID();
+    const installationRoot = resolve(
+      fixture.stateRoot,
+      "installations",
+      installationId,
+    );
+    const references = await ensureServiceSecrets(
+      installationRoot,
+      fixture.stateRoot,
+    );
+    const reference = references.find(
+      ({ kind }) => kind === "database-password",
+    );
+    if (reference === undefined) throw new Error("Missing database secret");
+    const currentPath = resolve(installationRoot, "secrets/database-password");
+    const currentBefore = await readFile(currentPath, "ascii");
+    const preview = previewServiceSecretRotation({
+      installationId,
+      kind: "database-password",
+      currentIdentitySha256: reference.identitySha256,
+    });
+    const candidatePath = resolve(
+      installationRoot,
+      "secrets",
+      `database-password.candidate-${preview.operationId}`,
+    );
+    const residue = "C".repeat(43);
+    await writeFile(candidatePath, residue, { encoding: "ascii", mode: 0o600 });
+    const apply = vi.fn(async () => undefined);
+    const publish = vi.fn(async () => undefined);
+
+    await expect(
+      rotateServiceSecret({
+        installationRoot,
+        stateRoot: fixture.stateRoot,
+        kind: "database-password",
+        confirmation: preview.previewHash,
+        preview,
+        signal: new AbortController().signal,
+        apply,
+        readiness: async () => undefined,
+        publish,
+      }),
+    ).rejects.toThrow(/exist|candidate|rotation/i);
+
+    expect(await readFile(candidatePath, "ascii")).toBe(residue);
+    expect(await readFile(currentPath, "ascii")).toBe(currentBefore);
+    expect(apply).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without replacing a pre-existing retained target", async () => {
+    fixture = await createOnboardingEnvironment();
+    const installationId = randomUUID();
+    const installationRoot = resolve(
+      fixture.stateRoot,
+      "installations",
+      installationId,
+    );
+    const references = await ensureServiceSecrets(
+      installationRoot,
+      fixture.stateRoot,
+    );
+    const reference = references.find(
+      ({ kind }) => kind === "application-pepper",
+    );
+    if (reference === undefined) throw new Error("Missing application secret");
+    const currentPath = resolve(installationRoot, "secrets/application-pepper");
+    const currentBefore = await readFile(currentPath, "ascii");
+    const preview = previewServiceSecretRotation({
+      installationId,
+      kind: "application-pepper",
+      currentIdentitySha256: reference.identitySha256,
+    });
+    const retainedPath = resolve(
+      installationRoot,
+      "secrets",
+      `application-pepper.retained-${preview.operationId}`,
+    );
+    const retainedBefore = "R".repeat(43);
+    await writeFile(retainedPath, retainedBefore, {
+      encoding: "ascii",
+      mode: 0o600,
+    });
+    const apply = vi.fn(async () => undefined);
+    const publish = vi.fn(async () => undefined);
+
+    await expect(
+      rotateServiceSecret({
+        installationRoot,
+        stateRoot: fixture.stateRoot,
+        kind: "application-pepper",
+        confirmation: preview.previewHash,
+        preview,
+        signal: new AbortController().signal,
+        apply,
+        readiness: async () => undefined,
+        publish,
+      }),
+    ).rejects.toThrow(/exist|retained|rotation/i);
+
+    expect(await readFile(retainedPath, "ascii")).toBe(retainedBefore);
+    expect(await readFile(currentPath, "ascii")).toBe(currentBefore);
+    expect(apply).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it("rolls application configuration back at a failed readiness boundary", async () => {
     fixture = await createOnboardingEnvironment();
     const installationId = randomUUID();
@@ -99,12 +267,20 @@ describe("explicit service-secret rotation", () => {
       "installations",
       installationId,
     );
-    await ensureServiceSecrets(installationRoot, fixture.stateRoot);
+    const references = await ensureServiceSecrets(
+      installationRoot,
+      fixture.stateRoot,
+    );
+    const reference = references.find(
+      ({ kind }) => kind === "database-password",
+    );
+    if (reference === undefined) throw new Error("Missing database secret");
     const currentPath = resolve(installationRoot, "secrets/database-password");
     const before = await readFile(currentPath, "utf8");
     const preview = previewServiceSecretRotation({
       installationId,
       kind: "database-password",
+      currentIdentitySha256: reference.identitySha256,
     });
     const rollback = vi.fn(async () => undefined);
 
@@ -147,12 +323,20 @@ describe("explicit service-secret rotation", () => {
       "installations",
       installationId,
     );
-    await ensureServiceSecrets(installationRoot, fixture.stateRoot);
+    const references = await ensureServiceSecrets(
+      installationRoot,
+      fixture.stateRoot,
+    );
+    const reference = references.find(
+      ({ kind: secretKind }) => secretKind === "application-pepper",
+    );
+    if (reference === undefined) throw new Error("Missing application secret");
     const currentPath = resolve(installationRoot, "secrets/application-pepper");
     const before = await readFile(currentPath, "utf8");
     const preview = previewServiceSecretRotation({
       installationId,
       kind: "application-pepper",
+      currentIdentitySha256: reference.identitySha256,
     });
     let applyCount = 0;
     let readinessCount = 0;

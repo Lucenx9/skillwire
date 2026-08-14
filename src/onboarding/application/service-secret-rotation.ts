@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { open, rename, unlink } from "node:fs/promises";
+import { link, lstat, open, rename, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
@@ -17,7 +17,7 @@ export interface ServiceSecretRotationPreview {
   readonly kind: ServiceSecretKind;
   readonly targets: readonly [string, string];
   readonly previewHash: string;
-  readonly currentIdentitySha256?: string | undefined;
+  readonly currentIdentitySha256: string;
 }
 
 function deterministicOperationId(value: string): string {
@@ -28,10 +28,10 @@ function deterministicOperationId(value: string): string {
 export function previewServiceSecretRotation(input: {
   readonly installationId: string;
   readonly kind: ServiceSecretKind;
-  readonly currentIdentitySha256?: string | undefined;
+  readonly currentIdentitySha256: string;
 }): ServiceSecretRotationPreview {
   const operationId = deterministicOperationId(
-    `${input.installationId}\0${input.kind}\0${input.currentIdentitySha256 ?? "unknown"}`,
+    `${input.installationId}\0${input.kind}\0${input.currentIdentitySha256}`,
   );
   const targets = [
     `secrets/${input.kind}`,
@@ -42,9 +42,7 @@ export function previewServiceSecretRotation(input: {
     kind: input.kind,
     operationId,
     targets,
-    ...(input.currentIdentitySha256 === undefined
-      ? {}
-      : { currentIdentitySha256: input.currentIdentitySha256 }),
+    currentIdentitySha256: input.currentIdentitySha256,
   };
   return {
     ...scope,
@@ -53,7 +51,7 @@ export function previewServiceSecretRotation(input: {
   };
 }
 
-async function validateSecret(path: string, root: string): Promise<void> {
+async function validateSecret(path: string, root: string): Promise<string> {
   const target = await validateOwnedPath(path, root);
   const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -66,6 +64,17 @@ async function validateSecret(path: string, root: string): Promise<void> {
       stats.size !== 43
     ) {
       throw new Error("Service-secret rotation target is unsafe");
+    }
+    const bytes = await handle.readFile();
+    try {
+      if (!/^[A-Za-z0-9_-]{43}$/.test(bytes.toString("ascii")))
+        throw new Error("Service-secret rotation target has an invalid format");
+      return createHash("sha256")
+        .update("skillwire-service-secret-identity-v1\0")
+        .update(bytes)
+        .digest("hex");
+    } finally {
+      bytes.fill(0);
     }
   } finally {
     await handle.close();
@@ -82,6 +91,17 @@ async function syncDirectory(path: string): Promise<void> {
   } finally {
     await handle.close();
   }
+}
+
+async function requirePathAbsent(path: string): Promise<void> {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return;
+    throw error;
+  }
+  throw new Error("Service-secret rotation retained target already exists");
 }
 
 export async function rotateServiceSecret(options: {
@@ -132,7 +152,13 @@ export async function rotateServiceSecret(options: {
     secretsRoot,
     `${options.kind}.candidate-${options.preview.operationId}`,
   );
-  await validateSecret(currentPath, installationRoot);
+  const currentIdentitySha256 = await validateSecret(
+    currentPath,
+    installationRoot,
+  );
+  if (currentIdentitySha256 !== options.preview.currentIdentitySha256)
+    throw new Error("Service-secret rotation target identity changed");
+  await requirePathAbsent(retainedPath);
   const candidate = Buffer.from(randomBytes(32).toString("base64url"), "ascii");
   const effect = async (
     step: string,
@@ -148,6 +174,7 @@ export async function rotateServiceSecret(options: {
       verification: () => ({ ...detail, completed: true }),
     });
   };
+  const ownedCandidatePaths = new Set<string>();
   try {
     await effect(
       "service-secret-candidate",
@@ -160,9 +187,14 @@ export async function rotateServiceSecret(options: {
             constants.O_NOFOLLOW,
           0o600,
         );
+        ownedCandidatePaths.add(candidatePath);
         try {
           await candidateHandle.writeFile(candidate);
           await candidateHandle.sync();
+        } catch (error) {
+          await unlink(candidatePath).catch(() => undefined);
+          ownedCandidatePaths.delete(candidatePath);
+          throw error;
         } finally {
           await candidateHandle.close();
         }
@@ -171,7 +203,8 @@ export async function rotateServiceSecret(options: {
     );
   } catch (error) {
     candidate.fill(0);
-    await unlink(candidatePath).catch(() => undefined);
+    if (ownedCandidatePaths.delete(candidatePath))
+      await unlink(candidatePath).catch(() => undefined);
     throw error;
   }
   const identitySha256 = createHash("sha256")
@@ -179,7 +212,10 @@ export async function rotateServiceSecret(options: {
     .update(candidate)
     .digest("hex");
   candidate.fill(0);
-  const rotationState: { swapped: boolean } = { swapped: false };
+  const rotationState: { retainedLinked: boolean; swapped: boolean } = {
+    retainedLinked: false,
+    swapped: false,
+  };
   try {
     await effect(
       "service-secret-candidate-readiness",
@@ -194,7 +230,8 @@ export async function rotateServiceSecret(options: {
     await effect(
       "service-secret-atomic-swap",
       async () => {
-        await rename(currentPath, retainedPath);
+        await link(currentPath, retainedPath);
+        rotationState.retainedLinked = true;
         try {
           await rename(candidatePath, currentPath);
           rotationState.swapped = true;
@@ -204,7 +241,8 @@ export async function rotateServiceSecret(options: {
             await rename(currentPath, candidatePath);
             rotationState.swapped = false;
           }
-          await rename(retainedPath, currentPath);
+          await unlink(retainedPath);
+          rotationState.retainedLinked = false;
           await syncDirectory(secretsRoot);
           throw error;
         }
@@ -235,6 +273,8 @@ export async function rotateServiceSecret(options: {
       if (rotationState.swapped) {
         await rename(currentPath, candidatePath);
         await rename(retainedPath, currentPath);
+        rotationState.swapped = false;
+        rotationState.retainedLinked = false;
         await syncDirectory(secretsRoot);
       }
       await options.rollback?.(currentPath);

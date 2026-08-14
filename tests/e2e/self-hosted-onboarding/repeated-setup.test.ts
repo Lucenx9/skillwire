@@ -5,7 +5,10 @@ import {
   runGuidedSetup,
   type GuidedSetupResult,
 } from "../../../src/onboarding/application/setup.js";
-import { unchangedSetupClientResults } from "../../../src/onboarding/application/production-setup.js";
+import {
+  runRepeatedSetupClientVerification,
+  unchangedSetupClientResults,
+} from "../../../src/onboarding/application/production-setup.js";
 
 describe("unchanged guided setup", () => {
   it("preserves external ownership classification in the production no-op result", () => {
@@ -23,6 +26,19 @@ describe("unchanged guided setup", () => {
       { client: "codex", status: "external-verified", owned: false },
       { client: "claude", status: "verified", owned: true },
     ]);
+  });
+
+  it("does not adopt a credential for an equivalent external integration", async () => {
+    const verifyManaged = vi.fn(async () => undefined);
+    const verifyExternal = vi.fn(async () => undefined);
+
+    await runRepeatedSetupClientVerification("external-verified", {
+      verifyManaged,
+      verifyExternal,
+    });
+
+    expect(verifyManaged).not.toHaveBeenCalled();
+    expect(verifyExternal).toHaveBeenCalledOnce();
   });
 
   it("is a byte-for-byte no-op for ten repeated executions", async () => {
