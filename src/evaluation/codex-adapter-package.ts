@@ -35,6 +35,12 @@ const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const EXPECTED_DESCRIPTION =
   "For non-routine specialist tasks, named technology workflows, formal reviews or evaluations, safety or compliance procedures, and specialized deliverables where verified procedural guidance could materially improve the result. Do not use for greetings, trivial calculations or transformations, routine generic coding or writing, repeated intent, tasks already covered by sufficient local or loaded guidance, or tasks that cannot be summarized without sensitive data.";
+// The skill body is executable guidance, so accepting text based only on the
+// presence of required phrases would allow contradictory instructions to be
+// appended. Changes to the policy must be explicitly approved by updating this
+// digest alongside the canonical adapter.
+const APPROVED_SKILL_BODY_SHA256 =
+  "549ac28348f6021d086bc14409cfb21b67c92a1109e2edb60b2290ec52028b89";
 
 const pluginManifestSchema = z
   .object({
@@ -249,6 +255,7 @@ export function validateCodexAdapterPackage(
   const skill = parseSkill(textByPath, codes);
   const metadata = parseOpenAiMetadata(textByPath, codes);
   scanPackageText(textByPath, codes);
+  validateApprovedSkillBody(skill.body, codes);
   const semanticChecks = validateSemantics(skill.body, codes);
   const sortedReports = reports.sort((left, right) =>
     comparePaths(left.path, right.path),
@@ -705,6 +712,13 @@ function validateSemantics(
     codes.add("ADAPTER_POLICY_INCOMPLETE");
   }
   return checks as CodexAdapterSemanticChecks;
+}
+
+function validateApprovedSkillBody(body: string, codes: Set<string>): void {
+  const digest = createHash("sha256").update(body).digest("hex");
+  if (digest !== APPROVED_SKILL_BODY_SHA256) {
+    codes.add("ADAPTER_POLICY_UNAPPROVED");
+  }
 }
 
 export function canonicalHashLines(
