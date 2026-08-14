@@ -112,8 +112,10 @@ For each skill identity at a complete new snapshot:
    the existing revision. Do not alter its origin commit, canonical bytes, hashes, or
    `trustAtPublication`.
 3. If it differs, create a new canonical v2 revision whose bundle includes this exact origin commit.
-4. If validation fails, record a quarantined candidate/observation and retain the previous published
-   head.
+4. If validation fails, record a quarantined candidate/observation. Only verified candidates count
+   as roots in the finalized snapshot: the evaluated snapshot becomes the source head and revisions
+   replaced by quarantined candidates become unavailable. Failed or incomplete acquisition does not
+   alter the source head.
 5. Reprocessing the same source/commit returns the existing snapshot and produces no duplicates.
 
 ## Upstream Removal and Advisory State

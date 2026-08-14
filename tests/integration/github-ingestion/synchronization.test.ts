@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Pool } from "pg";
 
 import type {
   ConditionalRepositoryResult,
@@ -232,6 +233,28 @@ class MutableNestedFixtureProvider implements GitHubSourceProvider {
     this.#sequence += 1;
     return value;
   }
+}
+
+async function waitForDatabaseLock(
+  database: TestDatabase,
+  applicationName: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const activity = await database.pool.query<{
+      wait_event_type: string | null;
+    }>(
+      `SELECT wait_event_type FROM pg_stat_activity
+       WHERE datname=current_database() AND application_name=$1`,
+      [applicationName],
+    );
+    if (
+      activity.rows.some(({ wait_event_type }) => wait_event_type === "Lock")
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`database lock wait not observed for ${applicationName}`);
 }
 
 describe("immutable source synchronization", () => {
@@ -557,6 +580,700 @@ describe("immutable source synchronization", () => {
     },
     120_000,
   );
+  it("requires reverification before a shared quarantined revision can be curated", async () => {
+    const isolated = await createTestDatabase();
+    await isolated.migrate();
+    try {
+      const provider = new MutableNestedFixtureProvider(6012);
+      const store = new PostgresExternalCatalogStore(isolated.pool);
+      const registration = await new SourceRegistrationService(
+        provider,
+        store,
+      ).add(
+        { owner: "fixture-org", repository: provider.repositoryName },
+        "shared-revision-admin",
+      );
+      const synchronization = new SourceSynchronizationService(provider, store);
+      const catalog = new PostgresImportedSkillCatalogProvider(isolated.pool);
+
+      const first = await synchronization.sync(registration.sourceId);
+      const firstAlpha = first.candidateTraces.find(
+        ({ skillName }) => skillName === "alpha",
+      );
+      const metadata = (await catalog.listMetadata()).find(
+        ({ name }) => name === "alpha",
+      );
+      if (firstAlpha === undefined || metadata === undefined) {
+        throw new Error("first alpha fixture missing");
+      }
+
+      provider.index = 1;
+      const second = await synchronization.sync(registration.sourceId);
+      const secondAlpha = second.candidateTraces.find(
+        ({ skillName }) => skillName === "alpha",
+      );
+      if (secondAlpha === undefined) throw new Error("second alpha missing");
+      expect(secondAlpha).toMatchObject({
+        result: "reused",
+        revision: firstAlpha.revision,
+      });
+
+      await store.transitionCandidate(
+        firstAlpha.candidateId,
+        "quarantined",
+        "administrator",
+        "shared-revision-admin",
+        "ADMIN_QUARANTINE",
+      );
+      expect(
+        await catalog.findRevision(metadata.id, metadata.revision),
+      ).toBeUndefined();
+
+      const reportSubjects = await isolated.pool.query<{
+        candidate_id: string;
+        id: string;
+      }>(
+        `SELECT candidate_id,id
+         FROM external_verification_reports
+         WHERE candidate_id=ANY($1::uuid[]) AND result='passed'
+         ORDER BY candidate_id,created_at DESC`,
+        [[firstAlpha.candidateId, secondAlpha.candidateId]],
+      );
+      const passedReportByCandidate = new Map(
+        reportSubjects.rows.map(({ candidate_id, id }) => [candidate_id, id]),
+      );
+      const firstPassedReportId = passedReportByCandidate.get(
+        firstAlpha.candidateId,
+      );
+      const secondPassedReportId = passedReportByCandidate.get(
+        secondAlpha.candidateId,
+      );
+      if (
+        firstPassedReportId === undefined ||
+        secondPassedReportId === undefined
+      ) {
+        throw new Error("shared revision passed report missing");
+      }
+      const revisionSubject = await isolated.pool.query<{
+        revision_id: string;
+      }>(
+        `SELECT revision_id
+         FROM external_snapshot_skill_observations
+         WHERE candidate_id=$1`,
+        [secondAlpha.candidateId],
+      );
+      const sharedRevisionId = revisionSubject.rows[0]?.revision_id;
+      if (sharedRevisionId === undefined) {
+        throw new Error("shared revision subject missing");
+      }
+      const firstFailedReportId = randomUUID();
+      const secondFailedReportId = randomUUID();
+      await isolated.pool.query(
+        `INSERT INTO external_verification_reports (
+           id,candidate_id,policy_version,validator_version,input_sha256,
+           report_sha256,result
+         ) VALUES
+           ($1,$3,'failed-report-policy','failed-report-validator',$5,$6,'failed'),
+           ($2,$4,'failed-report-policy','failed-report-validator',$7,$8,'failed')`,
+        [
+          firstFailedReportId,
+          secondFailedReportId,
+          firstAlpha.candidateId,
+          secondAlpha.candidateId,
+          "a".repeat(64),
+          "b".repeat(64),
+          "c".repeat(64),
+          "d".repeat(64),
+        ],
+      );
+      const eligibilityAuditState = async () => {
+        const result = await isolated.pool.query<{
+          candidate_event_count: string;
+          curation_decision_count: string;
+          effective_classification: string;
+          first_candidate_classification: string;
+          revision_event_count: string;
+          second_candidate_classification: string;
+        }>(
+          `SELECT
+             (SELECT count(*)::text FROM external_classification_events
+              WHERE candidate_id=ANY($1::uuid[])) AS candidate_event_count,
+             (SELECT count(*)::text FROM external_revision_classification_events
+              WHERE revision_id=$2) AS revision_event_count,
+             (SELECT count(*)::text FROM external_curation_decisions)
+               AS curation_decision_count,
+             (SELECT classification FROM external_current_classifications
+              WHERE candidate_id=$3) AS first_candidate_classification,
+             (SELECT classification FROM external_current_classifications
+              WHERE candidate_id=$4) AS second_candidate_classification,
+             (SELECT classification FROM external_current_revision_classifications
+              WHERE revision_id=$2) AS effective_classification`,
+          [
+            [firstAlpha.candidateId, secondAlpha.candidateId],
+            sharedRevisionId,
+            firstAlpha.candidateId,
+            secondAlpha.candidateId,
+          ],
+        );
+        return result.rows[0];
+      };
+      const beforeRejectedReports = await eligibilityAuditState();
+
+      const expectCandidateVerificationReportRejected = async (
+        reportId: string,
+        error: RegExp,
+      ) => {
+        const client = await isolated.pool.connect();
+        try {
+          await client.query("BEGIN");
+          await expect(
+            client.query(
+              `INSERT INTO external_classification_events (
+                 id,candidate_id,previous_classification,next_classification,
+                 actor_kind,actor_id,reason_code,report_id
+               ) VALUES ($1,$2,'quarantined','verified','verifier',
+                         'report-integrity-test','AUTOMATIC_VERIFICATION_PASSED',$3)`,
+              [randomUUID(), firstAlpha.candidateId, reportId],
+            ),
+          ).rejects.toThrow(error);
+        } finally {
+          await client.query("ROLLBACK");
+          client.release();
+        }
+      };
+      const expectRevisionVerificationReportRejected = async (
+        reportId: string,
+        error: RegExp,
+      ) => {
+        const client = await isolated.pool.connect();
+        try {
+          await client.query("BEGIN");
+          await expect(
+            client.query(
+              `INSERT INTO external_revision_classification_events (
+                 id,revision_id,initiating_candidate_id,previous_classification,
+                 next_classification,actor_kind,actor_id,reason_code,report_id
+               ) VALUES ($1,$2,$3,'quarantined','verified','verifier',
+                         'report-integrity-test','AUTOMATIC_VERIFICATION_PASSED',$4)`,
+              [
+                randomUUID(),
+                sharedRevisionId,
+                secondAlpha.candidateId,
+                reportId,
+              ],
+            ),
+          ).rejects.toThrow(error);
+        } finally {
+          await client.query("ROLLBACK");
+          client.release();
+        }
+      };
+
+      await expectCandidateVerificationReportRejected(
+        firstFailedReportId,
+        /passed verification report/i,
+      );
+      await expectCandidateVerificationReportRejected(
+        secondPassedReportId,
+        /report subject mismatch/i,
+      );
+      await expectCandidateVerificationReportRejected(
+        randomUUID(),
+        /report subject mismatch/i,
+      );
+      await expectRevisionVerificationReportRejected(
+        secondFailedReportId,
+        /passed verification report/i,
+      );
+      await expectRevisionVerificationReportRejected(
+        firstPassedReportId,
+        /report attribution mismatch/i,
+      );
+      await expectRevisionVerificationReportRejected(
+        randomUUID(),
+        /report attribution mismatch/i,
+      );
+
+      const passedCandidateControl = await isolated.pool.connect();
+      try {
+        await passedCandidateControl.query("BEGIN");
+        const eventId = randomUUID();
+        await passedCandidateControl.query(
+          `INSERT INTO external_classification_events (
+             id,candidate_id,previous_classification,next_classification,
+             actor_kind,actor_id,reason_code,report_id
+           ) VALUES ($1,$2,'quarantined','verified','verifier',
+                     'report-integrity-test','AUTOMATIC_VERIFICATION_PASSED',$3)`,
+          [eventId, firstAlpha.candidateId, firstPassedReportId],
+        );
+        await passedCandidateControl.query(
+          `UPDATE external_current_classifications
+           SET classification='verified',latest_event_id=$2
+           WHERE candidate_id=$1`,
+          [firstAlpha.candidateId, eventId],
+        );
+        await expect(
+          passedCandidateControl.query<{ classification: string }>(
+            `SELECT classification FROM external_current_classifications
+             WHERE candidate_id=$1`,
+            [firstAlpha.candidateId],
+          ),
+        ).resolves.toMatchObject({ rows: [{ classification: "verified" }] });
+      } finally {
+        await passedCandidateControl.query("ROLLBACK");
+        passedCandidateControl.release();
+      }
+      const passedRevisionControl = await isolated.pool.connect();
+      try {
+        await passedRevisionControl.query("BEGIN");
+        const eventId = randomUUID();
+        await passedRevisionControl.query(
+          `INSERT INTO external_revision_classification_events (
+             id,revision_id,initiating_candidate_id,previous_classification,
+             next_classification,actor_kind,actor_id,reason_code,report_id
+           ) VALUES ($1,$2,$3,'quarantined','verified','verifier',
+                     'report-integrity-test','AUTOMATIC_VERIFICATION_PASSED',$4)`,
+          [
+            eventId,
+            sharedRevisionId,
+            secondAlpha.candidateId,
+            secondPassedReportId,
+          ],
+        );
+        await passedRevisionControl.query(
+          `UPDATE external_current_revision_classifications
+           SET classification='verified',latest_event_id=$2
+           WHERE revision_id=$1`,
+          [sharedRevisionId, eventId],
+        );
+        await expect(
+          passedRevisionControl.query<{ classification: string }>(
+            `SELECT classification FROM external_current_revision_classifications
+             WHERE revision_id=$1`,
+            [sharedRevisionId],
+          ),
+        ).resolves.toMatchObject({ rows: [{ classification: "verified" }] });
+      } finally {
+        await passedRevisionControl.query("ROLLBACK");
+        passedRevisionControl.release();
+      }
+
+      expect(await eligibilityAuditState()).toEqual(beforeRejectedReports);
+      expect(
+        await catalog.findRevision(metadata.id, metadata.revision),
+      ).toBeUndefined();
+
+      const candidateAuditState = async () => {
+        const current = await isolated.pool.query<{
+          candidate_id: string;
+          classification: string;
+          event_candidate_id: string;
+          event_classification: string;
+        }>(
+          `SELECT current.candidate_id,current.classification,
+                  event.candidate_id AS event_candidate_id,
+                  event.next_classification AS event_classification
+           FROM external_current_classifications current
+           JOIN external_classification_events event
+             ON event.id=current.latest_event_id
+           WHERE current.candidate_id=ANY($1::uuid[])
+           ORDER BY current.candidate_id`,
+          [[firstAlpha.candidateId, secondAlpha.candidateId]],
+        );
+        const events = await isolated.pool.query<{
+          candidate_id: string;
+          previous_classification: string | null;
+          next_classification: string;
+        }>(
+          `SELECT candidate_id,previous_classification,next_classification
+           FROM external_classification_events
+           WHERE candidate_id=ANY($1::uuid[])
+           ORDER BY candidate_id,created_at,
+                    (previous_classification IS NULL) DESC,id`,
+          [[firstAlpha.candidateId, secondAlpha.candidateId]],
+        );
+        return { current: current.rows, events: events.rows };
+      };
+      const candidateEvents = (
+        candidateId: string,
+        audit: Awaited<ReturnType<typeof candidateAuditState>>,
+      ) =>
+        audit.events
+          .filter((event) => event.candidate_id === candidateId)
+          .map(({ previous_classification, next_classification }) => [
+            previous_classification,
+            next_classification,
+          ]);
+
+      const afterQuarantine = await candidateAuditState();
+      expect(afterQuarantine.current).toEqual(
+        [
+          {
+            candidate_id: firstAlpha.candidateId,
+            classification: "quarantined",
+            event_candidate_id: firstAlpha.candidateId,
+            event_classification: "quarantined",
+          },
+          {
+            candidate_id: secondAlpha.candidateId,
+            classification: "verified",
+            event_candidate_id: secondAlpha.candidateId,
+            event_classification: "verified",
+          },
+        ].toSorted((left, right) =>
+          left.candidate_id.localeCompare(right.candidate_id, "en-US"),
+        ),
+      );
+      expect(candidateEvents(firstAlpha.candidateId, afterQuarantine)).toEqual([
+        [null, "discovered"],
+        ["discovered", "verified"],
+        ["verified", "quarantined"],
+      ]);
+      expect(candidateEvents(secondAlpha.candidateId, afterQuarantine)).toEqual(
+        [
+          [null, "discovered"],
+          ["discovered", "verified"],
+        ],
+      );
+
+      await expect(
+        store.transitionCandidate(
+          secondAlpha.candidateId,
+          "curated",
+          "administrator",
+          "shared-revision-admin",
+          "ADMIN_CURATED",
+        ),
+      ).rejects.toThrow("CLASSIFICATION_TRANSITION_INVALID");
+
+      const quarantined =
+        await store.listAdministrativeCandidates("quarantined");
+      const expectedAdministrativeClassifications = [
+        firstAlpha.candidateId,
+        secondAlpha.candidateId,
+      ]
+        .toSorted((left, right) => left.localeCompare(right, "en-US"))
+        .map((candidateId) => ({
+          candidateId,
+          classification: "quarantined",
+        }));
+      expect(
+        quarantined
+          .filter(({ candidateId }) =>
+            [firstAlpha.candidateId, secondAlpha.candidateId].includes(
+              candidateId,
+            ),
+          )
+          .map(({ candidateId, classification }) => ({
+            candidateId,
+            classification,
+          }))
+          .toSorted((left, right) =>
+            left.candidateId.localeCompare(right.candidateId, "en-US"),
+          ),
+      ).toEqual(expectedAdministrativeClassifications);
+      expect(
+        (await store.listAdministrativeCandidates("verified")).some(
+          ({ candidateId }) => candidateId === secondAlpha.candidateId,
+        ),
+      ).toBe(false);
+      const quarantinedPage = await store.listAdministrativeCandidatesPage({
+        classification: "quarantined",
+        sourceId: registration.sourceId,
+        limit: 100,
+      });
+      expect(
+        quarantinedPage.items
+          .filter(({ candidateId }) =>
+            [firstAlpha.candidateId, secondAlpha.candidateId].includes(
+              candidateId,
+            ),
+          )
+          .map(({ candidateId, classification }) => ({
+            candidateId,
+            classification,
+          }))
+          .toSorted((left, right) =>
+            left.candidateId.localeCompare(right.candidateId, "en-US"),
+          ),
+      ).toEqual(expectedAdministrativeClassifications);
+
+      const leases = new PostgresSyncLeaseStore(isolated.pool);
+      const lease = await leases.acquire(
+        `sync/${registration.sourceId}`,
+        randomUUID(),
+        10_000,
+      );
+      if (lease === undefined) throw new Error("verification lease missing");
+      try {
+        await synchronization.syncScheduled(
+          registration.sourceId,
+          lease,
+          {},
+          "2".repeat(40),
+          {
+            repositoryId: provider.repositoryId,
+            owner: "fixture-org",
+            repository: provider.repositoryName,
+          },
+          secondAlpha.candidateId,
+        );
+      } finally {
+        await leases.release(lease);
+      }
+      expect(
+        (await catalog.listMetadata()).find(({ id }) => id === metadata.id),
+      ).toMatchObject({ currentClassification: "verified" });
+
+      const afterReverification = await candidateAuditState();
+      expect(afterReverification.current).toEqual(afterQuarantine.current);
+      expect(
+        candidateEvents(secondAlpha.candidateId, afterReverification),
+      ).toEqual([
+        [null, "discovered"],
+        ["discovered", "verified"],
+      ]);
+
+      await expect(
+        store.transitionCandidate(
+          secondAlpha.candidateId,
+          "curated",
+          "administrator",
+          "shared-revision-admin",
+          "ADMIN_CURATED",
+        ),
+      ).resolves.toMatchObject({ classification: "curated", changed: true });
+      expect(
+        (await catalog.listMetadata()).find(({ id }) => id === metadata.id),
+      ).toMatchObject({ currentClassification: "curated" });
+
+      const afterCuration = await candidateAuditState();
+      expect(afterCuration.current).toEqual(
+        [
+          {
+            candidate_id: firstAlpha.candidateId,
+            classification: "quarantined",
+            event_candidate_id: firstAlpha.candidateId,
+            event_classification: "quarantined",
+          },
+          {
+            candidate_id: secondAlpha.candidateId,
+            classification: "curated",
+            event_candidate_id: secondAlpha.candidateId,
+            event_classification: "curated",
+          },
+        ].toSorted((left, right) =>
+          left.candidate_id.localeCompare(right.candidate_id, "en-US"),
+        ),
+      );
+      expect(candidateEvents(firstAlpha.candidateId, afterCuration)).toEqual([
+        [null, "discovered"],
+        ["discovered", "verified"],
+        ["verified", "quarantined"],
+      ]);
+      expect(candidateEvents(secondAlpha.candidateId, afterCuration)).toEqual([
+        [null, "discovered"],
+        ["discovered", "verified"],
+        ["verified", "curated"],
+      ]);
+      const revisionAudit = await isolated.pool.query<{
+        previous_classification: string | null;
+        next_classification: string;
+      }>(
+        `SELECT event.previous_classification,event.next_classification
+         FROM external_revision_classification_events event
+         JOIN external_current_revision_classifications current
+           ON current.revision_id=event.revision_id
+         JOIN external_snapshot_skill_observations observation
+           ON observation.revision_id=current.revision_id
+         WHERE observation.candidate_id=$1
+         ORDER BY event.created_at,
+                  (event.previous_classification IS NULL) DESC,event.id`,
+        [secondAlpha.candidateId],
+      );
+      expect(
+        revisionAudit.rows.map(
+          ({ previous_classification, next_classification }) => [
+            previous_classification,
+            next_classification,
+          ],
+        ),
+      ).toEqual([
+        [null, "verified"],
+        ["verified", "quarantined"],
+        ["quarantined", "verified"],
+        ["verified", "curated"],
+      ]);
+      const revisionCurrent = await isolated.pool.query<{
+        revision_id: string;
+        classification: string;
+        event_revision_id: string;
+        event_classification: string;
+      }>(
+        `SELECT current.revision_id,current.classification,
+                event.revision_id AS event_revision_id,
+                event.next_classification AS event_classification
+         FROM external_current_revision_classifications current
+         JOIN external_revision_classification_events event
+           ON event.id=current.latest_event_id
+         JOIN external_snapshot_skill_observations observation
+           ON observation.revision_id=current.revision_id
+         WHERE observation.candidate_id=$1`,
+        [secondAlpha.candidateId],
+      );
+      expect(revisionCurrent.rows).toEqual([
+        {
+          revision_id: revisionCurrent.rows[0]?.revision_id,
+          classification: "curated",
+          event_revision_id: revisionCurrent.rows[0]?.revision_id,
+          event_classification: "curated",
+        },
+      ]);
+      const curationSubjects = await isolated.pool.query<{
+        candidate_id: string | null;
+        revision_id: string | null;
+      }>(
+        `SELECT candidate_event.candidate_id,revision_event.revision_id
+         FROM external_curation_decisions decision
+         LEFT JOIN external_classification_events candidate_event
+           ON candidate_event.id=decision.classification_event_id
+         LEFT JOIN external_revision_classification_events revision_event
+           ON revision_event.id=decision.revision_classification_event_id
+         WHERE decision.administrator_id='shared-revision-admin'
+           AND decision.reason_code='ADMIN_CURATED'
+         ORDER BY candidate_event.candidate_id NULLS LAST,
+                  revision_event.revision_id NULLS LAST`,
+      );
+      expect(curationSubjects.rows).toEqual([
+        {
+          candidate_id: secondAlpha.candidateId,
+          revision_id: null,
+        },
+        {
+          candidate_id: null,
+          revision_id: revisionCurrent.rows[0]?.revision_id,
+        },
+      ]);
+    } finally {
+      await isolated.close();
+    }
+  }, 120_000);
+
+  it("serializes sibling transitions against the shared revision state", async () => {
+    const isolated = await createTestDatabase();
+    await isolated.migrate();
+    const quarantinePool = new Pool({
+      connectionString: isolated.connectionString,
+      application_name: "shared-revision-quarantine",
+    });
+    const curatePool = new Pool({
+      connectionString: isolated.connectionString,
+      application_name: "shared-revision-curate",
+    });
+    const blocker = await isolated.pool.connect();
+    let blocking = false;
+    let quarantine:
+      | ReturnType<PostgresExternalCatalogStore["transitionCandidate"]>
+      | undefined;
+    let curate:
+      | ReturnType<PostgresExternalCatalogStore["transitionCandidate"]>
+      | undefined;
+    try {
+      const provider = new MutableNestedFixtureProvider(6013);
+      const registrationStore = new PostgresExternalCatalogStore(isolated.pool);
+      const registration = await new SourceRegistrationService(
+        provider,
+        registrationStore,
+      ).add(
+        { owner: "fixture-org", repository: provider.repositoryName },
+        "concurrent-shared-revision-admin",
+      );
+      const synchronization = new SourceSynchronizationService(
+        provider,
+        registrationStore,
+      );
+      const catalog = new PostgresImportedSkillCatalogProvider(isolated.pool);
+      const first = await synchronization.sync(registration.sourceId);
+      const firstAlpha = first.candidateTraces.find(
+        ({ skillName }) => skillName === "alpha",
+      );
+      const metadata = (await catalog.listMetadata()).find(
+        ({ name }) => name === "alpha",
+      );
+      provider.index = 1;
+      const second = await synchronization.sync(registration.sourceId);
+      const secondAlpha = second.candidateTraces.find(
+        ({ skillName }) => skillName === "alpha",
+      );
+      if (
+        firstAlpha === undefined ||
+        secondAlpha === undefined ||
+        metadata === undefined
+      ) {
+        throw new Error("shared alpha fixture missing");
+      }
+
+      await blocker.query("BEGIN");
+      blocking = true;
+      await blocker.query(
+        `SELECT rc.revision_id
+         FROM external_current_revision_classifications rc
+         JOIN external_snapshot_skill_observations observation
+           ON observation.revision_id=rc.revision_id
+         WHERE observation.candidate_id=$1
+         FOR UPDATE OF rc`,
+        [secondAlpha.candidateId],
+      );
+
+      quarantine = new PostgresExternalCatalogStore(
+        quarantinePool,
+      ).transitionCandidate(
+        firstAlpha.candidateId,
+        "quarantined",
+        "administrator",
+        "concurrent-shared-revision-admin",
+        "ADMIN_QUARANTINE",
+      );
+      await waitForDatabaseLock(isolated, "shared-revision-quarantine");
+      curate = new PostgresExternalCatalogStore(curatePool).transitionCandidate(
+        secondAlpha.candidateId,
+        "curated",
+        "administrator",
+        "concurrent-shared-revision-admin",
+        "ADMIN_CURATED",
+      );
+      await waitForDatabaseLock(isolated, "shared-revision-curate");
+
+      await blocker.query("COMMIT");
+      blocking = false;
+      const [quarantineResult, curateResult] = await Promise.allSettled([
+        quarantine,
+        curate,
+      ]);
+      expect(quarantineResult.status).toBe("fulfilled");
+      expect(curateResult.status).toBe("rejected");
+      if (curateResult.status === "rejected") {
+        expect(curateResult.reason).toMatchObject({
+          message: "CLASSIFICATION_TRANSITION_INVALID",
+        });
+      }
+      expect(
+        await catalog.findRevision(metadata.id, metadata.revision),
+      ).toBeUndefined();
+    } finally {
+      if (blocking) await blocker.query("ROLLBACK");
+      await Promise.allSettled(
+        [quarantine, curate].filter(
+          (operation): operation is NonNullable<typeof operation> =>
+            operation !== undefined,
+        ),
+      );
+      blocker.release();
+      await quarantinePool.end();
+      await curatePool.end();
+      await isolated.close();
+    }
+  }, 120_000);
 
   it("anchors snapshots to the final advisory head for zero, one, and multiple events with rollback", async () => {
     const isolated = await createTestDatabase();

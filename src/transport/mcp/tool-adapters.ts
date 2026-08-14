@@ -13,6 +13,7 @@ import {
   safeSkillWireError,
 } from "../../application/errors.js";
 import type { SecurityLogger } from "../../observability/logger.js";
+import { TOOL_METADATA } from "./activation-policy.js";
 import {
   forgetRepoMemoryInputSchema,
   forgetRepoMemoryOutputSchema,
@@ -63,8 +64,7 @@ export function registerLoadSkillTool(
     "load_skill",
     {
       title: "Load skill",
-      description:
-        "Load one exact immutable skill revision and its resource manifest.",
+      ...TOOL_METADATA.load_skill,
       inputSchema: loadSkillInputSchema,
       outputSchema: loadSkillOutputSchema,
     },
@@ -96,8 +96,7 @@ export function registerReadSkillResourceTool(
     "read_skill_resource",
     {
       title: "Read skill resource",
-      description:
-        "Read one declared verified textual resource from an exact revision.",
+      ...TOOL_METADATA.read_skill_resource,
       inputSchema: readSkillResourceInputSchema,
       outputSchema: readSkillResourceOutputSchema,
     },
@@ -129,7 +128,7 @@ export function registerSearchSkillsTool(
     "search_skills",
     {
       title: "Search skills",
-      description: "Return deterministic ranked metadata previews for a task.",
+      ...TOOL_METADATA.search_skills,
       inputSchema: searchSkillsInputSchema,
       outputSchema: searchSkillsOutputSchema,
     },
@@ -161,8 +160,7 @@ export function registerListRepoMemoryTool(
     "list_repo_memory",
     {
       title: "List repository memory",
-      description:
-        "List exact skill revisions used in one account-scoped repository.",
+      ...TOOL_METADATA.list_repo_memory,
       inputSchema: listRepoMemoryInputSchema,
       outputSchema: listRepoMemoryOutputSchema,
     },
@@ -194,7 +192,7 @@ export function registerRecordSkillOutcomeTool(
     "record_skill_outcome",
     {
       title: "Record skill outcome",
-      description: "Replace the outcome for one previously loaded revision.",
+      ...TOOL_METADATA.record_skill_outcome,
       inputSchema: recordSkillOutcomeInputSchema,
       outputSchema: recordSkillOutcomeOutputSchema,
     },
@@ -226,8 +224,7 @@ export function registerForgetRepoMemoryTool(
     "forget_repo_memory",
     {
       title: "Forget repository memory",
-      description:
-        "Transactionally forget one account-scoped repository memory namespace.",
+      ...TOOL_METADATA.forget_repo_memory,
       inputSchema: forgetRepoMemoryInputSchema,
       outputSchema: forgetRepoMemoryOutputSchema,
     },

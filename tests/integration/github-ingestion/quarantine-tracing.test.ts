@@ -8,6 +8,10 @@ import type {
 } from "../../../src/application/ports/github-source-provider.js";
 import { SourceRegistrationService } from "../../../src/application/services/source-registration-service.js";
 import { SourceSynchronizationService } from "../../../src/application/services/source-synchronization-service.js";
+import {
+  canonicalJson,
+  sha256Hex,
+} from "../../../src/domain/catalog/canonical-revision.js";
 import type {
   GitHubRepositoryCoordinate,
   GitHubRepositoryIdentity,
@@ -98,6 +102,10 @@ function document(name: string, license?: string): string {
   return `---\nname: ${name}\ndescription: Fixture ${name}.\n${license === undefined ? "" : `license: ${license}\n`}---\nSafe instructions.\n`;
 }
 
+function documentWithInstructions(name: string, instructions: string): string {
+  return `---\nname: ${name}\ndescription: Fixture ${name}.\n---\n${instructions}\n`;
+}
+
 describe("traceable deterministic quarantine", () => {
   let database: TestDatabase;
 
@@ -108,6 +116,271 @@ describe("traceable deterministic quarantine", () => {
 
   afterAll(async () => database.close());
 
+  it("keeps distinct append-only generations when stable findings change", async () => {
+    const provider = new StaticRepositoryProvider(
+      {
+        repositoryId: 70_999,
+        owner: "fixture-owner",
+        repository: "validation-generations",
+        defaultBranch: "main",
+      },
+      "5".repeat(40),
+      { LICENSE },
+    );
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(provider.repository, "fixture-admin");
+    const candidate = {
+      skillPath: "_invalid/generation/SKILL.md",
+      name: "invalid-generation",
+      description: "A deterministic validation failure.",
+      adapterKind: "claude-plugin" as const,
+      classification: "quarantined" as const,
+    };
+    const base = {
+      sourceId: registration.sourceId,
+      commitSha: "5".repeat(40),
+      treeSha: "6".repeat(40),
+      manifestVersion: "invalid-v1",
+      adapterKind: "claude-plugin" as const,
+      revisions: [],
+      observedRepository: registration.repository,
+    };
+    const initialCandidates = [
+      {
+        ...candidate,
+        findings: [
+          {
+            code: "MANIFEST_INVALID" as const,
+            severity: "error" as const,
+            subjectKind: "snapshot" as const,
+            subjectId: "manifest",
+          },
+        ],
+      },
+    ];
+    const first = await store.publishSnapshot({
+      ...base,
+      candidates: initialCandidates,
+      validationInputSha256: sha256Hex(
+        canonicalJson({
+          sourceId: registration.sourceId,
+          commitSha: base.commitSha,
+          treeSha: base.treeSha,
+          candidates: [
+            {
+              skillPath: candidate.skillPath,
+              name: candidate.name,
+              classification: candidate.classification,
+              contentIdentitySha256: null,
+            },
+          ],
+        }),
+      ),
+    });
+    await expect(
+      store.publishSnapshot({ ...base, candidates: initialCandidates }),
+    ).resolves.toMatchObject({
+      created: false,
+      snapshotId: first.snapshotId,
+    });
+    const correctedInput = {
+      ...base,
+      candidates: [
+        {
+          ...candidate,
+          findings: [
+            {
+              code: "PATH_UNSAFE" as const,
+              severity: "error" as const,
+              subjectKind: "candidate" as const,
+              subjectId: "skills/../escape",
+            },
+          ],
+        },
+      ],
+    };
+    const corrected = await store.publishSnapshot(correctedInput);
+
+    expect(first.created).toBe(true);
+    expect(corrected).toMatchObject({
+      created: true,
+      candidateTraces: [
+        {
+          classification: "quarantined",
+          reasonCodes: ["PATH_UNSAFE"],
+        },
+      ],
+    });
+    expect(corrected.snapshotId).not.toBe(first.snapshotId);
+    await expect(store.publishSnapshot(correctedInput)).resolves.toMatchObject({
+      created: false,
+      snapshotId: corrected.snapshotId,
+    });
+  });
+
+  it("falls back to independent nested skills for plugin-only metadata", async () => {
+    const provider = new StaticRepositoryProvider(
+      {
+        repositoryId: 71_000,
+        owner: "fixture-owner",
+        repository: "plugin-metadata-with-nested-skills",
+        defaultBranch: "main",
+      },
+      "6".repeat(40),
+      {
+        ".claude-plugin/plugin.json": JSON.stringify({
+          name: "metadata-only",
+          version: "1.0.0",
+          description: "Plugin metadata without an inventory.",
+          author: { name: "Fixture Owner", email: "owner@example.test" },
+          license: "MIT",
+          hooks: "./hooks/hooks.json",
+        }),
+        LICENSE,
+        "hooks/hooks.json": "{}\n",
+        "commands/install.md": "Do not ingest this command.\n",
+        "skills/alpha/SKILL.md": documentWithInstructions(
+          "alpha",
+          "Use the [local guide](guide.md).",
+        ),
+        "skills/alpha/guide.md": "Alpha-local guidance.\n",
+        "skills/beta/SKILL.md": document("beta"),
+        "skills/beta/guide.md": "Unreferenced sibling guidance.\n",
+      },
+    );
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(provider.repository, "fixture-admin");
+    const result = await new SourceSynchronizationService(provider, store).sync(
+      registration.sourceId,
+    );
+
+    expect(result.traces.map(({ skillName }) => skillName)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+    expect(
+      result.candidateTraces.map(({ classification }) => classification),
+    ).toEqual(["verified", "verified"]);
+    await expect(
+      database.pool.query<{ adapter_kind: string }>(
+        "SELECT adapter_kind FROM external_source_snapshots WHERE source_id=$1",
+        [registration.sourceId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ adapter_kind: "nested-skill" }] });
+    await expect(
+      database.pool.query<{
+        name: string;
+        resource_path: string;
+        content: string;
+      }>(
+        `SELECT r.name,rr.resource_path,c.content
+         FROM external_revision_resources rr
+         JOIN external_skill_revisions r ON r.id=rr.revision_id
+         JOIN external_content_objects c ON c.sha256=rr.content_sha256
+         JOIN external_skill_identities i ON i.id=r.skill_identity_id
+         WHERE i.source_id=$1`,
+        [registration.sourceId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          name: "alpha",
+          resource_path: "guide.md",
+          content: "Alpha-local guidance.\n",
+        },
+      ],
+    });
+  });
+
+  it("keeps an explicitly declared plugin inventory authoritative", async () => {
+    const provider = new StaticRepositoryProvider(
+      {
+        repositoryId: 71_100,
+        owner: "fixture-owner",
+        repository: "authoritative-plugin",
+        defaultBranch: "main",
+      },
+      "a".repeat(40),
+      {
+        ".claude-plugin/plugin.json": JSON.stringify({
+          name: "authoritative-plugin",
+          version: "1.0.0",
+          description: "Plugin with an explicit inventory.",
+          author: { name: "Fixture Owner" },
+          license: "MIT",
+          skills: ["./skills/declared"],
+        }),
+        LICENSE,
+        "skills/declared/SKILL.md": document("declared"),
+        "skills/unlisted/SKILL.md": document("unlisted"),
+      },
+    );
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(provider.repository, "fixture-admin");
+    const result = await new SourceSynchronizationService(provider, store).sync(
+      registration.sourceId,
+    );
+
+    expect(result.traces.map(({ skillName }) => skillName)).toEqual([
+      "declared",
+    ]);
+    await expect(
+      database.pool.query<{ adapter_kind: string }>(
+        "SELECT adapter_kind FROM external_source_snapshots WHERE source_id=$1",
+        [registration.sourceId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ adapter_kind: "claude-plugin" }] });
+  });
+
+  it("quarantines a hostile declared inventory without nested fallback", async () => {
+    const provider = new StaticRepositoryProvider(
+      {
+        repositoryId: 71_101,
+        owner: "fixture-owner",
+        repository: "hostile-authoritative-plugin",
+        defaultBranch: "main",
+      },
+      "b".repeat(40),
+      {
+        ".claude-plugin/plugin.json": JSON.stringify({
+          name: "hostile-authoritative-plugin",
+          version: "1.0.0",
+          description: "Plugin with an unsafe explicit inventory.",
+          author: { name: "Fixture Owner" },
+          license: "MIT",
+          skills: ["./../outside"],
+        }),
+        LICENSE,
+        "skills/safe/SKILL.md": document("must-not-fallback"),
+      },
+    );
+    const store = new PostgresExternalCatalogStore(database.pool);
+    const registration = await new SourceRegistrationService(
+      provider,
+      store,
+    ).add(provider.repository, "fixture-admin");
+    const result = await new SourceSynchronizationService(provider, store).sync(
+      registration.sourceId,
+    );
+
+    expect(result.traces).toEqual([]);
+    expect(result.candidateTraces).toEqual([
+      expect.objectContaining({
+        classification: "quarantined",
+        reasonCodes: ["PATH_UNSAFE"],
+      }),
+    ]);
+  });
+
   it("records one stable synthetic result for a malformed manifest", async () => {
     const provider = new StaticRepositoryProvider(
       {
@@ -117,7 +390,11 @@ describe("traceable deterministic quarantine", () => {
         defaultBranch: "main",
       },
       "7".repeat(40),
-      { ".claude-plugin/plugin.json": "{ malformed" },
+      {
+        ".claude-plugin/plugin.json": "{ malformed",
+        LICENSE,
+        "skills/safe/SKILL.md": document("must-not-fallback"),
+      },
     );
     const store = new PostgresExternalCatalogStore(database.pool);
     const registration = await new SourceRegistrationService(

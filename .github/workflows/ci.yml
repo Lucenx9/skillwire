@@ -3,7 +3,12 @@ name: ci
 on:
   push:
     branches:
-      [main, "001-remote-skill-delivery", "002-github-catalog-ingestion"]
+      [
+        main,
+        "001-remote-skill-delivery",
+        "002-github-catalog-ingestion",
+        "003-autonomous-skill-activation",
+      ]
   pull_request:
   workflow_dispatch:
 
@@ -50,6 +55,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24.18.0
@@ -64,6 +71,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24.18.0
@@ -93,6 +102,8 @@ jobs:
       SKILLWIRE_API_KEY_PEPPER: ci-only-pepper-with-at-least-thirty-two-bytes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24.18.0
@@ -105,6 +116,10 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm test:e2e
       - run: pnpm test:security
+      - name: Deterministic autonomous-activation gate
+        run: pnpm test:activation
+      - name: Deterministic Codex activation-adapter gate
+        run: pnpm test:activation-adapter
 
   catalog:
     runs-on: ubuntu-24.04
@@ -129,6 +144,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24.18.0
@@ -165,10 +182,37 @@ jobs:
           curl --fail --silent http://127.0.0.1:3000/health/ready
       - name: Bootstrap one account and key
         run: |
+          umask 077
+          : > .secrets/api-key
+          chmod 0600 .secrets/api-key
           account_json=$(docker compose exec -T skillwire node dist/src/authentication/admin-cli.js account:create)
           account_id=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).accountId)" "$account_json")
-          key_json=$(docker compose exec -T skillwire node dist/src/authentication/admin-cli.js key:create --account-id "$account_id")
-          node -e "const fs=require('fs'); fs.writeFileSync('.secrets/api-key', JSON.parse(process.argv[1]).token+'\n', {mode:0o600})" "$key_json"
+          key_id=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+          private_directory=$(mktemp -d "${RUNNER_TEMP}/skillwire-key.XXXXXX")
+          token_fifo="${private_directory}/token"
+          metadata_file="${private_directory}/metadata.json"
+          cleanup_key_channel() { rm -f "$token_fifo" "$metadata_file"; rmdir "$private_directory" 2>/dev/null || true; }
+          trap cleanup_key_channel EXIT
+          mkfifo --mode=0600 "$token_fifo"
+          docker compose run --rm --no-TTY --no-deps \
+            --user "$(id -u):$(id -g)" \
+            --entrypoint node \
+            --volume "${private_directory}:/run/skillwire-private:rw" \
+            skillwire dist/src/authentication/admin-cli.js key:create \
+            --account-id "$account_id" \
+            --key-id "$key_id" \
+            --token-output /run/skillwire-private/token > "$metadata_file" &
+          admin_pid=$!
+          if ! timeout 30s sh -c 'cat "$1" > "$2"' _ "$token_fifo" .secrets/api-key; then
+            kill "$admin_pid" 2>/dev/null || true
+            wait "$admin_pid" 2>/dev/null || true
+            exit 1
+          fi
+          wait "$admin_pid"
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if(m.keyId!==process.argv[2]||m.tokenDelivery!=='private-file-descriptor')process.exit(1)" "$metadata_file" "$key_id"
+          chmod 0600 .secrets/api-key
+          trap - EXIT
+          cleanup_key_channel
       - name: Run progressive and repository-memory smoke journey
         run: |
           repository_hash=$(printf 'skillwire-ci-smoke' | sha256sum | cut -d' ' -f1)

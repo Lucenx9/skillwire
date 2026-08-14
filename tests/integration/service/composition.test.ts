@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -81,8 +90,44 @@ describe("composed service startup", () => {
     expect(expired.rows[0]?.count).toBe("0");
   });
 
+  it("refuses startup before readiness when the database is newer than the binary", async () => {
+    const projectRoot = mkdtempSync(
+      join(tmpdir(), "skillwire-pre-010-binary-"),
+    );
+    const migrationRoot = join(projectRoot, "migrations");
+    mkdirSync(migrationRoot);
+    try {
+      for (const name of readdirSync(join(process.cwd(), "migrations")).filter(
+        (name) => /^00[1-9]_.*\.sql$/.test(name),
+      )) {
+        writeFileSync(
+          join(migrationRoot, name),
+          readFileSync(join(process.cwd(), "migrations", name)),
+        );
+      }
+      await expect(
+        createApplication(
+          {
+            host: "127.0.0.1",
+            port: 0,
+            databaseUrl: database.connectionString,
+            apiKeyPepper: pepper,
+            catalogRoot: projectRoot,
+          },
+          projectRoot,
+        ),
+      ).rejects.toThrow(
+        /database migration 010 is newer than binary migration 009/i,
+      );
+      expect(application.readiness.isReady()).toBe(true);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("transitions through a real PostgreSQL outage and recovery cleanup", async () => {
     await database.simulateOutage();
+    await expect(application.checkReadiness()).resolves.toBe(false);
     const unavailable = await application.app.request("/health/ready", {
       headers: { host: "127.0.0.1" },
     });
@@ -110,6 +155,7 @@ describe("composed service startup", () => {
       `,
       [accountId, randomUUID()],
     );
+    await expect(application.checkReadiness()).resolves.toBe(true);
     const recovered = await application.app.request("/health/ready", {
       headers: { host: "127.0.0.1" },
     });
@@ -254,5 +300,57 @@ describe("composed service startup", () => {
     await service.close();
     expect(service.server.listening).toBe(false);
     expect(service.application.readiness.isReady()).toBe(false);
+  });
+
+  it("binds and removes an owner-only Unix socket without opening TCP", async () => {
+    const root = mkdtempSync(join(tmpdir(), "skillwire-service-socket-"));
+    const socketPath = join(root, "mcp.sock");
+    try {
+      const service = await startHttpService(
+        {
+          host: "localhost",
+          unixSocketPath: socketPath,
+          allowedHosts: ["localhost"],
+          port: 3000,
+          databaseUrl: database.connectionString,
+          apiKeyPepper: pepper,
+          shutdownGraceMilliseconds: 1000,
+        },
+        silentSecurityLogger,
+      );
+      expect(service.server.address()).toBe(socketPath);
+      expect(existsSync(socketPath)).toBe(true);
+      await service.close();
+      expect(existsSync(socketPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a Unix socket path with a symlinked ancestor", async () => {
+    const root = mkdtempSync(join(tmpdir(), "skillwire-service-symlink-"));
+    const target = join(root, "target");
+    const linked = join(root, "linked");
+    mkdirSync(target, { mode: 0o700 });
+    symlinkSync(target, linked);
+    try {
+      await expect(
+        startHttpService(
+          {
+            host: "localhost",
+            unixSocketPath: join(linked, "mcp.sock"),
+            allowedHosts: ["localhost"],
+            port: 3000,
+            databaseUrl: database.connectionString,
+            apiKeyPepper: pepper,
+            shutdownGraceMilliseconds: 1000,
+          },
+          silentSecurityLogger,
+        ),
+      ).rejects.toThrow(/ancestry.*unsafe/i);
+      expect(existsSync(join(target, "mcp.sock"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -32,7 +32,7 @@ One canonical public GitHub repository, whether found by discovery or explicitly
 | `default_branch` | bounded validated text | Last observed mutable default branch |
 | `visibility` | `text CHECK = 'public'` | Private sources cannot enter the model |
 | `first_observed_at` / `last_observed_at` | timestamp | Discovery history |
-| `current_published_snapshot_id` | nullable UUID FK | Atomic visible head, set only after successful publication |
+| `current_published_snapshot_id` | nullable UUID FK | Atomic evaluated head, set after successful finalization, including all-quarantined snapshots |
 | `metadata_etag` | nullable bounded text | Conditional mutable repository lookup |
 | `metadata_cache_sha256` | nullable SHA-256 | Binds the ETag to its validated cached representation |
 
@@ -122,8 +122,8 @@ One fully evaluated immutable source commit.
   decoded bytes.
 - Finalization timestamp and external advisory-chain head when publication occurs.
 - Created only in the final fenced finalization transaction. A completely evaluated all-quarantined
-  commit may have a non-current snapshot and reports; a failed/incomplete acquisition has a sync run
-  but no snapshot row.
+  commit becomes the current snapshot and retains its reports; a failed/incomplete acquisition has a
+  sync run but no snapshot row.
 
 ### `external_skill_identities`
 
@@ -147,7 +147,8 @@ One candidate skill within one snapshot.
   optional published/reused revision reference. The separate current-classification projection is
   authoritative for state.
 - A quarantined candidate can exist without an external revision.
-- A failed newer candidate does not mutate or hide the source's previously published head.
+- A failed newer candidate is recorded in the new evaluated head. Its superseded verified revision
+  remains immutable and exactly loadable with an `unavailable` advisory, but is hidden from search.
 
 ### `external_content_objects`
 
@@ -230,6 +231,9 @@ Evidence for each candidate at a later exact commit.
 - Stores canonical input SHA-256, report SHA-256, result `passed | failed`, and timestamp.
 - A unique key prevents duplicate reports for identical input and versions.
 - Report completeness is a prerequisite for publication.
+- At the database boundary, every candidate or revision event whose next classification is
+  `verified` must reference a `passed` report for the event's candidate or initiating candidate.
+  Migration baselines are explicitly synchronization events, not verification transitions.
 
 ### `external_validation_findings`
 
@@ -252,26 +256,50 @@ response itself deterministically proves a policy violation.
 
 ### `external_classification_events`
 
-Append-only transition history.
+Append-only raw per-observation candidate transition history.
 
-- Subject is a candidate/revision ID with prior and next classifications.
+- Subject is exactly one candidate ID with prior and next classifications.
 - Classification: `discovered | verified | quarantined | curated`.
 - Actor kind: `discovery | verifier | administrator | synchronization`.
 - Bounded actor ID, reason code, report reference, and timestamp.
-- A transition procedure locks the current projection, validates the state machine, appends the
-  event, then updates the projection in one transaction.
+- The current candidate projection may reference only an event for the same candidate and matching
+  next classification.
+
+### `external_revision_classification_events`
+
+Append-only shared revision eligibility transition history.
+
+- Subject is exactly one published revision ID; an initiating candidate ID records attribution but
+  is not a second event subject.
+- Effective classification: `verified | quarantined | curated`.
+- The initiating candidate must be an observation of the subject revision, and a verifier report
+  must belong to that candidate.
+- The current revision projection may reference only an event for the same revision and matching
+  next classification.
+- Candidate and revision transitions are validated and appended independently. An operation that
+  changes both projections writes two truthful events; revision-only transitions do not change raw
+  sibling candidate history.
 
 ### `external_current_classifications`
 
-Mutable projection keyed by subject.
+Mutable raw per-observation projection keyed by candidate.
 
 - Points to the latest classification event and stores current state.
 - Search joins only the current published snapshot and `verified | curated` subjects.
 - Current classification is never included in canonical revision bytes.
 
+### `external_current_revision_classifications`
+
+Mutable effective eligibility projection keyed by published revision.
+
+- Points only to the latest event for the same revision and stores the matching effective state.
+- This projection is authoritative for administrative effective-state display/filtering and MCP
+  eligibility.
+
 ### `external_curation_decisions`
 
-- One row per classification event that promotes `verified -> curated`.
+- One row per candidate or revision classification event that promotes `verified -> curated`; the
+  decision references exactly one event subject.
 - Records authenticated administrator identity, bounded reason code/rationale hash, and timestamp.
 - Automation has no write path to this table.
 - Changed content starts a new verified revision and does not inherit curation. An unchanged snapshot
@@ -309,9 +337,12 @@ snapshot 1 ── * candidates ── 0..1 external_skill_revisions
    │                  │                     │
    └── * observations ┘                     ├── * resources ── 1 content object
                                             ├── * dependency edges ── 1 target revision
-                                            ├── * classification events
+                                            ├── * revision classification events
                                             └── * advisory events
 ```
+
+Candidates retain their own raw classification events and current projections outside the revision
+subtree shown above.
 
 The only imported rows visible to agents are revisions reached through
 `github_sources.current_published_snapshot_id`, an eligible current classification, and an available

@@ -1,0 +1,1958 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "autonomous-activation-v1",
+  "policyVersion": "skillwire-activation-v1",
+  "catalogRelease": "activation-catalog-v1",
+  "localInventoryVersion": "activation-local-v1",
+  "cases": [
+    {
+      "id": "auto-dependency-upgrade-planning-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Plan a major framework dependency upgrade with compatibility research, migration checkpoints, rollback, and verification.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dependency-upgrade-planning",
+        "revision": "1.0.0",
+        "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized dependency-upgrade-planning task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-dependency-upgrade-planning-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create a dependency version migration plan that covers breaking changes, tests, and rollback.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dependency-upgrade-planning",
+        "revision": "1.0.0",
+        "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized dependency-upgrade-planning task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-dependency-upgrade-planning-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review this planned library upgrade for compatibility risks and a safe staged rollout.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dependency-upgrade-planning",
+        "revision": "1.0.0",
+        "revisionSha256": "b93eb2b23120b134df66b2adda7a7f94f12743ac6678369bf61561d923e4f599"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/upgrade-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized dependency-upgrade-planning task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-dockerfile-hardening-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Perform a Dockerfile hardening review for minimal images, least privilege, reproducibility, and secret safety.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dockerfile-hardening",
+        "revision": "1.0.0",
+        "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized dockerfile-hardening task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-dockerfile-hardening-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Design a container security checklist covering non-root execution and reproducible builds.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dockerfile-hardening",
+        "revision": "1.0.0",
+        "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized dockerfile-hardening task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-dockerfile-hardening-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a production image build for Dockerfile hardening and credential leakage risks.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "dockerfile-hardening",
+        "revision": "1.0.0",
+        "revisionSha256": "9a3f4ae15465afb34e89e7035316dc4b36bdbe4bcb9a3900a48dafcc37281f0d"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/hardening-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized dockerfile-hardening task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-github-actions-ci-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Design a maintainable GitHub Actions CI workflow with validation and delivery stages.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "github-actions-ci",
+        "revision": "1.0.0",
+        "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized github-actions-ci task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-github-actions-ci-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a GitHub Actions pipeline for reliable continuous integration and safe delivery automation.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "github-actions-ci",
+        "revision": "1.0.0",
+        "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized github-actions-ci task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-github-actions-ci-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create a CI workflow plan for pull-request checks and release delivery in GitHub Actions.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "github-actions-ci",
+        "revision": "1.0.0",
+        "revisionSha256": "6c5a32f336100a147b3af865f8a14713bd7f82a2810e1666ee49a679bef2c45c"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/ci-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized github-actions-ci task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-node-api-design-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a Node.js REST API for compatible service interfaces, security, and clear endpoint design.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "node-api-design",
+        "revision": "1.0.0",
+        "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized node-api-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-node-api-design-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Design a backward-compatible Node API contract with authentication and error semantics.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "node-api-design",
+        "revision": "1.0.0",
+        "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized node-api-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-node-api-design-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Perform a formal API design review for a Node service and its REST endpoints.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "node-api-design",
+        "revision": "1.0.0",
+        "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/api-review-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized node-api-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-postgres-schema-review-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a PostgreSQL schema for constraints, indexes, migration safety, and data integrity.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "postgres-schema-review",
+        "revision": "1.0.0",
+        "revisionSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized postgres-schema-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-postgres-schema-review-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Plan a PostgreSQL database migration with constraint and index validation.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "postgres-schema-review",
+        "revision": "1.0.0",
+        "revisionSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized postgres-schema-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-postgres-schema-review-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Perform a formal schema review for relational integrity and safe database migrations.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "postgres-schema-review",
+        "revision": "1.0.0",
+        "revisionSha256": "857f466548c613479b0022ab0f978a84b56abcde6f72b728a92d997bc1df7493"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/schema-review-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized postgres-schema-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-react-accessibility-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Audit a React interface for accessibility, ARIA, keyboard input, focus management, and feedback.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "react-accessibility",
+        "revision": "1.0.0",
+        "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized react-accessibility task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-react-accessibility-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review React components for semantic HTML and accessible focus behavior.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "react-accessibility",
+        "revision": "1.0.0",
+        "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized react-accessibility task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-react-accessibility-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create an accessibility remediation plan for a keyboard-driven React application.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "react-accessibility",
+        "revision": "1.0.0",
+        "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/accessibility-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized react-accessibility task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-technical-documentation-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create audience-appropriate technical documentation with reproducible validation instructions.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "technical-documentation",
+        "revision": "1.0.0",
+        "revisionSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized technical-documentation task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-technical-documentation-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a README and operator guide for accuracy, audience fit, and verifiable commands.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "technical-documentation",
+        "revision": "1.0.0",
+        "revisionSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized technical-documentation task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-technical-documentation-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Plan a technical documentation set for developers and operators with validation steps.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "technical-documentation",
+        "revision": "1.0.0",
+        "revisionSha256": "f739ed14c187f47f6a1eb69cee4e62170b02bee4e0f3afc25f0b2592a18bd346"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/documentation-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized technical-documentation task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-threat-modeling-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Build a threat model covering assets, trust boundaries, attacker goals, abuse cases, and mitigations.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "threat-modeling",
+        "revision": "1.0.0",
+        "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized threat-modeling task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-threat-modeling-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Facilitate a security threat-modeling review for a multi-tenant service.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "threat-modeling",
+        "revision": "1.0.0",
+        "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized threat-modeling task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-threat-modeling-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Document trust boundaries and abuse cases for a formal application threat model.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "threat-modeling",
+        "revision": "1.0.0",
+        "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/threat-model-template.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized threat-modeling task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-typescript-code-review-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Perform a TypeScript code review focused on type safety, narrowing, correctness, and regressions.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "typescript-code-review",
+        "revision": "1.0.0",
+        "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized typescript-code-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-typescript-code-review-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review TypeScript changes for maintainability and regression risks in the type system.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "typescript-code-review",
+        "revision": "1.0.0",
+        "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized typescript-code-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-typescript-code-review-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create a rigorous TypeScript review checklist for unsafe narrowing and correctness.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "typescript-code-review",
+        "revision": "1.0.0",
+        "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/review-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized typescript-code-review task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-vitest-test-design-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Design focused Vitest unit, contract, integration, and failure-path coverage.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "vitest-test-design",
+        "revision": "1.0.0",
+        "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized vitest-test-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-vitest-test-design-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a Vitest suite for useful mocking boundaries and missing failure cases.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "vitest-test-design",
+        "revision": "1.0.0",
+        "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "Specialized vitest-test-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-vitest-test-design-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Create a Vitest test strategy spanning unit, integration, and contract tests.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "vitest-test-design",
+        "revision": "1.0.0",
+        "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/test-design-checklist.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "Specialized vitest-test-design task with a frozen automatic-eligible match."
+    },
+    {
+      "id": "auto-overlap-1",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Use the already available local guidance to perform a specialized typescript code review task.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "localSkillFixture": {
+        "fixtureId": "local-typescript-review",
+        "relationship": "equivalent",
+        "explicitlySelected": true
+      },
+      "expectedCatalogMatch": {
+        "skillId": "typescript-code-review",
+        "revision": "1.0.0",
+        "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "local-precedence"
+      },
+      "rationale": "Predeclared local overlap must be measured separately and must not create a remote load."
+    },
+    {
+      "id": "auto-overlap-2",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Use the already available local guidance to perform a specialized threat modeling task.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "localSkillFixture": {
+        "fixtureId": "local-threat-model",
+        "relationship": "equivalent",
+        "explicitlySelected": false
+      },
+      "expectedCatalogMatch": {
+        "skillId": "threat-modeling",
+        "revision": "1.0.0",
+        "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "local-precedence"
+      },
+      "rationale": "Predeclared local overlap must be measured separately and must not create a remote load."
+    },
+    {
+      "id": "auto-overlap-3",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Use the already available local guidance to perform a specialized node api design task.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "localSkillFixture": {
+        "fixtureId": "local-api-review",
+        "relationship": "overlapping",
+        "explicitlySelected": false
+      },
+      "expectedCatalogMatch": {
+        "skillId": "node-api-design",
+        "revision": "1.0.0",
+        "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "local-precedence"
+      },
+      "rationale": "Predeclared local overlap must be measured separately and must not create a remote load."
+    },
+    {
+      "id": "auto-overlap-4",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Use the already available local guidance to perform a specialized react accessibility task.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "localSkillFixture": {
+        "fixtureId": "local-accessibility",
+        "relationship": "equivalent",
+        "explicitlySelected": true
+      },
+      "expectedCatalogMatch": {
+        "skillId": "react-accessibility",
+        "revision": "1.0.0",
+        "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "local-precedence"
+      },
+      "rationale": "Predeclared local overlap must be measured separately and must not create a remote load."
+    },
+    {
+      "id": "auto-overlap-5",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Use the already available local guidance to perform a specialized vitest test design task.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "localSkillFixture": {
+        "fixtureId": "local-test-design",
+        "relationship": "overlapping",
+        "explicitlySelected": false
+      },
+      "expectedCatalogMatch": {
+        "skillId": "vitest-test-design",
+        "revision": "1.0.0",
+        "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "local-precedence"
+      },
+      "rationale": "Predeclared local overlap must be measured separately and must not create a remote load."
+    },
+    {
+      "id": "irrelevant-01",
+      "scenarioClass": "irrelevant",
+      "prompt": "Hello!",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-02",
+      "scenarioClass": "irrelevant",
+      "prompt": "What is two plus two?",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-03",
+      "scenarioClass": "irrelevant",
+      "prompt": "Convert 5 kilometers to meters.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-04",
+      "scenarioClass": "irrelevant",
+      "prompt": "Rewrite this sentence in the past tense.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-05",
+      "scenarioClass": "irrelevant",
+      "prompt": "Alphabetize apple, banana, and cherry.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-06",
+      "scenarioClass": "irrelevant",
+      "prompt": "Return the word okay.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-07",
+      "scenarioClass": "irrelevant",
+      "prompt": "Summarize: The meeting starts at noon.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-08",
+      "scenarioClass": "irrelevant",
+      "prompt": "What day comes after Monday?",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-09",
+      "scenarioClass": "irrelevant",
+      "prompt": "Make this title lowercase.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-10",
+      "scenarioClass": "irrelevant",
+      "prompt": "Count the words in: one two three.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-11",
+      "scenarioClass": "irrelevant",
+      "prompt": "Translate yes to Italian.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-12",
+      "scenarioClass": "irrelevant",
+      "prompt": "Replace commas with semicolons.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-13",
+      "scenarioClass": "irrelevant",
+      "prompt": "Is 10 greater than 3?",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-14",
+      "scenarioClass": "irrelevant",
+      "prompt": "Give me a short greeting.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "not-applicable"
+      },
+      "rationale": "Trivial or routine work should not activate SkillWire."
+    },
+    {
+      "id": "irrelevant-15",
+      "scenarioClass": "irrelevant",
+      "prompt": "Zygomorphic COBOL quantum-annealing lunar ritual.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "call",
+        "load": "skip",
+        "operationSequence": ["search_skills"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "no-result"
+      },
+      "failureMode": "no-relevant-result",
+      "rationale": "A plausible specialized search has no lexical catalog match and must return empty."
+    },
+    {
+      "id": "ask-matt-explicit-01",
+      "pairId": "ask-matt-pair-01",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which engineering workflow fits a multi-session feature.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["REFERENCE.md"],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-consumed"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-01",
+      "pairId": "ask-matt-pair-01",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which engineering workflow fits a multi-session feature.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-02",
+      "pairId": "ask-matt-pair-02",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which skill flow fits an intermittent bug.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-02",
+      "pairId": "ask-matt-pair-02",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which skill flow fits an intermittent bug.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-03",
+      "pairId": "ask-matt-pair-03",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide how to route an idea into implementation.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-03",
+      "pairId": "ask-matt-pair-03",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide how to route an idea into implementation.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-04",
+      "pairId": "ask-matt-pair-04",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which workflow to use for a prototype detour.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-04",
+      "pairId": "ask-matt-pair-04",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which workflow to use for a prototype detour.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-05",
+      "pairId": "ask-matt-pair-05",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which skill should turn a design into tickets.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-05",
+      "pairId": "ask-matt-pair-05",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which skill should turn a design into tickets.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-06",
+      "pairId": "ask-matt-pair-06",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide how to choose between triage and diagnosis.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-06",
+      "pairId": "ask-matt-pair-06",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide how to choose between triage and diagnosis.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-07",
+      "pairId": "ask-matt-pair-07",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which flow handles a large foggy effort.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-07",
+      "pairId": "ask-matt-pair-07",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which flow handles a large foggy effort.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-08",
+      "pairId": "ask-matt-pair-08",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which skill should review an implementation.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-08",
+      "pairId": "ask-matt-pair-08",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which skill should review an implementation.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-09",
+      "pairId": "ask-matt-pair-09",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide how to route repository architecture upkeep.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-09",
+      "pairId": "ask-matt-pair-09",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide how to route repository architecture upkeep.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "ask-matt-explicit-10",
+      "pairId": "ask-matt-pair-10",
+      "scenarioClass": "user-requested-explicit",
+      "prompt": "Use the ask-matt skill to decide which workflow fits a human-only setup step.",
+      "explicitUserIntent": true,
+      "invocationContext": "user-requested",
+      "expectedCatalogMatch": {
+        "skillId": "gh-1148788086-ask-matt-bbbbbbbb",
+        "revision": "gh-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "instructions-sufficient"
+      },
+      "rationale": "The user explicitly requested the opt-in routing skill."
+    },
+    {
+      "id": "ask-matt-without-intent-10",
+      "pairId": "ask-matt-pair-10",
+      "scenarioClass": "user-requested-without-intent",
+      "prompt": "Decide which workflow fits a human-only setup step.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": null,
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "user-only-isolated"
+      },
+      "rationale": "Without explicit opt-in, the matching user-only skill must remain unavailable."
+    },
+    {
+      "id": "failure-service-unavailable",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review TypeScript type safety with a specialized procedure.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "typescript-code-review",
+        "revision": "1.0.0",
+        "revisionSha256": "23ae106db34f706318436b69b6bf2380ce828bf6d2f685a629e946f6ad6827ec"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "service-unavailable"
+      },
+      "failureMode": "service-unavailable",
+      "rationale": "Frozen service-unavailable fail-open case with no retry or fallback."
+    },
+    {
+      "id": "failure-authentication",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Threat model a multi-tenant service.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "threat-modeling",
+        "revision": "1.0.0",
+        "revisionSha256": "3623da791257fcf46cc4d8145421497b04a95e43ce1eea51bc8f090c40c28dfb"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "authentication-failed"
+      },
+      "failureMode": "authentication-failed",
+      "rationale": "Frozen authentication-failed fail-open case with no retry or fallback."
+    },
+    {
+      "id": "failure-rate-limit",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Design a Vitest failure-path suite.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "vitest-test-design",
+        "revision": "1.0.0",
+        "revisionSha256": "cf7f1caec9edbb216b766e253cae407e24a077f256fbf2dbbdc427dc24fa72d3"
+      },
+      "expectedBehavior": {
+        "search": "skip",
+        "load": "skip",
+        "operationSequence": [],
+        "maxSearchCalls": 0,
+        "maxLoadCalls": 0,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "rate-limited"
+      },
+      "failureMode": "rate-limited",
+      "rationale": "Frozen rate-limited fail-open case with no retry or fallback."
+    },
+    {
+      "id": "failure-revision-unavailable",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Review a Node API contract.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "node-api-design",
+        "revision": "1.0.0",
+        "revisionSha256": "f971730ba7b0d3dde20e05d25b94b49d94351cb892624e217cd76b31fa18fd40"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": ["search_skills", "load_skill"],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 0,
+        "resourcePaths": [],
+        "repositoryHashProvided": false,
+        "expectedMemoryWrites": 0,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "revision-unavailable"
+      },
+      "failureMode": "revision-unavailable",
+      "rationale": "Frozen revision-unavailable fail-open case with no retry or fallback."
+    },
+    {
+      "id": "failure-resource",
+      "scenarioClass": "automatic-relevant",
+      "prompt": "Audit a React interface for accessibility.",
+      "explicitUserIntent": false,
+      "invocationContext": "automatic",
+      "expectedCatalogMatch": {
+        "skillId": "react-accessibility",
+        "revision": "1.0.0",
+        "revisionSha256": "801ef7ff070c38548f3bd632d0820db2560e1500e1449f492e37f3a54fad2bc0"
+      },
+      "expectedBehavior": {
+        "search": "call",
+        "load": "call",
+        "operationSequence": [
+          "search_skills",
+          "load_skill",
+          "read_skill_resource"
+        ],
+        "maxSearchCalls": 1,
+        "maxLoadCalls": 1,
+        "maxResourceCalls": 1,
+        "resourcePaths": ["references/accessibility-checklist.md"],
+        "repositoryHashProvided": true,
+        "expectedMemoryWrites": 1,
+        "expectedOutcomeWrites": 0,
+        "terminalReason": "resource-failed"
+      },
+      "failureMode": "resource-failed",
+      "rationale": "Frozen resource-failed fail-open case with no retry or fallback."
+    }
+  ]
+}

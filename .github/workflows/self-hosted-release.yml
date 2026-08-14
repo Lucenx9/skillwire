@@ -1,0 +1,214 @@
+name: Self-hosted release
+
+on:
+  push:
+    tags:
+      - "self-hosted-v*"
+
+permissions:
+  contents: read
+
+env:
+  COSIGN_VERSION: 3.1.3
+  NODE_VERSION: 24.18.0
+
+jobs:
+  build-test-sign:
+    if: startsWith(github.ref, 'refs/tags/self-hosted-v')
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Complete all source gates before signing
+        run:
+          pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm
+          test
+      - id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          test "${GITHUB_REF}" = "refs/tags/self-hosted-v${version}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+      - name: Acquire and verify pinned Cosign
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "${RUNNER_TEMP}/cosign-host" \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71  ${RUNNER_TEMP}/cosign-host" \
+            | sha256sum --check --strict
+          case "${ARCH}" in
+            amd64)
+              cp "${RUNNER_TEMP}/cosign-host" "${RUNNER_TEMP}/cosign-${ARCH}"
+              target_sha=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+              ;;
+            arm64)
+              curl --fail --location --proto '=https' --tlsv1.2 \
+                --output "${RUNNER_TEMP}/cosign-${ARCH}" \
+                "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-arm64"
+              target_sha=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
+              ;;
+            *) exit 2 ;;
+          esac
+          echo "${target_sha}  ${RUNNER_TEMP}/cosign-${ARCH}" | sha256sum --check --strict
+          chmod 0700 "${RUNNER_TEMP}/cosign-host" "${RUNNER_TEMP}/cosign-${ARCH}"
+      - name: Assemble deterministic architecture payload
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          payload="${RUNNER_TEMP}/payload-${ARCH}"
+          install -d -m 0700 \
+            "${payload}/app" "${payload}/bin" "${payload}/runtime" \
+            "${payload}/tools" "${RUNNER_TEMP}/release-${ARCH}"
+          cp -R catalog migrations distribution integrations "${payload}/"
+          cp distribution/self-hosted/bin/skillwire "${payload}/bin/skillwire"
+          cp "${RUNNER_TEMP}/cosign-${ARCH}" "${payload}/tools/cosign"
+          case "${ARCH}" in
+            amd64)
+              node_arch=x64
+              node_sha=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
+              ;;
+            arm64)
+              node_arch=arm64
+              node_sha=58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6
+              ;;
+            *) exit 2 ;;
+          esac
+          node_archive="node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "${RUNNER_TEMP}/${node_archive}" \
+            "https://nodejs.org/dist/v${NODE_VERSION}/${node_archive}"
+          echo "${node_sha}  ${RUNNER_TEMP}/${node_archive}" | sha256sum --check --strict
+          tar --extract --xz --file "${RUNNER_TEMP}/${node_archive}" \
+            --strip-components=2 --directory "${payload}/runtime" \
+            "node-v${NODE_VERSION}-linux-${node_arch}/bin/node"
+          find "${payload}" -type d -exec chmod 0700 {} +
+          find "${payload}" -type f -exec chmod 0644 {} +
+          chmod 0755 "${payload}/bin/skillwire" "${payload}/runtime/node" "${payload}/tools/cosign"
+          pnpm exec tsx scripts/build-self-hosted-app.ts \
+            "${PWD}/node_modules/esbuild/bin/esbuild" \
+            "${PWD}/src/onboarding/cli/main.ts" \
+            "${payload}/app/skillwire.mjs"
+      - name: Build canonical manifest and archive
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SKILLWIRE_IMAGE_AMD64_DIGEST: ${{ vars.SKILLWIRE_IMAGE_AMD64_DIGEST }}
+          SKILLWIRE_IMAGE_ARM64_DIGEST: ${{ vars.SKILLWIRE_IMAGE_ARM64_DIGEST }}
+        run: |
+          set -euo pipefail
+          case "${ARCH}" in
+            amd64)
+              skillwire_digest="${SKILLWIRE_IMAGE_AMD64_DIGEST}"
+              postgres_digest="sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a"
+              ;;
+            arm64)
+              skillwire_digest="${SKILLWIRE_IMAGE_ARM64_DIGEST}"
+              postgres_digest="sha256:b797483593b82cbea9a7ee41c88f324a90d10d9c2504d40e755d91c75456366d"
+              ;;
+            *) exit 2 ;;
+          esac
+          [[ "${skillwire_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          export SKILLWIRE_RELEASE_IMAGES_JSON
+          SKILLWIRE_RELEASE_IMAGES_JSON="$(jq -cn \
+            --arg arch "${ARCH}" \
+            --arg skillwire "${skillwire_digest}" \
+            --arg postgres "${postgres_digest}" \
+            '[
+              {role:"skillwire",repository:"ghcr.io/lucenx9/skillwire",digest:$skillwire,platform:("linux/"+$arch)},
+              {role:"postgres",repository:"docker.io/library/postgres",digest:$postgres,platform:("linux/"+$arch)}
+            ]')"
+          export SKILLWIRE_RELEASE_VERSION="${VERSION}"
+          export SKILLWIRE_RELEASE_SEQUENCE="${GITHUB_RUN_NUMBER}"
+          export SKILLWIRE_PUBLISHED_AT
+          SKILLWIRE_PUBLISHED_AT="$(git show -s --format=%cI "${GITHUB_SHA}")"
+          export SKILLWIRE_TRUST_SEQUENCE=1
+          pnpm exec tsx scripts/build-self-hosted-release.ts \
+            "${RUNNER_TEMP}/payload-${ARCH}" \
+            "${RUNNER_TEMP}/release-${ARCH}" \
+            "${ARCH}"
+          cp distribution/self-hosted/trust-policy.v1.json \
+            "${RUNNER_TEMP}/release-${ARCH}/skillwire-trust-policy-v1.json"
+      - name: Sign external canonical manifest
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="skillwire-${VERSION}-linux-${ARCH}"
+          manifest="${RUNNER_TEMP}/release-${ARCH}/${base}.release.json"
+          bundle="${RUNNER_TEMP}/release-${ARCH}/${base}.release.sigstore.json"
+          "${RUNNER_TEMP}/cosign-host" sign-blob --yes --timeout 2m \
+            --oidc-provider github-actions \
+            --signing-algorithm ecdsa-sha2-256-nistp256 \
+            --bundle "${bundle}" "${manifest}"
+          jq -e '
+            .mediaType == "application/vnd.dev.sigstore.bundle.v0.3+json" and
+            (.verificationMaterial.tlogEntries | length) > 0 and
+            (.messageSignature.signature | length) > 0
+          ' "${bundle}" >/dev/null
+          test -s "${RUNNER_TEMP}/release-${ARCH}/${base}.tar.zst"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: self-hosted-release-${{ matrix.arch }}
+          path: ${{ runner.temp }}/release-${{ matrix.arch }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build-test-sign
+    if:
+      github.ref == format('refs/tags/self-hosted-v{0}',
+      needs.build-test-sign.outputs.version)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: self-hosted-release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Require complete sibling assets and publish once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-test-sign.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            base="release-assets/skillwire-${VERSION}-linux-${arch}"
+            test -s "${base}.tar.zst"
+            test -s "${base}.release.json"
+            test -s "${base}.release.sigstore.json"
+          done
+          test -s release-assets/skillwire-trust-policy-v1.json
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --verify-tag --title "SkillWire self-hosted ${VERSION}"

@@ -26,11 +26,59 @@ function entryKey(
 
 export class FakeRepositoryMemoryStore implements RepositoryMemoryStore {
   private readonly entries = new Map<string, StoredEntry>();
+  private readonly committedRecordUsageCalls: {
+    readonly scope: RepositoryMemoryScope;
+    readonly input: RecordUsageInput;
+  }[] = [];
+  private recordUsageFailure: Error | undefined;
+
+  public get recordUsageCount(): number {
+    return this.committedRecordUsageCalls.length;
+  }
+
+  public get recordUsageCalls(): readonly {
+    readonly scope: RepositoryMemoryScope;
+    readonly input: RecordUsageInput;
+  }[] {
+    return this.committedRecordUsageCalls.map(({ scope, input }) => ({
+      scope: { ...scope },
+      input: { ...input },
+    }));
+  }
+
+  public failNextRecordUsage(
+    error: Error = new Error("Injected repository memory failure"),
+  ): void {
+    this.recordUsageFailure = error;
+  }
+
+  public entriesForScope(
+    scope: RepositoryMemoryScope,
+  ): readonly SkillUsageRecord[] {
+    return [...this.entries.values()]
+      .filter(
+        (entry) =>
+          entry.accountId === scope.accountId &&
+          entry.repositoryHash === scope.repositoryHash,
+      )
+      .map(
+        ({
+          accountId: _accountId,
+          repositoryHash: _repositoryHash,
+          ...entry
+        }) => ({ ...entry }),
+      );
+  }
 
   public recordUsage(
     scope: RepositoryMemoryScope,
     input: RecordUsageInput,
   ): Promise<void> {
+    if (this.recordUsageFailure !== undefined) {
+      const error = this.recordUsageFailure;
+      this.recordUsageFailure = undefined;
+      return Promise.reject(error);
+    }
     const key = entryKey(scope, input.skillId, input.revision);
     const existing = this.entries.get(key);
     this.entries.set(key, {
@@ -44,27 +92,17 @@ export class FakeRepositoryMemoryStore implements RepositoryMemoryStore {
       usageCount: (existing?.usageCount ?? 0) + 1,
       ...(existing?.outcome === undefined ? {} : { outcome: existing.outcome }),
     });
+    this.committedRecordUsageCalls.push({
+      scope: { ...scope },
+      input: { ...input },
+    });
     return Promise.resolve();
   }
 
   public list(
     scope: RepositoryMemoryScope,
   ): Promise<readonly SkillUsageRecord[]> {
-    return Promise.resolve(
-      [...this.entries.values()]
-        .filter(
-          (entry) =>
-            entry.accountId === scope.accountId &&
-            entry.repositoryHash === scope.repositoryHash,
-        )
-        .map(
-          ({
-            accountId: _accountId,
-            repositoryHash: _repositoryHash,
-            ...entry
-          }) => entry,
-        ),
-    );
+    return Promise.resolve(this.entriesForScope(scope));
   }
 
   public async rankingProjection(

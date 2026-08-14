@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -19,11 +20,46 @@ import {
   validateJourneyEvaluationMatrix,
 } from "../../../src/evaluation/three-call-journey-runner.js";
 import { githubFixture } from "../../helpers/github-api-stub.js";
+import {
+  createGitHubIngestionFixture,
+  createSuperpowersIngestionFixture,
+} from "../../helpers/github-ingestion-fixture.js";
 
 const projectRoot = process.cwd();
 const provider = loadVerifiedCatalogProvider(projectRoot, "launch-catalog-v1");
 
 describe("immutable evaluation fixtures", () => {
+  it("pins the Superpowers fixture while preserving the Matt Pocock recording byte-for-byte", async () => {
+    const digest = (path: string) =>
+      createHash("sha256").update(readFileSync(path)).digest("hex");
+    const mattRoot = join(
+      projectRoot,
+      "tests/fixtures/github-ingestion/mattpocock-skills-84fdeffd12f2ee307994d1eb6feb48173b6e0502",
+    );
+    expect(digest(join(mattRoot, "expected-inventory.json"))).toBe(
+      "bf13aa9aae40c020a6ce788e8b7cbe1d7288bc068a5872e71dfc5acbd9713cf5",
+    );
+    expect(digest(join(mattRoot, "routes.json"))).toBe(
+      "6a21028ebc03ca5ddf205fe47463a968f31605d4c85a5971647abc0782e87034",
+    );
+    expect(digest(join(mattRoot, "responses/recording.json.gz.b64"))).toBe(
+      "f78adc8dde1023d24148dec07dd962e6897ae5b175674f57aba736040df2963b",
+    );
+
+    const matt = await createGitHubIngestionFixture();
+    expect(matt.inventory.skills).toHaveLength(25);
+    const superpowers = await createSuperpowersIngestionFixture();
+    expect(superpowers.inventory).toMatchObject({
+      owner: "obra",
+      repository: "superpowers",
+      commitSha: "b36e0829c6d0140e93cfef2ca599b1b07d4a7797",
+      treeSha: "21219529a4e224bcb27baf8816b039c8bf7c6673",
+      manifestVersion: "nested-v1",
+      license: "MIT",
+    });
+    expect(superpowers.inventory.skills).toHaveLength(14);
+  });
+
   it("contains at least thirty unique search cases and three per launch skill", () => {
     const corpus = loadSearchEvaluationCorpus(projectRoot);
     const validated = validateSearchEvaluationCorpus(

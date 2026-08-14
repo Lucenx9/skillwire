@@ -72,16 +72,36 @@ temporary storage.
 Bootstrap an account and API key using the out-of-band CLI:
 
 ```bash
-docker compose exec -T skillwire \
-  node dist/src/authentication/admin-cli.js account:create
-docker compose exec -T skillwire \
-  node dist/src/authentication/admin-cli.js key:create --account-id '<account-uuid>'
+account_json="$(docker compose exec -T skillwire \
+  node dist/src/authentication/admin-cli.js account:create)"
+account_id="$(node -e \
+  'process.stdout.write(JSON.parse(process.argv[1]).accountId)' "$account_json")"
+key_id="$(node -e \
+  'process.stdout.write(require("node:crypto").randomUUID())')"
+private_directory="$(mktemp -d)"
+mkfifo --mode=0600 "$private_directory/token"
+docker compose run --rm --no-TTY --no-deps \
+  --user "$(id -u):$(id -g)" \
+  --entrypoint node \
+  --volume "$private_directory:/run/skillwire-private:rw" \
+  skillwire dist/src/authentication/admin-cli.js key:create \
+  --account-id "$account_id" --key-id "$key_id" \
+  --token-output /run/skillwire-private/token \
+  > "$private_directory/metadata.json" &
+admin_pid=$!
+timeout 30s sh -c 'cat "$1" > "$2"' _ \
+  "$private_directory/token" .secrets/api-key
+wait "$admin_pid"
+chmod 0600 .secrets/api-key
+rm -f "$private_directory/token" "$private_directory/metadata.json"
+rmdir "$private_directory"
+unset account_json account_id key_id admin_pid private_directory
 ```
 
-The key token is emitted once. Store it in a secret manager or
-`.secrets/api-key` with mode `0600`. The database URL and pepper are read-only
-because Compose bind-mounts them into the UID 10001 runtime; the enclosing
-`.secrets` directory remains mode `0700`. See
+The key token crosses only the owner-only FIFO and is stored in
+`.secrets/api-key` with mode `0600`; stdout contains non-secret metadata. The
+database URL and pepper are read-only because Compose bind-mounts them into the
+UID 10001 runtime; the enclosing `.secrets` directory remains mode `0700`. See
 [API-key operations](docs/api-keys.md) for rotation and revocation.
 
 ## MCP client configuration
@@ -106,6 +126,48 @@ configuration is:
 
 Environment interpolation depends on the MCP client; do not commit a literal
 token.
+
+## Autonomous activation guidance
+
+SkillWire publishes one versioned, client-agnostic activation policy through the
+standard MCP server instruction field. The same text is available through legacy
+`initialize` and current `server/discover`. It advises an MCP-capable agent to
+search once for a specialized task only when no applicable local or already
+loaded skill exists. Greetings, trivial or unrelated work, repeated attempts,
+and tasks already covered locally are non-triggers.
+
+The instructed workflow is preview → one exact load → only the next useful
+declared resource. Agent-initiated searches use `automatic`; `user-requested` is
+reserved for explicit user intent. An empty result or any SkillWire failure ends
+the attempt without retry, reformulation, polling, context escalation, another
+candidate, or revision substitution, so normal agent work can continue.
+
+These instructions and tool annotations are advisory metadata. An MCP server
+cannot force an arbitrary harness to read them or invoke its tools. Clients that
+ignore the guidance retain the same six authenticated operations and degrade
+without blocking ordinary work. SkillWire returns inert untrusted content, never
+installs it, never writes the client tree, and cannot inspect local skill
+inventory. Local precedence and per-task call bounds are therefore measured
+harness behaviors; server enforcement remains authentication, tenant isolation,
+eligibility, positive relevance, exact verified loading, provenance, advisory,
+integrity, resource, rate-limit, and memory scope validation.
+
+Codex users may optionally install the experimental
+`skillwire-autonomous-activation@skillwire` plugin from a configured SkillWire
+marketplace. The plugin contains only bounded activation guidance, one
+credential-free SkillWire MCP dependency declaration, version metadata, and
+uninstall metadata. It contains no remote skill content, executable code, API
+key, bearer token, account data, or repository hash. Install, upgrade, verify,
+and remove it only through the Codex plugin manager; SkillWire application code
+never writes Codex-managed directories or a client repository.
+
+In the pinned 15-case release-candidate pilot, the plugin cohort produced exact
+`search_skills` -> `load_skill` traces in all seven completed automatic cases;
+the eighth selected automatic case timed out and remains incomplete. The
+observer also recorded unnecessary resource reads, so the evidence validator
+keeps `claimEligibility.eligible=false`. The adapter is therefore experimental,
+and SkillWire makes no definitive autonomous-activation claim. Explicit use of
+the six MCP operations remains available without the plugin.
 
 ## Six MCP tools
 
@@ -188,7 +250,9 @@ Returns the authenticated account's bounded usage list directly from PostgreSQL.
 }
 ```
 
-Replaces the current outcome with `useful`, `neutral`, or `unsuccessful`.
+Replaces the current outcome with `useful`, `neutral`, or `unsuccessful`. Record
+`useful` only after the exact SkillWire load is attributable and completed-task
+evidence or explicit user feedback exists.
 
 ```json
 {
@@ -237,7 +301,9 @@ skill bodies or secrets, and writes nothing to the client tree.
 See [source administration](docs/source-administration.md),
 [privacy boundaries](docs/privacy.md),
 [catalog publication](docs/catalog-publication.md), and
-[operations](docs/operations.md).
+[operations](docs/operations.md). The deterministic and manual activation
+evaluation boundaries are documented in
+[autonomous activation evaluation](docs/autonomous-activation-evaluation.md).
 
 ## Why there is no local installation
 
