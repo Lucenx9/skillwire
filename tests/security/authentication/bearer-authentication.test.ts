@@ -133,11 +133,12 @@ describe("pre-authentication rate limiting", () => {
         authenticationBurst: 1,
       },
     }).app;
+    const token = createApiKeyToken().token;
     const request = () =>
       app.request("/mcp", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${createApiKeyToken().token}`,
+          authorization: `Bearer ${token}`,
           "content-type": "application/json",
           host: "127.0.0.1",
         },
@@ -149,5 +150,38 @@ describe("pre-authentication rate limiting", () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBe("60");
     expect(calls).toBe(1);
+  });
+
+  it("does not let unknown public ids exhaust another key's limit", async () => {
+    let calls = 0;
+    const app = createTestApplication({
+      authenticator: {
+        authenticate: () => {
+          calls += 1;
+          return Promise.resolve(undefined);
+        },
+      },
+      rateLimit: {
+        accountRequestsPerMinute: 60_000,
+        apiKeyRequestsPerMinute: 60_000,
+        burst: 1000,
+        authenticationRequestsPerMinute: 1,
+        authenticationBurst: 1,
+      },
+    }).app;
+    const request = (token: string) =>
+      app.request("/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          host: "127.0.0.1",
+        },
+        body: initializeBody,
+      });
+
+    expect((await request(createApiKeyToken().token)).status).toBe(401);
+    expect((await request(createApiKeyToken().token)).status).toBe(401);
+    expect(calls).toBe(2);
   });
 });

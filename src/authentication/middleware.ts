@@ -27,7 +27,7 @@ export interface RateLimitPolicy {
 export class AuthenticationRateLimiter {
   private readonly requestsPerMinute: number;
   private readonly burst: number;
-  private bucket: TokenBucket;
+  private readonly buckets = new Map<string, TokenBucket>();
 
   public constructor(
     policy: RateLimitPolicy,
@@ -44,26 +44,30 @@ export class AuthenticationRateLimiter {
     ) {
       throw new Error("Authentication rate-limit policy is invalid");
     }
-    this.bucket = { tokens: this.burst, updatedAt: this.now() };
   }
 
-  public consume(): RateLimitDecision {
+  public consume(publicId: string): RateLimitDecision {
     const now = this.now();
-    const elapsed = Math.max(0, now - this.bucket.updatedAt);
-    this.bucket.tokens = Math.min(
+    const bucket = this.buckets.get(publicId) ?? {
+      tokens: this.burst,
+      updatedAt: now,
+    };
+    const elapsed = Math.max(0, now - bucket.updatedAt);
+    bucket.tokens = Math.min(
       this.burst,
-      this.bucket.tokens + (elapsed * this.requestsPerMinute) / 60_000,
+      bucket.tokens + (elapsed * this.requestsPerMinute) / 60_000,
     );
-    this.bucket.updatedAt = now;
-    if (this.bucket.tokens >= 1) {
-      this.bucket.tokens -= 1;
+    bucket.updatedAt = now;
+    this.buckets.set(publicId, bucket);
+    if (bucket.tokens >= 1) {
+      bucket.tokens -= 1;
       return { allowed: true, retryAfterSeconds: 0 };
     }
     return {
       allowed: false,
       retryAfterSeconds: Math.max(
         1,
-        Math.ceil(((1 - this.bucket.tokens) * 60) / this.requestsPerMinute),
+        Math.ceil(((1 - bucket.tokens) * 60) / this.requestsPerMinute),
       ),
     };
   }
@@ -202,8 +206,10 @@ export function rateLimitAuthentication(
   return async (context, next) => {
     const authorization = context.req.header("authorization");
     const match = /^Bearer ([^\s]+)$/.exec(authorization ?? "");
-    if (match !== null && parseApiKeyToken(match[1] ?? "") !== undefined) {
-      const decision = limiter.consume();
+    const parsed =
+      match === null ? undefined : parseApiKeyToken(match[1] ?? "");
+    if (parsed !== undefined) {
+      const decision = limiter.consume(parsed.publicId);
       if (!decision.allowed) {
         const requestId = context.get("requestId");
         logger.emit("request_rate_limited", {
