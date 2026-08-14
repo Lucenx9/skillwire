@@ -18,11 +18,37 @@ import { PostgresBackupAdapter } from "../../../src/onboarding/adapters/postgres
 import {
   runCommand,
   type CommandOptions,
+  type CommandResult,
 } from "../../../src/onboarding/adapters/process/command-runner.js";
 import {
   createOnboardingEnvironment,
   type OnboardingEnvironment,
 } from "../../helpers/onboarding-environment.js";
+
+function localDockerContext(
+  options: CommandOptions,
+): CommandResult | undefined {
+  if (options.args[0] !== "context") return undefined;
+  return {
+    code: 0,
+    stdout:
+      options.args[1] === "show"
+        ? "rootless\n"
+        : `${options.environment?.["DOCKER_HOST"] ?? "unix:///run/user/1000/docker.sock"}\n`,
+    stderr: "",
+    durationMilliseconds: 1,
+  };
+}
+
+const completeValidation = (latestMigration = "010") => ({
+  latestMigration,
+  migrationInventoryValid: true,
+  constraintsValid: true,
+  catalogValid: true,
+  advisoryValid: true,
+  authoritativeStateValid: true,
+  ready: true,
+});
 
 describe("restore-validated PostgreSQL backup", () => {
   let fixture: OnboardingEnvironment | undefined;
@@ -33,6 +59,8 @@ describe("restore-validated PostgreSQL backup", () => {
     const commands: CommandOptions[] = [];
     const run = vi.fn(async (options: CommandOptions) => {
       commands.push(options);
+      const context = localDockerContext(options);
+      if (context !== undefined) return context;
       if (
         options.args.includes("compose") &&
         options.args.includes("cp") &&
@@ -62,12 +90,7 @@ describe("restore-validated PostgreSQL backup", () => {
         GH_TOKEN: "ambient-canary",
       },
       run,
-      validateRestoredDatabase: async () => ({
-        latestMigration: "010",
-        invariantsValid: true,
-        catalogValid: true,
-        ready: true,
-      }),
+      validateRestoredDatabase: async () => completeValidation(),
     });
 
     const record = await createValidatedBackup({
@@ -138,6 +161,8 @@ describe("restore-validated PostgreSQL backup", () => {
     const commands: CommandOptions[] = [];
     const run = vi.fn(async (options: CommandOptions) => {
       commands.push(options);
+      const context = localDockerContext(options);
+      if (context !== undefined) return context;
       if (
         options.args.includes("compose") &&
         options.args.includes("cp") &&
@@ -183,6 +208,8 @@ describe("restore-validated PostgreSQL backup", () => {
       backupsRoot,
       postgresImage: `docker.io/library/postgres@sha256:${"c".repeat(64)}`,
       run: async (options) => {
+        const context = localDockerContext(options);
+        if (context !== undefined) return context;
         if (options.args.includes("pg_dump")) throw new Error("dump failed");
         return { code: 0, stdout: "", stderr: "", durationMilliseconds: 1 };
       },
@@ -198,6 +225,8 @@ describe("restore-validated PostgreSQL backup", () => {
   it("restore-validates the exact pre-upgrade schema instead of assuming 010", async () => {
     fixture = await createOnboardingEnvironment();
     const run = vi.fn(async (options: CommandOptions) => {
+      const context = localDockerContext(options);
+      if (context !== undefined) return context;
       if (
         options.args.includes("compose") &&
         options.args.includes("cp") &&
@@ -219,12 +248,7 @@ describe("restore-validated PostgreSQL backup", () => {
       postgresImage: `docker.io/library/postgres@sha256:${"d".repeat(64)}`,
       expectedLatestMigration: "009",
       run,
-      validateRestoredDatabase: async () => ({
-        latestMigration: "009",
-        invariantsValid: true,
-        catalogValid: true,
-        ready: true,
-      }),
+      validateRestoredDatabase: async () => completeValidation("009"),
     });
 
     await expect(
@@ -237,6 +261,8 @@ describe("restore-validated PostgreSQL backup", () => {
     const controller = new AbortController();
     const cleanupSignals: AbortSignal[] = [];
     const run = vi.fn(async (options: CommandOptions) => {
+      const context = localDockerContext(options);
+      if (context !== undefined) return context;
       if (
         options.args.includes("compose") &&
         options.args.includes("cp") &&
@@ -301,6 +327,110 @@ describe("restore-validated PostgreSQL backup", () => {
     ).rejects.toThrow(/symbolic link|owned root|unsafe/i);
     await expect(access(escaped)).rejects.toMatchObject({ code: "ENOENT" });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects a named remote Docker context before the first backup workload command", async () => {
+    fixture = await createOnboardingEnvironment();
+    const commands: CommandOptions[] = [];
+    const run = vi.fn(async (options: CommandOptions) => {
+      commands.push(options);
+      if (options.args[0] === "context" && options.args[1] === "show")
+        return {
+          code: 0,
+          stdout: "remote-proof\n",
+          stderr: "",
+          durationMilliseconds: 1,
+        };
+      if (options.args[0] === "context" && options.args[1] === "inspect")
+        return {
+          code: 0,
+          stdout: "ssh://builder@example.test\n",
+          stderr: "",
+          durationMilliseconds: 1,
+        };
+      return { code: 0, stdout: "", stderr: "", durationMilliseconds: 1 };
+    });
+    const adapter = new PostgresBackupAdapter({
+      dockerExecutable: "/usr/bin/docker",
+      composePath: resolve("distribution/self-hosted/compose.yaml"),
+      projectName: "skillwire-test",
+      installationId: randomUUID(),
+      protectedRoot: fixture.root,
+      backupsRoot: resolve(fixture.root, "backups"),
+      postgresImage: `docker.io/library/postgres@sha256:${"a".repeat(64)}`,
+      environment: {
+        DOCKER_CONTEXT: "remote-proof",
+        DOCKER_CONFIG: resolve(fixture.root, "docker-config"),
+      },
+      run,
+      validateRestoredDatabase: vi.fn(),
+    });
+
+    await expect(
+      adapter.createAndValidate(new AbortController().signal),
+    ).rejects.toThrow(/local Docker context|remote/i);
+    expect(commands.some(({ args }) => args.includes("pg_dump"))).toBe(false);
+    expect(commands.map(({ args }) => args).slice(0, 2)).toEqual([
+      ["context", "show"],
+      [
+        "context",
+        "inspect",
+        "remote-proof",
+        "--format",
+        "{{.Endpoints.docker.Host}}",
+      ],
+    ]);
+  });
+
+  it("pins an accepted named context endpoint for every backup workload command", async () => {
+    fixture = await createOnboardingEnvironment();
+    const commands: CommandOptions[] = [];
+    const endpoint = `unix://${fixture.runtimeRoot}/docker.sock`;
+    const run = vi.fn(async (options: CommandOptions) => {
+      commands.push(options);
+      if (options.args[0] === "context")
+        return {
+          code: 0,
+          stdout: options.args[1] === "show" ? "rootless\n" : `${endpoint}\n`,
+          stderr: "",
+          durationMilliseconds: 1,
+        };
+      if (
+        options.args.includes("compose") &&
+        options.args.includes("cp") &&
+        options.args.at(-1)?.endsWith(".dump")
+      ) {
+        const target = options.args.at(-1);
+        if (target !== undefined)
+          await writeFile(target, "PGDMP\0pinned-context", { mode: 0o600 });
+      }
+      return { code: 0, stdout: "", stderr: "", durationMilliseconds: 1 };
+    });
+    const adapter = new PostgresBackupAdapter({
+      dockerExecutable: "/usr/bin/docker",
+      composePath: resolve("distribution/self-hosted/compose.yaml"),
+      projectName: "skillwire-test",
+      installationId: randomUUID(),
+      protectedRoot: fixture.root,
+      backupsRoot: resolve(fixture.root, "backups"),
+      postgresImage: `docker.io/library/postgres@sha256:${"a".repeat(64)}`,
+      environment: { DOCKER_CONTEXT: "rootless" },
+      run,
+      validateRestoredDatabase: async () => completeValidation(),
+    });
+
+    await expect(
+      adapter.createAndValidate(new AbortController().signal),
+    ).resolves.toMatchObject({ validation: { ready: true } });
+    const workload = commands.filter(({ args }) => args[0] !== "context");
+    expect(workload.length).toBeGreaterThan(0);
+    expect(
+      workload.every(
+        ({ environment }) =>
+          environment?.["DOCKER_HOST"] === endpoint &&
+          environment["DOCKER_CONTEXT"] === undefined,
+      ),
+    ).toBe(true);
   });
 
   const realPostgresIt =
@@ -410,8 +540,8 @@ describe("restore-validated PostgreSQL backup", () => {
               .trim()
               .split("|");
             return {
-              latestMigration: migration ?? "",
-              invariantsValid: accounts === "true",
+              ...completeValidation(migration ?? ""),
+              constraintsValid: accounts === "true",
               catalogValid: catalog === "true" && advisory === "true",
               ready: migration === "010",
             };
@@ -425,8 +555,11 @@ describe("restore-validated PostgreSQL backup", () => {
         expect(backup).toMatchObject({
           validation: {
             latestMigration: "010",
-            invariantsValid: true,
+            migrationInventoryValid: true,
+            constraintsValid: true,
             catalogValid: true,
+            advisoryValid: true,
+            authoritativeStateValid: true,
             ready: true,
           },
         });

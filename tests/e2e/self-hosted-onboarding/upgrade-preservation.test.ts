@@ -51,12 +51,12 @@ describe("upgrade state preservation", () => {
         installApplication: async () => undefined,
         migrate: async () => undefined,
         verifyLiveSchema: async () => 10,
-        readiness: async () => undefined,
+        preActivationReadiness: async () => undefined,
         verifyClients: async () => undefined,
+        activateApplication: async () => undefined,
         commitSelection: async () => undefined,
         rollbackApplication: async () => undefined,
         stopWriters: async () => undefined,
-        restartWriters: async () => undefined,
       }),
     ).resolves.toEqual({ backupId, releaseId: "12-amd64" });
     expect(preserved).toEqual(before);

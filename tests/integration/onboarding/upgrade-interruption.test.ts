@@ -66,12 +66,12 @@ describe("upgrade interruption boundaries", () => {
         installApplication: () => at("application", undefined),
         migrate: () => at("migration", undefined),
         verifyLiveSchema: async () => 10,
-        readiness: () => at("readiness", undefined),
+        preActivationReadiness: () => at("readiness", undefined),
         verifyClients: () => at("clients", undefined),
+        activateApplication: () => at("activation", undefined),
         commitSelection: () => at("release-commit", undefined),
         rollbackApplication: vi.fn(async () => undefined),
         stopWriters: vi.fn(async () => undefined),
-        restartWriters: vi.fn(async () => undefined),
       }),
     ).rejects.toThrow(/cancel|upgrade|recovery|boundary/i);
     expect(reached).toContain(boundary);
@@ -83,6 +83,7 @@ describe("upgrade interruption boundaries", () => {
       "migration",
       "readiness",
       "clients",
+      "activation",
       "release-commit",
     ];
     const boundaryIndex = order.indexOf(boundary);
@@ -91,7 +92,7 @@ describe("upgrade interruption boundaries", () => {
     );
   });
 
-  it("treats a completed atomic release commit as the terminal success boundary", async () => {
+  it("keeps a committed release recoverable when cancellation prevents public activation", async () => {
     const target = {
       releaseId: "10-amd64",
       releaseSequence: 10,
@@ -110,6 +111,8 @@ describe("upgrade interruption boundaries", () => {
       target,
     });
     const controller = new AbortController();
+    const activateApplication = vi.fn(async () => undefined);
+    const stopWriters = vi.fn(async () => undefined);
     await expect(
       runUpgrade({
         preview,
@@ -124,14 +127,16 @@ describe("upgrade interruption boundaries", () => {
         installApplication: async () => undefined,
         migrate: async () => undefined,
         verifyLiveSchema: async () => 10,
-        readiness: async () => undefined,
+        preActivationReadiness: async () => undefined,
         verifyClients: async () => undefined,
+        activateApplication,
         commitSelection: async () => controller.abort(),
         rollbackApplication: vi.fn(),
-        stopWriters: vi.fn(),
-        restartWriters: vi.fn(),
+        stopWriters,
       }),
-    ).resolves.toMatchObject({ releaseId: "10-amd64" });
+    ).rejects.toMatchObject({ rollbackBoundary: "application-config" });
+    expect(activateApplication).not.toHaveBeenCalled();
+    expect(stopWriters).toHaveBeenCalledTimes(1);
   });
 
   it("publishes active release/trust selection as one journaled atomic effect", async () => {

@@ -3,10 +3,13 @@ import { constants } from "node:fs";
 import {
   access,
   chmod,
+  lstat,
+  mkdir,
   open,
   readdir,
   realpath,
   rename,
+  rm,
 } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
@@ -19,7 +22,11 @@ import { canonicalPreview, confirmPreview } from "../cli/confirmation.js";
 import { atomicWriteJson } from "../adapters/filesystem/atomic-state.js";
 import { clientComponentIdentity } from "../adapters/clients/client-state.js";
 import { DeploymentAdapter } from "../adapters/docker/deployment.js";
-import { dockerProcessEnvironment } from "../adapters/docker/environment.js";
+import {
+  assertLocalDockerContext,
+  dockerProcessEnvironment,
+  pinLocalDockerEndpoint,
+} from "../adapters/docker/environment.js";
 import { CodexClientAdapter } from "../adapters/clients/codex.js";
 import { ClaudeClientAdapter } from "../adapters/clients/claude.js";
 import { SecretToolCredentialStore } from "../adapters/credentials/secret-tool.js";
@@ -57,6 +64,13 @@ import {
 } from "../domain/operation-journal.js";
 import { PostgresBackupAdapter } from "../adapters/postgres/backup.js";
 import {
+  assessRestoredDatabaseEvidence,
+  databaseStateExpectation,
+  expectedMigrationInventory,
+  readDatabaseEvidence,
+  validateRestoredDatabaseContainer,
+} from "../adapters/postgres/restore-validation.js";
+import {
   installVerifiedRelease,
   releaseDirectoryIdentity,
 } from "../adapters/filesystem/release-installer.js";
@@ -82,10 +96,7 @@ import {
   rotateServiceSecret,
 } from "./service-secret-rotation.js";
 import { backupDirectoryIdentity, createValidatedBackup } from "./backup.js";
-import {
-  drainWriters,
-  restartWriters,
-} from "../adapters/docker/writer-drain.js";
+import { drainWriters } from "../adapters/docker/writer-drain.js";
 import {
   previewUpgrade,
   runUpgrade,
@@ -1978,6 +1989,54 @@ async function backupOperation(
       lockedOwnership.recordSha256 !== ownership.recordSha256
     )
       throw new Error("Backup prerequisites changed after preview");
+    const localDockerEndpoint = await assertLocalDockerContext({
+      dockerExecutable: "/usr/bin/docker",
+      environment,
+      signal,
+    });
+    const operationEnvironment = pinLocalDockerEndpoint(
+      environment,
+      localDockerEndpoint,
+    );
+    const liveSchema = await readLiveMigration(
+      deployment,
+      operationEnvironment,
+      signal,
+    );
+    const expectedLatestMigration = String(liveSchema).padStart(3, "0");
+    const expectedMigrations = await expectedMigrationInventory(
+      resolve(deployment.releaseRoot, "migrations"),
+      expectedLatestMigration,
+    );
+    const activeCredentialReferenceCount = references.credentials.filter(
+      ({ state }) => state === "available" || state === "retained",
+    ).length;
+    const sourceEvidence = await readDatabaseEvidence({
+      dockerExecutable: "/usr/bin/docker",
+      dockerArgs: [
+        "compose",
+        "--project-name",
+        deployment.projectName,
+        "--file",
+        deployment.composePath,
+        "exec",
+        "-T",
+        "postgres",
+      ],
+      databaseName: "skillwire",
+      databaseUser: "skillwire",
+      environment: deploymentEnvironment(deployment, operationEnvironment),
+      signal,
+      installationAccountId: installation.accountId,
+    });
+    const expectedState = databaseStateExpectation(sourceEvidence);
+    assessRestoredDatabaseEvidence(sourceEvidence, {
+      expectedMigrations,
+      installationAccountId: installation.accountId,
+      expectedActiveApiKeys: activeCredentialReferenceCount,
+      expectedDatabase: "skillwire",
+      expectedState,
+    });
     const adapter = new PostgresBackupAdapter({
       dockerExecutable: "/usr/bin/docker",
       composePath: deployment.composePath,
@@ -1986,39 +2045,19 @@ async function backupOperation(
       protectedRoot: roots.dataRoot,
       backupsRoot,
       postgresImage: deployment.postgresImage,
-      environment: deploymentEnvironment(deployment, environment),
-      validateRestoredDatabase: async (containerName, validationSignal) => {
-        const query =
-          "SELECT concat((SELECT max(version) FROM schema_migrations),'|',(to_regclass('public.accounts') IS NOT NULL)::text,'|',(to_regclass('public.external_skill_revisions') IS NOT NULL)::text,'|',(to_regclass('public.external_advisory_chain_head') IS NOT NULL)::text)";
-        const inspected = await runCommand({
-          executable: "/usr/bin/docker",
-          args: [
-            "exec",
-            containerName,
-            "psql",
-            "--username=postgres",
-            "--dbname=postgres",
-            "--tuples-only",
-            "--no-align",
-            "--set=ON_ERROR_STOP=1",
-            "--command",
-            query,
-          ],
-          environment: deploymentEnvironment(deployment, environment),
-          deadlineMilliseconds: 15_000,
-          maximumOutputBytes: 16 * 1024,
+      expectedLatestMigration,
+      environment: deploymentEnvironment(deployment, operationEnvironment),
+      validateRestoredDatabase: (containerName, validationSignal) =>
+        validateRestoredDatabaseContainer({
+          dockerExecutable: "/usr/bin/docker",
+          containerName,
+          environment: deploymentEnvironment(deployment, operationEnvironment),
           signal: validationSignal,
-        });
-        const [latestMigration, accounts, catalog, advisory] = inspected.stdout
-          .trim()
-          .split("|");
-        return {
-          latestMigration: latestMigration ?? "",
-          invariantsValid: accounts === "true",
-          catalogValid: catalog === "true" && advisory === "true",
-          ready: latestMigration === "010",
-        };
-      },
+          expectedMigrations,
+          installationAccountId: installation.accountId,
+          expectedActiveApiKeys: activeCredentialReferenceCount,
+          expectedState,
+        }),
     });
     const backup = await createValidatedBackup({
       installationId: installation.installationId,
@@ -2314,12 +2353,25 @@ async function upgradeOperation(
       resolve(roots.stateRoot, "credential-references.json"),
     ),
   );
-  const candidate = await verifiedUpgradeCandidate(
-    command,
+  const localDockerEndpoint = await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
     environment,
     signal,
+  });
+  const operationEnvironment = pinLocalDockerEndpoint(
+    environment,
+    localDockerEndpoint,
   );
-  const liveSchema = await readLiveMigration(deployment, environment, signal);
+  const candidate = await verifiedUpgradeCandidate(
+    command,
+    operationEnvironment,
+    signal,
+  );
+  const liveSchema = await readLiveMigration(
+    deployment,
+    operationEnvironment,
+    signal,
+  );
   const previewInput = {
     installationId: installation.installationId,
     currentReleaseSequence: installation.highestAcceptedReleaseSequence,
@@ -2366,9 +2418,31 @@ async function upgradeOperation(
   });
   const targetEnvironment = deploymentEnvironment(
     targetDeployment,
-    environment,
+    operationEnvironment,
   );
-  const targetAdapter = new DeploymentAdapter({
+  const privateRuntimeSocketDirectory = resolve(
+    roots.runtimeRoot,
+    `upgrade-${journal.operationId}`,
+  );
+  const privateTargetDeployment = DeploymentStateSchema.parse({
+    ...targetDeployment,
+    runtimeSocketDirectory: privateRuntimeSocketDirectory,
+    socketPath: resolve(privateRuntimeSocketDirectory, "mcp.sock"),
+  });
+  const privateTargetAdapter = new DeploymentAdapter({
+    dockerExecutable: "/usr/bin/docker",
+    composePath: privateTargetDeployment.composePath,
+    projectName: privateTargetDeployment.projectName,
+    volumeName: privateTargetDeployment.volumeName,
+    skillwireImage: privateTargetDeployment.skillwireImage,
+    postgresImage: privateTargetDeployment.postgresImage,
+    databasePasswordFile: privateTargetDeployment.databasePasswordFile,
+    applicationPepperFile: privateTargetDeployment.applicationPepperFile,
+    runtimeSocketDirectory: privateTargetDeployment.runtimeSocketDirectory,
+    socketPath: privateTargetDeployment.socketPath,
+    hostEnvironment: operationEnvironment,
+  });
+  const publicTargetAdapter = new DeploymentAdapter({
     dockerExecutable: "/usr/bin/docker",
     composePath: targetDeployment.composePath,
     projectName: targetDeployment.projectName,
@@ -2379,7 +2453,7 @@ async function upgradeOperation(
     applicationPepperFile: targetDeployment.applicationPepperFile,
     runtimeSocketDirectory: targetDeployment.runtimeSocketDirectory,
     socketPath: targetDeployment.socketPath,
-    hostEnvironment: environment,
+    hostEnvironment: operationEnvironment,
   });
   const composeCommand = (
     composePath: string,
@@ -2410,7 +2484,7 @@ async function upgradeOperation(
     const lockedDeployment = await deploymentAt(roots.stateRoot);
     const lockedSchema = await readLiveMigration(
       lockedDeployment,
-      environment,
+      operationEnvironment,
       signal,
     );
     if (
@@ -2420,13 +2494,51 @@ async function upgradeOperation(
       lockedSchema !== liveSchema
     )
       throw new Error("Upgrade prerequisites changed after preview");
+    const expectedMigrations = await expectedMigrationInventory(
+      resolve(deployment.releaseRoot, "migrations"),
+      String(liveSchema).padStart(3, "0"),
+    );
+    const activeCredentialReferenceCount = references.credentials.filter(
+      ({ state }) => state === "available" || state === "retained",
+    ).length;
+    const sourceEvidence = await readDatabaseEvidence({
+      dockerExecutable: "/usr/bin/docker",
+      dockerArgs: [
+        "compose",
+        "--project-name",
+        deployment.projectName,
+        "--file",
+        deployment.composePath,
+        "exec",
+        "-T",
+        "postgres",
+      ],
+      databaseName: "skillwire",
+      databaseUser: "skillwire",
+      environment: deploymentEnvironment(deployment, operationEnvironment),
+      signal,
+      installationAccountId: installation.accountId,
+    });
+    const expectedState = databaseStateExpectation(sourceEvidence);
+    assessRestoredDatabaseEvidence(sourceEvidence, {
+      expectedMigrations,
+      installationAccountId: installation.accountId,
+      expectedActiveApiKeys: activeCredentialReferenceCount,
+      expectedDatabase: "skillwire",
+      expectedState,
+    });
+    const expectedTargetMigrations = await expectedMigrationInventory(
+      resolve(candidate.releaseRoot, "migrations"),
+      String(candidate.target.latestMigration).padStart(3, "0"),
+    );
     const upgraded = await runUpgrade({
       preview: upgradePreview,
       confirmation: command.confirmPreview,
       signal,
       journal,
       verifyTarget: async () =>
-        (await verifiedUpgradeCandidate(command, environment, signal)).target,
+        (await verifiedUpgradeCandidate(command, operationEnvironment, signal))
+          .target,
       createBackup: async () => {
         const backupsRoot = resolve(
           roots.dataRoot,
@@ -2442,38 +2554,21 @@ async function upgradeOperation(
           backupsRoot,
           postgresImage: deployment.postgresImage,
           expectedLatestMigration: String(liveSchema).padStart(3, "0"),
-          environment: deploymentEnvironment(deployment, environment),
-          validateRestoredDatabase: async (containerName, validationSignal) => {
-            const inspected = await runCommand({
-              executable: "/usr/bin/docker",
-              args: [
-                "exec",
-                containerName,
-                "psql",
-                "--username=postgres",
-                "--dbname=postgres",
-                "--tuples-only",
-                "--no-align",
-                "--set=ON_ERROR_STOP=1",
-                "--command",
-                "SELECT concat((SELECT max(version) FROM schema_migrations),'|',(to_regclass('public.accounts') IS NOT NULL)::text,'|',(to_regclass('public.external_skill_revisions') IS NOT NULL)::text,'|',(to_regclass('public.external_advisory_chain_head') IS NOT NULL)::text)",
-              ],
-              environment: deploymentEnvironment(deployment, environment),
-              deadlineMilliseconds: 15_000,
-              maximumOutputBytes: 16 * 1024,
+          environment: deploymentEnvironment(deployment, operationEnvironment),
+          validateRestoredDatabase: (containerName, validationSignal) =>
+            validateRestoredDatabaseContainer({
+              dockerExecutable: "/usr/bin/docker",
+              containerName,
+              environment: deploymentEnvironment(
+                deployment,
+                operationEnvironment,
+              ),
               signal: validationSignal,
-            });
-            const [migration, accounts, catalog, advisory] = inspected.stdout
-              .trim()
-              .split("|");
-            const expected = String(liveSchema).padStart(3, "0");
-            return {
-              latestMigration: migration ?? "",
-              invariantsValid: accounts === "true",
-              catalogValid: catalog === "true" && advisory === "true",
-              ready: migration === expected,
-            };
-          },
+              expectedMigrations,
+              installationAccountId: installation.accountId,
+              expectedActiveApiKeys: activeCredentialReferenceCount,
+              expectedState,
+            }),
         });
         backup = await createValidatedBackup({
           installationId: installation.installationId,
@@ -2552,20 +2647,46 @@ async function upgradeOperation(
         ]);
       },
       verifyLiveSchema: () =>
-        readLiveMigration(targetDeployment, environment, signal),
-      readiness: async () => {
-        await targetAdapter.probe(signal);
-        await targetAdapter.deploy(signal);
+        readLiveMigration(targetDeployment, operationEnvironment, signal),
+      preActivationReadiness: async () => {
+        await privateTargetAdapter.probe(signal);
+        await mkdir(privateRuntimeSocketDirectory, { mode: 0o700 });
+        await privateTargetAdapter.deploy(signal);
+        const targetEvidence = await readDatabaseEvidence({
+          dockerExecutable: "/usr/bin/docker",
+          dockerArgs: [
+            "compose",
+            "--project-name",
+            targetDeployment.projectName,
+            "--file",
+            targetDeployment.composePath,
+            "exec",
+            "-T",
+            "postgres",
+          ],
+          databaseName: "skillwire",
+          databaseUser: "skillwire",
+          environment: targetEnvironment,
+          signal,
+          installationAccountId: installation.accountId,
+        });
+        assessRestoredDatabaseEvidence(targetEvidence, {
+          expectedMigrations: expectedTargetMigrations,
+          installationAccountId: installation.accountId,
+          expectedActiveApiKeys: activeCredentialReferenceCount,
+          expectedDatabase: "skillwire",
+          expectedState,
+        });
       },
       verifyClients: async () => {
         for (const client of installation.selectedClients) {
-          const vendor = await executable(client, environment);
+          const vendor = await executable(client, operationEnvironment);
           const adapter =
             client === "codex"
-              ? new CodexClientAdapter(vendor, environment, signal)
+              ? new CodexClientAdapter(vendor, operationEnvironment, signal)
               : new ClaudeClientAdapter(
                   vendor,
-                  environment,
+                  operationEnvironment,
                   undefined,
                   undefined,
                   signal,
@@ -2593,6 +2714,7 @@ async function upgradeOperation(
             throw new Error(`${client} integration changed during upgrade`);
         }
       },
+      activateApplication: () => publicTargetAdapter.deploy(signal),
       commitSelection: () =>
         atomicWriteJson(
           resolve(roots.stateRoot, "active-release.json"),
@@ -2622,7 +2744,7 @@ async function upgradeOperation(
           applicationPepperFile: deployment.applicationPepperFile,
           runtimeSocketDirectory: deployment.runtimeSocketDirectory,
           socketPath: deployment.socketPath,
-          hostEnvironment: environment,
+          hostEnvironment: operationEnvironment,
         });
         await prior.deploy(recoverySignal);
       },
@@ -2633,19 +2755,6 @@ async function upgradeOperation(
           AbortSignal.timeout(60_000),
         );
       },
-      restartWriters: () =>
-        restartWriters(
-          {
-            stopAdministration: () => Promise.resolve(),
-            stopIngestion: () => Promise.resolve(),
-            stopApplication: () => Promise.resolve(),
-            verifyNoWriters: () => Promise.resolve(true),
-            startApplication: () => Promise.resolve(),
-            startIngestion: () => Promise.resolve(),
-            startAdministration: () => Promise.resolve(),
-          },
-          AbortSignal.timeout(60_000),
-        ),
     });
     if (backup === undefined)
       throw new Error("Upgrade completed without a restore-validated backup");
@@ -2841,8 +2950,12 @@ async function upgradeOperation(
     }
     const restoreRequired =
       recovery?.rollbackBoundary === "database-restore-required";
+    const targetActivationRequired =
+      error instanceof UpgradeRecoveryError &&
+      error.dataLossBoundary ===
+        "Retry target activation; do not restore the pre-upgrade backup";
     const recoveryRequired = upgradeFailureRequiresRecovery(
-      restoreRequired,
+      restoreRequired || targetActivationRequired,
       journal.hasUnprovenEffect(),
     );
     await journal
@@ -2854,8 +2967,14 @@ async function upgradeOperation(
       throw error;
     return result({
       command: "upgrade",
-      status: restoreRequired ? "recovery-required" : "failure",
-      exitClass: restoreRequired ? "rollback-required" : "service-failure",
+      status:
+        restoreRequired || targetActivationRequired
+          ? "recovery-required"
+          : "failure",
+      exitClass:
+        restoreRequired || targetActivationRequired
+          ? "rollback-required"
+          : "service-failure",
       previewHash: upgradePreview.previewHash,
       previewScope: previewInput,
       changed: true,
@@ -2863,10 +2982,14 @@ async function upgradeOperation(
       components: [],
       findings: [
         {
-          code: restoreRequired
-            ? "UPGRADE_RECOVERY_REQUIRED"
-            : "UPGRADE_AUTOMATIC_ROLLBACK_COMPLETED",
-          severity: restoreRequired ? "recovery-required" : "error",
+          code:
+            restoreRequired || targetActivationRequired
+              ? "UPGRADE_RECOVERY_REQUIRED"
+              : "UPGRADE_AUTOMATIC_ROLLBACK_COMPLETED",
+          severity:
+            restoreRequired || targetActivationRequired
+              ? "recovery-required"
+              : "error",
           component: "upgrade",
           summary: error.message,
           nextAction: recovery.instructions.join("; "),
@@ -2875,7 +2998,30 @@ async function upgradeOperation(
       recovery: { ...recovery, instructions: [...recovery.instructions] },
     });
   } finally {
-    await lock.release();
+    try {
+      const privateRuntime = await lstat(privateRuntimeSocketDirectory).catch(
+        (error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT")
+            return undefined;
+          throw error;
+        },
+      );
+      if (privateRuntime !== undefined) {
+        if (
+          !privateRuntime.isDirectory() ||
+          privateRuntime.isSymbolicLink() ||
+          privateRuntime.uid !== process.getuid?.() ||
+          (privateRuntime.mode & 0o777) !== 0o700
+        )
+          // The exact private directory cannot be ignored or removed after
+          // ownership drift; surfacing this intentionally overrides success.
+          // eslint-disable-next-line no-unsafe-finally
+          throw new Error("Private upgrade runtime directory is unsafe");
+        await rm(privateRuntimeSocketDirectory, { recursive: true });
+      }
+    } finally {
+      await lock.release();
+    }
   }
 }
 

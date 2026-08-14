@@ -21,14 +21,21 @@ export function upgradeRecoveryGuidance(error: UpgradeRecoveryError): {
     rollbackBoundary: error.rollbackBoundary,
     backupId: error.backupId,
     instructions:
-      error.rollbackBoundary === "database-restore-required"
+      error.dataLossBoundary ===
+      "Retry target activation; do not restore the pre-upgrade backup"
         ? [
             "Keep all writers stopped",
-            "Restore the named validated backup before selecting an older executable",
-            "Confirm the erased-memory and data-loss boundary before restore",
+            "Retry activation of the already committed target release",
+            "Do not restore the pre-upgrade backup",
           ]
-        : [
-            "The prior application and configuration were restored automatically",
-          ],
+        : error.rollbackBoundary === "database-restore-required"
+          ? [
+              "Keep all writers stopped",
+              "Restore the named validated backup before selecting an older executable",
+              "Confirm the erased-memory and data-loss boundary before restore",
+            ]
+          : [
+              "The prior application and configuration were restored automatically",
+            ],
   };
 }

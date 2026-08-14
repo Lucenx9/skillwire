@@ -72,12 +72,12 @@ export async function runUpgrade(options: {
   readonly installApplication: () => Promise<void>;
   readonly migrate: () => Promise<void>;
   readonly verifyLiveSchema: () => Promise<number>;
-  readonly readiness: () => Promise<void>;
+  readonly preActivationReadiness: () => Promise<void>;
   readonly verifyClients: () => Promise<void>;
+  readonly activateApplication: () => Promise<void>;
   readonly commitSelection: () => Promise<void>;
   readonly rollbackApplication: () => Promise<void>;
   readonly stopWriters: () => Promise<void>;
-  readonly restartWriters: () => Promise<void>;
   readonly journal?: OperationJournal | undefined;
 }): Promise<{ readonly backupId: string; readonly releaseId: string }> {
   confirmPreview(
@@ -140,6 +140,7 @@ export async function runUpgrade(options: {
   ensureNotAborted(options.signal, "backup");
   let applicationInstalled = false;
   let writersDrained = false;
+  let releaseCommitted = false;
   const migration = { started: false };
   try {
     if (decision.requiresWriterDrain) {
@@ -174,26 +175,42 @@ export async function runUpgrade(options: {
     );
     if (liveSchema !== target.latestMigration)
       throw new Error("Live schema readback did not match the target");
-    await effect("upgrade-readiness", options.readiness, () => ({
-      ready: true,
-    }));
+    await effect(
+      "upgrade-preactivation-readiness",
+      options.preActivationReadiness,
+      () => ({
+        ready: true,
+      }),
+    );
     ensureNotAborted(options.signal, "readiness");
     await effect("upgrade-client-verification", options.verifyClients, () => ({
       clientsVerified: true,
     }));
     ensureNotAborted(options.signal, "client-verification");
-    if (writersDrained) {
-      await effect("upgrade-writer-restart", options.restartWriters, () => ({
-        restarted: true,
-      }));
-      writersDrained = false;
-      ensureNotAborted(options.signal, "writer-restart");
-    }
     await effect("upgrade-release-commit", options.commitSelection, () => ({
       releaseSequence: target.releaseSequence,
     }));
+    releaseCommitted = true;
+    ensureNotAborted(options.signal, "release-commit");
+    await effect(
+      "upgrade-application-activation",
+      options.activateApplication,
+      () => ({ activated: true }),
+    );
+    writersDrained = false;
+    ensureNotAborted(options.signal, "application-activation");
     return { backupId: backup.backupId, releaseId: target.releaseId };
   } catch (error) {
+    if (releaseCommitted) {
+      await options.stopWriters().catch(() => undefined);
+      throw new UpgradeRecoveryError(
+        "Upgrade committed the target release but public activation did not complete",
+        "application-config",
+        backup.backupId,
+        "Retry target activation; do not restore the pre-upgrade backup",
+        { cause: error },
+      );
+    }
     if (decision.kind === "forward-only" && migration.started) {
       await options.stopWriters().catch(() => undefined);
       throw new UpgradeRecoveryError(
@@ -204,8 +221,8 @@ export async function runUpgrade(options: {
         { cause: error },
       );
     }
-    if (applicationInstalled) await options.rollbackApplication();
-    if (writersDrained) await options.restartWriters();
+    if (applicationInstalled || writersDrained)
+      await options.rollbackApplication();
     const last = options.journal?.entries.at(-1);
     if (
       last?.phase === "compensate" &&

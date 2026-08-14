@@ -152,21 +152,27 @@ export class DeploymentAdapter {
     );
     if (composeVersion === null || Number(composeVersion[1]) < 2)
       throw new Error("Unsupported Docker Compose version");
-    const context = (
-      await this.command(["context", "show"], signal)
-    ).stdout.trim();
-    const endpoint = (
-      await this.command(
-        [
-          "context",
-          "inspect",
-          context,
-          "--format",
-          "{{.Endpoints.docker.Host}}",
-        ],
-        signal,
-      )
-    ).stdout.trim();
+    const routedEnvironment = dockerProcessEnvironment(
+      this.options.hostEnvironment ?? {},
+    );
+    const pinnedEndpoint =
+      this.options.hostEnvironment?.["DOCKER_CONTEXT"] === undefined
+        ? routedEnvironment["DOCKER_HOST"]
+        : undefined;
+    const endpoint =
+      pinnedEndpoint ??
+      (
+        await this.command(
+          [
+            "context",
+            "inspect",
+            (await this.command(["context", "show"], signal)).stdout.trim(),
+            "--format",
+            "{{.Endpoints.docker.Host}}",
+          ],
+          signal,
+        )
+      ).stdout.trim();
     if (!endpoint.startsWith("unix://") && !endpoint.startsWith("npipe://"))
       throw new Error(
         "A local Docker context is required; remote contexts are refused",

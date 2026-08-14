@@ -1,5 +1,11 @@
 import { isAbsolute } from "node:path";
 
+import {
+  runCommand,
+  type CommandOptions,
+  type CommandResult,
+} from "../process/command-runner.js";
+
 const ROUTING_KEYS = [
   "HOME",
   "XDG_CONFIG_HOME",
@@ -62,4 +68,62 @@ export function dockerProcessEnvironment(
     result[key] = value;
   }
   return result;
+}
+
+export async function assertLocalDockerContext(options: {
+  readonly dockerExecutable: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly signal: AbortSignal;
+  readonly run?:
+    ((options: CommandOptions) => Promise<CommandResult>) | undefined;
+}): Promise<string> {
+  if (!isAbsolute(options.dockerExecutable))
+    throw new Error("Docker executable must be absolute");
+  if (options.signal.aborted) throw new Error("Docker context check cancelled");
+  const routedEnvironment = dockerProcessEnvironment(options.environment);
+  if (options.environment["DOCKER_CONTEXT"] === undefined) {
+    const explicitHost = routedEnvironment["DOCKER_HOST"];
+    if (explicitHost !== undefined) return explicitHost;
+  }
+  const run = options.run ?? runCommand;
+  const command = (args: readonly string[]) =>
+    run({
+      executable: options.dockerExecutable,
+      args,
+      environment: routedEnvironment,
+      deadlineMilliseconds: 10_000,
+      maximumOutputBytes: 16 * 1024,
+      signal: options.signal,
+    });
+  const context = (await command(["context", "show"])).stdout.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(context))
+    throw new Error("Effective Docker context identity is invalid");
+  const endpoint = (
+    await command([
+      "context",
+      "inspect",
+      context,
+      "--format",
+      "{{.Endpoints.docker.Host}}",
+    ])
+  ).stdout.trim();
+  if (
+    endpoint.length === 0 ||
+    endpoint.length > 4096 ||
+    /[\0\r\n]/.test(endpoint) ||
+    (!endpoint.startsWith("unix://") && !endpoint.startsWith("npipe://"))
+  )
+    throw new Error(
+      "A local Docker context is required; remote contexts are refused",
+    );
+  return endpoint;
+}
+
+export function pinLocalDockerEndpoint(
+  environment: NodeJS.ProcessEnv,
+  endpoint: string,
+): NodeJS.ProcessEnv {
+  const pinned: NodeJS.ProcessEnv = { ...environment, DOCKER_HOST: endpoint };
+  delete pinned["DOCKER_CONTEXT"];
+  return pinned;
 }

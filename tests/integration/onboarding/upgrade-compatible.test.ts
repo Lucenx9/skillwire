@@ -52,14 +52,14 @@ describe("same-schema signed upgrade", () => {
         },
         migrate,
         verifyLiveSchema: async () => 10,
-        readiness: async () => {
+        preActivationReadiness: async () => {
           throw new Error("not ready");
         },
         verifyClients: async () => undefined,
+        activateApplication: async () => undefined,
         commitSelection: async () => undefined,
         rollbackApplication,
         stopWriters: async () => undefined,
-        restartWriters: async () => undefined,
       }),
     ).rejects.toMatchObject({
       rollbackBoundary: "application-config",

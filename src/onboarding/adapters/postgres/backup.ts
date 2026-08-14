@@ -12,7 +12,14 @@ import {
   validateOwnedDirectory,
   validateOwnedPath,
 } from "../filesystem/safe-paths.js";
-import { dockerProcessEnvironment } from "../docker/environment.js";
+import {
+  assertLocalDockerContext,
+  dockerProcessEnvironment,
+  pinLocalDockerEndpoint,
+} from "../docker/environment.js";
+import type { RestoredDatabaseValidation } from "./restore-validation.js";
+
+export type { RestoredDatabaseValidation } from "./restore-validation.js";
 
 const COMPOSE_KEYS = [
   "SKILLWIRE_COMPOSE_PROJECT",
@@ -25,13 +32,6 @@ const COMPOSE_KEYS = [
   "SKILLWIRE_RUNTIME_UID",
   "SKILLWIRE_RUNTIME_GID",
 ] as const;
-
-export interface RestoredDatabaseValidation {
-  readonly latestMigration: string;
-  readonly invariantsValid: boolean;
-  readonly catalogValid: boolean;
-  readonly ready: boolean;
-}
 
 export interface PostgresBackupOptions {
   readonly dockerExecutable: string;
@@ -87,8 +87,8 @@ export class PostgresBackupAdapter {
     args: readonly string[],
     signal: AbortSignal,
     deadlineMilliseconds = 120_000,
+    ambient: NodeJS.ProcessEnv = this.options.environment ?? {},
   ): Promise<CommandResult> {
-    const ambient = this.options.environment ?? {};
     const explicit: Record<string, string> = {};
     for (const key of COMPOSE_KEYS) {
       const value = ambient[key];
@@ -107,6 +107,7 @@ export class PostgresBackupAdapter {
   private async waitForValidationDatabase(
     containerName: string,
     signal: AbortSignal,
+    environment: NodeJS.ProcessEnv,
   ): Promise<void> {
     let lastError: unknown;
     let consecutiveReadyChecks = 0;
@@ -123,6 +124,7 @@ export class PostgresBackupAdapter {
           ],
           signal,
           2_000,
+          environment,
         );
         consecutiveReadyChecks += 1;
         if (consecutiveReadyChecks >= 2) return;
@@ -168,6 +170,16 @@ export class PostgresBackupAdapter {
       resolve(this.options.composePath),
     ];
     try {
+      const endpoint = await assertLocalDockerContext({
+        dockerExecutable: this.options.dockerExecutable,
+        environment: this.options.environment ?? {},
+        signal,
+        run: this.run,
+      });
+      const operationEnvironment = pinLocalDockerEndpoint(
+        this.options.environment ?? {},
+        endpoint,
+      );
       await this.command(
         [
           ...compose,
@@ -183,16 +195,22 @@ export class PostgresBackupAdapter {
           `--file=${containerArchive}`,
         ],
         signal,
+        120_000,
+        operationEnvironment,
       );
       try {
         await this.command(
           [...compose, "cp", `postgres:${containerArchive}`, archivePath],
           signal,
+          120_000,
+          operationEnvironment,
         );
       } finally {
         await this.command(
           [...compose, "exec", "-T", "postgres", "rm", "-f", containerArchive],
           AbortSignal.timeout(30_000),
+          120_000,
+          operationEnvironment,
         ).catch(() => undefined);
       }
       await chmod(archivePath, 0o600);
@@ -227,7 +245,12 @@ export class PostgresBackupAdapter {
       const validationVolume = `${validationContainer}_data`;
       let validation: RestoredDatabaseValidation | undefined;
       try {
-        await this.command(["volume", "create", validationVolume], signal);
+        await this.command(
+          ["volume", "create", validationVolume],
+          signal,
+          120_000,
+          operationEnvironment,
+        );
         await this.command(
           [
             "run",
@@ -243,8 +266,14 @@ export class PostgresBackupAdapter {
             this.options.postgresImage,
           ],
           signal,
+          120_000,
+          operationEnvironment,
         );
-        await this.waitForValidationDatabase(validationContainer, signal);
+        await this.waitForValidationDatabase(
+          validationContainer,
+          signal,
+          operationEnvironment,
+        );
         await this.command(
           [
             "cp",
@@ -252,6 +281,8 @@ export class PostgresBackupAdapter {
             `${validationContainer}:/tmp/${basename(archivePath)}`,
           ],
           signal,
+          120_000,
+          operationEnvironment,
         );
         await this.command(
           [
@@ -267,6 +298,8 @@ export class PostgresBackupAdapter {
             `/tmp/${basename(archivePath)}`,
           ],
           signal,
+          120_000,
+          operationEnvironment,
         );
         validation = await this.options.validateRestoredDatabase(
           validationContainer,
@@ -275,8 +308,11 @@ export class PostgresBackupAdapter {
         if (
           validation.latestMigration !==
             (this.options.expectedLatestMigration ?? "010") ||
-          !validation.invariantsValid ||
+          !validation.migrationInventoryValid ||
+          !validation.constraintsValid ||
           !validation.catalogValid ||
+          !validation.advisoryValid ||
+          !validation.authoritativeStateValid ||
           !validation.ready
         )
           throw new Error("Restored backup did not pass readiness invariants");
@@ -289,10 +325,14 @@ export class PostgresBackupAdapter {
         await this.command(
           ["container", "rm", "--force", validationContainer],
           cleanupSignal,
+          120_000,
+          operationEnvironment,
         ).catch(() => undefined);
         await this.command(
           ["volume", "rm", validationVolume],
           cleanupSignal,
+          120_000,
+          operationEnvironment,
         ).catch(() => undefined);
       }
       return { backupId, archivePath, archiveSha256, validation };

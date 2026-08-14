@@ -48,12 +48,12 @@ describe("upgrade trust and downgrade boundary", () => {
         installApplication: vi.fn(),
         migrate: vi.fn(),
         verifyLiveSchema: vi.fn(),
-        readiness: vi.fn(),
+        preActivationReadiness: vi.fn(),
         verifyClients: vi.fn(),
+        activateApplication: vi.fn(),
         commitSelection: vi.fn(),
         rollbackApplication: vi.fn(),
         stopWriters: vi.fn(),
-        restartWriters: vi.fn(),
       }),
     ).rejects.toThrow(/downgrade|digest|pinned|sequence/i);
     expect(createBackup).not.toHaveBeenCalled();
@@ -84,12 +84,12 @@ describe("upgrade trust and downgrade boundary", () => {
           installApplication: vi.fn(),
           migrate: vi.fn(),
           verifyLiveSchema: vi.fn(),
-          readiness: vi.fn(),
+          preActivationReadiness: vi.fn(),
           verifyClients: vi.fn(),
+          activateApplication: vi.fn(),
           commitSelection: vi.fn(),
           rollbackApplication: vi.fn(),
           stopWriters: vi.fn(),
-          restartWriters: vi.fn(),
         }),
       ).rejects.toThrow(reason);
       expect(createBackup).not.toHaveBeenCalled();
