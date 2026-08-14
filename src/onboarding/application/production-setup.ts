@@ -24,6 +24,7 @@ import { DeploymentAdapter } from "../adapters/docker/deployment.js";
 import {
   assertLocalDockerContext,
   dockerProcessEnvironment,
+  pinLocalDockerEndpoint,
 } from "../adapters/docker/environment.js";
 import { ServiceDatabase } from "../adapters/postgres/service-database.js";
 import {
@@ -302,6 +303,15 @@ async function verifyUnchangedProductionSetup(options: {
       "Repeated setup external integration ownership state is inconsistent",
     );
 
+  const localDockerEndpoint = await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
+    environment,
+    signal,
+  });
+  const dockerEnvironment = pinLocalDockerEndpoint(
+    environment,
+    localDockerEndpoint,
+  );
   const deploymentAdapter = new DeploymentAdapter({
     dockerExecutable: "/usr/bin/docker",
     composePath: deployment.composePath,
@@ -313,12 +323,7 @@ async function verifyUnchangedProductionSetup(options: {
     applicationPepperFile: deployment.applicationPepperFile,
     runtimeSocketDirectory: deployment.runtimeSocketDirectory,
     socketPath: deployment.socketPath,
-    hostEnvironment: environment,
-  });
-  await assertLocalDockerContext({
-    dockerExecutable: "/usr/bin/docker",
-    environment,
-    signal,
+    hostEnvironment: dockerEnvironment,
   });
   const [skillwirePresent, postgresPresent] = await Promise.all([
     deploymentAdapter.observeOwnedService("skillwire", signal),
@@ -332,7 +337,7 @@ async function verifyUnchangedProductionSetup(options: {
     volumeName: deployment.volumeName,
     composePath: deployment.composePath,
     environment: composeEnvironment({
-      environment,
+      environment: dockerEnvironment,
       projectName: deployment.projectName,
       volumeName: deployment.volumeName,
       skillwireImage: deployment.skillwireImage,
