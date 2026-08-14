@@ -43,6 +43,43 @@ pnpm test:evaluation
 PostgreSQL-backed tests use `TEST_DATABASE_URL`. CI and `compose.test.yaml`
 create disposable databases automatically.
 
+## Guided self-hosted lifecycle
+
+The signed self-hosted distribution installs one user-owned Compose service and
+optionally integrates the ordinary `codex` and `claude` executables in their
+normal user profiles. It creates no wrapper command, alternate client home,
+shell-startup edit, repository configuration, or local catalog-skill copy.
+Verify the four sibling assets first using
+[the bootstrap guide](distribution/self-hosted/README.md), then run:
+
+```bash
+skillwire setup --clients codex,claude --preview-only --output json
+skillwire setup --clients codex,claude --confirm-preview EXACT_SHA256
+skillwire status
+skillwire doctor
+skillwire repair --component COMPONENT --preview-only
+skillwire backup --preview-only
+skillwire upgrade --release /absolute/verified/release --preview-only
+skillwire clients uninstall codex --preview-only
+skillwire uninstall --preview-only
+skillwire purge --preview-only
+```
+
+Every mutation requires the exact current preview hash. Default uninstall stops
+owned services and removes only proven owned client deltas while retaining the
+PostgreSQL volume, backups, releases, service secrets, and recovery state.
+`purge` is a distinct destructive operation with an installation-bound asset
+inventory and separate confirmation. See [operations](docs/operations.md) and
+[release evidence](docs/self-hosted-release-evidence.md).
+
+The ten first-party skills are verified from the signed release and need no
+GitHub token or GitHub access. `--source mattpocock/skills` and
+`--source obra/superpowers` are explicit post-readiness choices. For a first
+registration, pipe one separate read-only GitHub token on stdin from a protected
+credential command; never place it in argv or an environment value. Imported
+content remains inert, provenance-bound, classified, and quarantined until the
+existing source pipeline makes it eligible.
+
 ## Start with Docker Compose
 
 Copy the non-secret configuration and create local secret files:

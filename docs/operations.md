@@ -1,5 +1,38 @@
 # Deployment and operations
 
+## Self-hosted administrative commands
+
+`skillwire status` and `skillwire doctor` are read-only. `doctor` classifies
+release, filesystem, Docker, PostgreSQL, migration, catalog/advisory, service
+secret, credential, bridge, normal-client, MCP/plugin, source, backup, lock, and
+journal state with bounded redacted evidence. `repair --component ID` consumes
+the per-effect journal and mutates only an identity-matching owned component. An
+ambiguous, external, symlinked, or concurrently changed target is blocked.
+
+Client API-key rotation is independent per client: create and verify the
+replacement through the protected bridge, activate it, then revoke the old key.
+Database-password and application-pepper rotation are separate maintenance
+commands with no-clobber retained generations and explicit recovery boundaries.
+No credential value belongs in argv, environment values, Compose output, logs,
+diagnostics, backups, or reports.
+
+`backup` creates a PostgreSQL custom-format archive, hashes it, restores it into
+a disposable PostgreSQL instance, and verifies migrations/checksums,
+constraints/triggers, catalog/advisory identity, account/key state,
+repository-memory counts, and readiness. An upgrade verifies the signed,
+digest-pinned target before draining writers. Same-schema failure may restore
+application/configuration; after forward-only migration 010, image-only rollback
+is prohibited and writers remain stopped until a compatible release or the named
+restore-validated backup is selected.
+
+Selective `clients uninstall codex|claude` removes only exact owned MCP, plugin,
+marketplace, credential, and API-key state for that client. It does not affect
+the other client or shared repository memory. Default `uninstall` retains
+PostgreSQL, backups, service secrets, releases, trust and ownership state for a
+duplicate-free reinstall. `purge` separately enumerates exact owned paths and
+volumes, requires its own preview confirmation, quarantines filesystem targets
+by inode before deletion, and refuses drift or ambiguous ownership.
+
 ## Deployment sequence
 
 Migration 010 is a coordinated maintenance upgrade. It is not safe to run it

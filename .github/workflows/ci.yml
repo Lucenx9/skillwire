@@ -140,6 +140,45 @@ jobs:
         run: pnpm advisory:verify --release-id launch-catalog-v1
       - run: git diff --check && git diff --exit-code
 
+  feature-004-offline:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_DB: skillwire_feature004
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: skillwire-feature004-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d skillwire_feature004"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:skillwire-feature004-only@127.0.0.1:5432/skillwire_feature004
+      TEST_DATABASE_URL: postgresql://postgres:skillwire-feature004-only@127.0.0.1:5432/skillwire_feature004
+      SKILLWIRE_API_KEY_PEPPER: feature004-ci-only-pepper-with-at-least-thirty-two-bytes
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - run:
+          corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate && pnpm db:migrate
+      - run: pnpm test:feature-004
+      - run: pnpm catalog:verify --release-id launch-catalog-v1
+      - run: pnpm advisory:verify --release-id launch-catalog-v1
+      - run: >-
+          pnpm tsx scripts/codex-adapter-package.ts validate --plugin-root
+          integrations/codex/skillwire-autonomous-activation
+      - run: git diff --check && git diff --exit-code
+
   container:
     runs-on: ubuntu-24.04
     steps:
@@ -203,6 +242,8 @@ jobs:
             --key-id "$key_id" \
             --token-output /run/skillwire-private/token > "$metadata_file" &
           admin_pid=$!
+          # $1/$2 belong to the bounded child sh.
+          # shellcheck disable=SC2016
           if ! timeout 30s sh -c 'cat "$1" > "$2"' _ "$token_fifo" .secrets/api-key; then
             kill "$admin_pid" 2>/dev/null || true
             wait "$admin_pid" 2>/dev/null || true

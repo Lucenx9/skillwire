@@ -89,6 +89,7 @@ export async function createOnboardingEnvironment(): Promise<OnboardingEnvironme
       XDG_CACHE_HOME: xdgCacheHome,
       XDG_RUNTIME_DIR: runtimeRoot,
       PATH: process.env["PATH"],
+      DOCKER_HOST: process.env["DOCKER_HOST"],
       LANG: "C.UTF-8",
       LC_ALL: "C.UTF-8",
     },

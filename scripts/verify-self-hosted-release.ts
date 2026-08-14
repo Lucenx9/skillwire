@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 
 import {
   verifyManifestPayload,
@@ -11,6 +14,9 @@ import {
 } from "../src/onboarding/adapters/filesystem/release-verifier.js";
 import { runCommand } from "../src/onboarding/adapters/process/command-runner.js";
 import { redactText } from "../src/onboarding/cli/output.js";
+import type { ReleaseManifest } from "../src/onboarding/domain/release-manifest.js";
+import { validateCodexAdapterIntegrityManifest } from "../src/evaluation/codex-adapter-package.js";
+import { verifyBundledFirstPartyCatalog } from "../src/onboarding/application/first-party-catalog.js";
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -24,7 +30,7 @@ function argumentsFor(name: string): readonly string[] {
   });
 }
 
-async function pinVerifiedArchive(
+export async function pinVerifiedArchive(
   sourcePath: string,
   targetPath: string,
   expectedSize: number,
@@ -75,7 +81,7 @@ async function pinVerifiedArchive(
   }
 }
 
-function validateArchiveListings(names: string, verbose: string): void {
+export function validateArchiveListings(names: string, verbose: string): void {
   const entries = names.split("\n").filter(Boolean);
   const verboseEntries = verbose.split("\n").filter(Boolean);
   if (
@@ -87,8 +93,7 @@ function validateArchiveListings(names: string, verbose: string): void {
       "Release archive inventory is empty, inconsistent, or too large",
     );
   }
-  entries.forEach((raw, index) => {
-    const type = verboseEntries[index]?.[0];
+  const normalize = (raw: string, type: string | undefined): string => {
     if (type !== "-" && type !== "d")
       throw new Error("Release archive contains a link or special entry");
     if (!/^[A-Za-z0-9@+_,=./-]+\/?$/.test(raw))
@@ -97,15 +102,244 @@ function validateArchiveListings(names: string, verbose: string): void {
     const path = unprefixed.endsWith("/")
       ? unprefixed.slice(0, -1)
       : unprefixed;
-    if ((path === "" || path === ".") && type === "d") return;
+    if ((path === "" || path === ".") && type === "d") return ".";
     if (
       path.startsWith("/") ||
-      path.split("/").some((segment) => segment === "" || segment === "..") ||
+      path
+        .split("/")
+        .some(
+          (segment) => segment === "" || segment === "." || segment === "..",
+        ) ||
       path.includes("\0")
     ) {
       throw new Error("Release archive contains an unsafe path");
     }
+    return path;
+  };
+  const normalized = entries.map((raw, index) => {
+    const type = verboseEntries[index]?.[0];
+    const path = normalize(raw, type);
+    const verbosePath = verboseEntries[index]?.trim().split(/\s+/).at(-1);
+    if (verbosePath === undefined || normalize(verbosePath, type) !== path)
+      throw new Error("Release archive listings disagree");
+    return path;
   });
+  if (new Set(normalized).size !== normalized.length)
+    throw new Error("Release archive contains duplicate paths");
+}
+
+const CertifiedMatrixSchema = z
+  .object({
+    schemaVersion: z.literal("skillwire.supported-matrix/v1"),
+    operatingSystems: z.tuple([
+      z
+        .object({ id: z.literal("ubuntu"), version: z.literal("24.04") })
+        .strict(),
+      z.object({ id: z.literal("debian"), version: z.literal("12") }).strict(),
+      z.object({ id: z.literal("debian"), version: z.literal("13") }).strict(),
+    ]),
+    architectures: z.tuple([z.literal("amd64"), z.literal("arm64")]),
+    docker: z
+      .object({
+        minimum: z.literal("29.7.2"),
+        tested: z.string().regex(/^\d+\.\d+\.\d+$/),
+      })
+      .strict(),
+    compose: z
+      .object({
+        minimum: z.literal("5.4.0"),
+        tested: z.string().regex(/^\d+\.\d+\.\d+$/),
+      })
+      .strict(),
+    postgresql: z.literal("17.10-alpine"),
+    node: z.literal("24.18.0"),
+    codex: z.literal("0.147.0"),
+    claude: z.literal("2.1.229"),
+    cosign: z.literal("3.1.3"),
+  })
+  .strict();
+
+function record(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Production Compose policy is invalid");
+  return value as Record<string, unknown>;
+}
+
+function stringList(value: unknown): readonly string[] {
+  const parsed = z.array(z.string()).safeParse(value);
+  if (!parsed.success) throw new Error("Production Compose policy is invalid");
+  return parsed.data;
+}
+
+function requireExactStrings(
+  value: unknown,
+  expected: readonly string[],
+): void {
+  const actual = stringList(value);
+  if (
+    actual.length !== expected.length ||
+    actual.some((entry, index) => entry !== expected[index])
+  ) {
+    throw new Error("Production Compose policy is unsafe");
+  }
+}
+
+const FORBIDDEN_SERVICE_CONTROLS = new Set([
+  "build",
+  "cgroup",
+  "cgroup_parent",
+  "configs",
+  "device_cgroup_rules",
+  "devices",
+  "dns",
+  "dns_search",
+  "extra_hosts",
+  "ipc",
+  "links",
+  "network_mode",
+  "pid",
+  "ports",
+  "privileged",
+  "uts",
+  "volumes_from",
+]);
+
+function rejectForbiddenServiceControls(
+  service: Record<string, unknown>,
+): void {
+  if ([...FORBIDDEN_SERVICE_CONTROLS].some((key) => key in service))
+    throw new Error("Production Compose policy is unsafe");
+}
+
+function verifyProductionCompose(value: unknown): void {
+  const compose = record(value);
+  const services = record(compose["services"]);
+  const serviceNames = Object.keys(services).toSorted();
+  if (
+    JSON.stringify(serviceNames) !==
+    JSON.stringify(["admin", "migrate", "postgres", "skillwire"])
+  ) {
+    throw new Error("Production Compose policy is unsafe");
+  }
+  const postgres = record(services["postgres"]);
+  const migrate = record(services["migrate"]);
+  const skillwire = record(services["skillwire"]);
+  const admin = record(services["admin"]);
+  for (const service of [postgres, migrate, skillwire, admin])
+    rejectForbiddenServiceControls(service);
+
+  if (
+    compose["name"] !==
+      "${SKILLWIRE_COMPOSE_PROJECT:?compose project is required}" ||
+    postgres["image"] !==
+      "${SKILLWIRE_POSTGRES_IMAGE:?digest-pinned PostgreSQL image is required}" ||
+    migrate["image"] !==
+      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
+    skillwire["image"] !==
+      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
+    admin["image"] !==
+      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
+    migrate["read_only"] !== true ||
+    skillwire["read_only"] !== true ||
+    admin["read_only"] !== true
+  ) {
+    throw new Error("Production Compose policy is unsafe");
+  }
+
+  requireExactStrings(postgres["cap_drop"], ["ALL"]);
+  requireExactStrings(postgres["cap_add"], [
+    "CHOWN",
+    "DAC_OVERRIDE",
+    "FOWNER",
+    "SETGID",
+    "SETUID",
+  ]);
+  requireExactStrings(migrate["cap_drop"], ["ALL"]);
+  requireExactStrings(migrate["cap_add"], [
+    "CHOWN",
+    "DAC_OVERRIDE",
+    "SETGID",
+    "SETUID",
+  ]);
+  requireExactStrings(skillwire["cap_drop"], ["ALL"]);
+  requireExactStrings(skillwire["cap_add"], [
+    "CHOWN",
+    "DAC_OVERRIDE",
+    "SETGID",
+    "SETUID",
+  ]);
+  requireExactStrings(admin["cap_drop"], ["ALL"]);
+  for (const service of [postgres, migrate, skillwire, admin])
+    requireExactStrings(service["security_opt"], ["no-new-privileges:true"]);
+
+  requireExactStrings(postgres["volumes"], [
+    "postgres_data:/var/lib/postgresql/data",
+  ]);
+  requireExactStrings(skillwire["volumes"], [
+    "${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is required}:/run/skillwire:rw",
+  ]);
+  if ("volumes" in migrate || "volumes" in admin)
+    throw new Error("Production Compose policy is unsafe");
+
+  const volumes = record(compose["volumes"]);
+  const postgresVolume = record(volumes["postgres_data"]);
+  if (
+    Object.keys(volumes).length !== 1 ||
+    postgresVolume["name"] !==
+      "${SKILLWIRE_POSTGRES_VOLUME:?owned PostgreSQL volume is required}" ||
+    Object.keys(postgresVolume).length !== 1 ||
+    "networks" in compose ||
+    "configs" in compose
+  ) {
+    throw new Error("Production Compose policy is unsafe");
+  }
+}
+
+export async function verifySelfHostedReleasePolicy(
+  manifest: ReleaseManifest,
+  releaseRoot: string,
+): Promise<{
+  readonly feature003PackageSha256: string;
+  readonly firstPartyRevisionCount: 10;
+  readonly matrix: z.infer<typeof CertifiedMatrixSchema>;
+}> {
+  const composeText = await readFile(
+    resolve(releaseRoot, "distribution/self-hosted/compose.yaml"),
+    "utf8",
+  );
+  verifyProductionCompose(parseYaml(composeText) as unknown);
+  const matrixResult = CertifiedMatrixSchema.safeParse(
+    JSON.parse(
+      await readFile(
+        resolve(releaseRoot, "distribution/self-hosted/supported-matrix.json"),
+        "utf8",
+      ),
+    ) as unknown,
+  );
+  if (!matrixResult.success)
+    throw new Error("Certified release matrix is invalid or overclaimed");
+  const matrix = matrixResult.data;
+  const integrity = validateCodexAdapterIntegrityManifest(
+    JSON.parse(
+      await readFile(
+        resolve(
+          releaseRoot,
+          "distribution/codex-marketplace/release-integrity.json",
+        ),
+        "utf8",
+      ),
+    ) as unknown,
+    resolve(releaseRoot, "integrations/codex/skillwire-autonomous-activation"),
+  );
+  const catalog = await verifyBundledFirstPartyCatalog({
+    releaseRoot,
+    release: manifest,
+  });
+  return {
+    feature003PackageSha256: integrity.packageSha256,
+    firstPartyRevisionCount: catalog.revisions.length as 10,
+    matrix,
+  };
 }
 
 export async function verifyCandidateFromCommandLine(): Promise<void> {
@@ -198,6 +432,7 @@ export async function verifyCandidateFromCommandLine(): Promise<void> {
       maximumOutputBytes: 64 * 1024,
     });
     await verifyManifestPayload(verified.manifest, extractionRoot);
+    await verifySelfHostedReleasePolicy(verified.manifest, extractionRoot);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

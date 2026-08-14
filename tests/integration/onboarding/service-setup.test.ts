@@ -235,6 +235,29 @@ describe("service-only deployment boundary", () => {
     ).toBe(false);
   });
 
+  it("rejects a pre-existing exact Compose project or volume before deployment", async () => {
+    const calls: CommandOptions[] = [];
+    const run = vi.fn((options: CommandOptions) => {
+      calls.push(options);
+      const joined = options.args.join(" ");
+      if (joined.startsWith("container ls"))
+        return Promise.resolve(result("existing-container\n"));
+      if (joined.startsWith("volume ls"))
+        return Promise.resolve(
+          result("skillwire-test-0123456789abcdef_postgres_data\n"),
+        );
+      return Promise.resolve(result(""));
+    });
+    const adapter = deployment(run);
+
+    await expect(
+      adapter.assertDeploymentTargetsAbsent(new AbortController().signal),
+    ).rejects.toThrow(/already exists|collision/i);
+    expect(
+      calls.some(({ args }) => args.includes("up") || args.includes("down")),
+    ).toBe(false);
+  });
+
   it("uses an already resolved local endpoint without re-reading another context", async () => {
     const run = vi.fn(async (options: CommandOptions) => {
       await Promise.resolve();

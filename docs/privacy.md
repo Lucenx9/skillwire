@@ -1,5 +1,24 @@
 # Privacy, erasure, and backup boundaries
 
+## Self-hosted credentials and local state
+
+The service has four distinct secret classes: PostgreSQL password, application
+API-key pepper, per-client bearer keys, and an optional read-only GitHub source
+token. Service secrets are independent 256-bit values in owner-only files.
+Client keys prefer Linux Secret Service and otherwise use only a separately
+confirmed `0600` protected-file fallback. The GitHub token has a separate
+`github-source-read-only` credential identity and is never a client key. Raw
+values cross process boundaries only through stdin, a private descriptor/FIFO,
+or a restrictive mounted secret file—not argv or environment values.
+
+Installation state contains references, hashes, versions, ownership identities,
+and categorical health only. Operation journals, previews, terminal output,
+logs, snapshots, backup manifests, release evidence, and diagnostics must not
+contain raw tokens, Authorization headers, task text, repository names or paths,
+or skill/resource bodies. Normal Codex and Claude profiles keep only the
+credential-free launcher command and installation/client identifiers; the bridge
+resolves the protected client credential at request time.
+
 ## Repository memory
 
 SkillWire stores only the authenticated account ID, an opaque 64-character

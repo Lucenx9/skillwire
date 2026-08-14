@@ -3,6 +3,7 @@ import {
   type DiagnosticFinding,
 } from "../domain/diagnostics.js";
 import { redactOutput } from "../cli/output.js";
+import type { SourceChoice } from "../domain/source-choice.js";
 
 export type DiagnosticCondition =
   | "service-stopped"
@@ -281,4 +282,24 @@ export async function runDiagnosticProbes(
     if (finding !== null) findings.push(DiagnosticFindingSchema.parse(finding));
   }
   return findings;
+}
+
+export function degradedSourceProbe(choice: SourceChoice): DiagnosticProbe {
+  if (
+    !choice.selected ||
+    (choice.syncState !== "degraded" && choice.syncState !== "failed")
+  ) {
+    return {
+      id: `source:${choice.source}`,
+      run: () => Promise.resolve(null),
+    };
+  }
+  return {
+    ...diagnosticProbe("source-degraded", {
+      source: choice.source,
+      syncState: choice.syncState,
+      registered: choice.registrationIdentity !== null,
+    }),
+    id: `source:${choice.source}`,
+  };
 }

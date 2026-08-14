@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 import type {
   ReleaseManifest,
@@ -11,11 +13,31 @@ export const FIXTURE_ARCHIVE = Buffer.from(
   "utf8",
 );
 
+function catalogFixtureFiles(
+  directory = "catalog",
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    readdirSync(resolve(process.cwd(), directory), { withFileTypes: true })
+      .flatMap((entry): [string, string][] => {
+        const path = `${directory}/${entry.name}`;
+        if (entry.isDirectory())
+          return Object.entries(catalogFixtureFiles(path));
+        if (!entry.isFile()) return [];
+        return [[path, readFileSync(resolve(process.cwd(), path), "utf8")]];
+      })
+      .toSorted(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
 export const RELEASE_PAYLOAD_FILES: Readonly<Record<string, string>> = {
   "bin/skillwire": "#!/bin/sh\nexit 0\n",
   "runtime/node": "fixture-node-runtime",
   "app/skillwire.mjs": "fixture-main",
   "distribution/self-hosted/compose.yaml": "compose",
+  "distribution/self-hosted/supported-matrix.json": readFileSync(
+    resolve(process.cwd(), "distribution/self-hosted/supported-matrix.json"),
+    "utf8",
+  ),
   "distribution/codex-marketplace/release-integrity.json": "integrity",
   "distribution/codex-marketplace/marketplace.json": "codex-marketplace",
   "distribution/codex-release-marketplace/.agents/plugins/marketplace.json":
@@ -36,18 +58,12 @@ export const RELEASE_PAYLOAD_FILES: Readonly<Record<string, string>> = {
     "claude-release-skill",
   "integrations/claude/skillwire-autonomous-activation/.claude-plugin/plugin.json":
     "claude-plugin",
-  "catalog/advisories.jsonl": "advisory-head",
+  ...catalogFixtureFiles(),
   ...Object.fromEntries(
     Array.from({ length: 10 }, (_value, index) => {
       const version = String(index + 1).padStart(3, "0");
       return [`migrations/${version}_fixture.sql`, `migration-${version}`];
     }),
-  ),
-  ...Object.fromEntries(
-    Array.from({ length: 10 }, (_value, index) => [
-      `catalog/releases/launch-catalog-v1/revisions/skill-${String(index + 1).padStart(2, "0")}.json`,
-      `revision-${String(index + 1)}`,
-    ]),
   ),
 };
 

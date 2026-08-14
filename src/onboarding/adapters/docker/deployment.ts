@@ -289,6 +289,44 @@ export class DeploymentAdapter {
     );
   }
 
+  async assertDeploymentTargetsAbsent(signal: AbortSignal): Promise<void> {
+    const containers = await this.command(
+      [
+        "container",
+        "ls",
+        "--all",
+        "--quiet",
+        "--filter",
+        `label=com.docker.compose.project=${this.options.projectName}`,
+      ],
+      signal,
+    );
+    if (containers.stdout.trim() !== "")
+      throw new Error(
+        "Compose project target already exists; collision refused",
+      );
+    const volumes = await this.command(
+      [
+        "volume",
+        "ls",
+        "--quiet",
+        "--filter",
+        `name=^${this.options.volumeName}$`,
+      ],
+      signal,
+    );
+    if (
+      volumes.stdout
+        .split("\n")
+        .map((name) => name.trim())
+        .includes(this.options.volumeName)
+    ) {
+      throw new Error(
+        "PostgreSQL volume target already exists; collision refused",
+      );
+    }
+  }
+
   async observeOwnedService(
     service: "skillwire" | "postgres",
     signal: AbortSignal,

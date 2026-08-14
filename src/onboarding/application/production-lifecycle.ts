@@ -30,6 +30,7 @@ import {
 import { CodexClientAdapter } from "../adapters/clients/codex.js";
 import { ClaudeClientAdapter } from "../adapters/clients/claude.js";
 import { SecretToolCredentialStore } from "../adapters/credentials/secret-tool.js";
+import { GitHubTokenCredentialStore } from "../adapters/credentials/github-token.js";
 import {
   RestrictiveFileCredentialStore,
   type RestrictiveFileReference,
@@ -80,10 +81,12 @@ import {
   previewProductionSetup,
 } from "./production-setup.js";
 import {
+  degradedSourceProbe,
   diagnosticProbe,
   runDiagnosticProbes,
   type DiagnosticProbe,
 } from "./diagnostic-probes.js";
+import { readProtectedSourceChoices } from "./source-bootstrap.js";
 import { runDoctor } from "./doctor.js";
 import { inspectInstalledStatus } from "./status.js";
 import { planRepair, runRepair, type RepairAsset } from "./repair.js";
@@ -915,6 +918,23 @@ async function doctorOperation(
     } catch {
       probes.push(
         diagnosticProbe("journal-recovery-required", { state: "invalid" }),
+      );
+    }
+    try {
+      const sources = await readProtectedSourceChoices(
+        resolve(roots.stateRoot, "source-choices.json"),
+      );
+      if (
+        sources !== undefined &&
+        sources.installationId !== installation.installationId
+      ) {
+        throw new Error("Source choice installation identity differs");
+      }
+      if (sources !== undefined)
+        probes.push(...sources.choices.map(degradedSourceProbe));
+    } catch {
+      probes.push(
+        diagnosticProbe("source-degraded", { state: "invalid-or-unsafe" }),
       );
     }
   }
@@ -3712,6 +3732,10 @@ async function purgeOperation(
     "/usr/bin/secret-tool",
     environment,
   );
+  const sourceCredentialStore = new GitHubTokenCredentialStore(
+    "/usr/bin/secret-tool",
+    environment,
+  );
   const fallback = new RestrictiveFileCredentialStore(
     roots.dataRoot,
     roots.dataRoot,
@@ -3822,6 +3846,14 @@ async function purgeOperation(
         throw new Error("PostgreSQL volume ownership is ambiguous");
       return clientComponentIdentity({ volumeName: asset.locator });
     }
+    if (
+      asset.kind === "credential" &&
+      asset.client === null &&
+      asset.locator.startsWith("secret-service:github:")
+    ) {
+      await sourceCredentialStore.lookup(asset.locator, signal);
+      return clientComponentIdentity({ reference: asset.locator });
+    }
     if (asset.kind === "credential" && asset.client !== null) {
       const entry = bridge.clients.find(
         ({ client, credentialReference }) =>
@@ -3858,6 +3890,14 @@ async function purgeOperation(
         environment: deploymentEnvironment(deployment, environment),
         signal,
       });
+      return;
+    }
+    if (
+      asset.kind === "credential" &&
+      asset.client === null &&
+      asset.locator.startsWith("secret-service:github:")
+    ) {
+      await sourceCredentialStore.clear(asset.locator, signal);
       return;
     }
     if (asset.kind === "credential" && asset.client !== null) {
