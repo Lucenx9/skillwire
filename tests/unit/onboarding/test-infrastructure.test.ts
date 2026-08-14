@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { access, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -56,6 +56,20 @@ describe("disposable onboarding infrastructure", () => {
         environment: { PATH: "/nonexistent", LANG: "C" },
       }),
     ).resolves.toMatchObject({ code: 0 });
+  });
+
+  it("checks out immutable package-source history before mounting Git into the test container", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const containerStart = workflow.indexOf("\n  container:\n");
+    expect(containerStart).toBeGreaterThanOrEqual(0);
+    const containerJob = workflow.slice(containerStart);
+    const checkoutStart = containerJob.indexOf("actions/checkout@");
+    const setupNodeStart = containerJob.indexOf("actions/setup-node@");
+    expect(checkoutStart).toBeGreaterThanOrEqual(0);
+    expect(setupNodeStart).toBeGreaterThan(checkoutStart);
+    expect(containerJob.slice(checkoutStart, setupNodeStart)).toContain(
+      "fetch-depth: 0",
+    );
   });
 
   it.skipIf(!existsSync("/usr/bin/gnome-keyring-daemon"))(
