@@ -6,3 +6,4 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 specs/
+distribution/self-hosted/trust-policy.v1.json

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "skillwire.supported-matrix/v1",
+  "operatingSystems": [
+    { "id": "ubuntu", "version": "24.04" },
+    { "id": "debian", "version": "12" },
+    { "id": "debian", "version": "13" }
+  ],
+  "architectures": ["amd64", "arm64"],
+  "docker": { "minimum": "27.0.0", "tested": "29.7.2" },
+  "compose": { "minimum": "2.27.0", "tested": "5.4.0" },
+  "postgresql": "17.10-alpine",
+  "node": "24.18.0",
+  "codex": "0.147.0",
+  "claude": "2.1.229",
+  "cosign": "3.1.3"
+}

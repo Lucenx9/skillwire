@@ -8,6 +8,18 @@ import {
   type CodexPluginManagerHarness,
 } from "../../helpers/codex-plugin-manager-harness.js";
 
+function nextPatchVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (
+    match?.[1] === undefined ||
+    match[2] === undefined ||
+    match[3] === undefined
+  ) {
+    throw new Error(`expected a stable semantic version, received ${version}`);
+  }
+  return `${match[1]}.${match[2]}.${String(Number(match[3]) + 1)}`;
+}
+
 describe("Codex activation plugin manager lifecycle", () => {
   const harnesses: CodexPluginManagerHarness[] = [];
 
@@ -42,12 +54,17 @@ describe("Codex activation plugin manager lifecycle", () => {
     ]);
 
     harness.installPlugin();
+    const installedVersion = harness.installedVersion();
+    expect(installedVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    if (installedVersion === undefined) {
+      throw new Error("expected an installed plugin version");
+    }
     expect(harness.listPlugins()).toEqual([
       expect.objectContaining({
         name: "skillwire-autonomous-activation",
         marketplaceName: "skillwire",
         installed: true,
-        version: "0.1.0",
+        version: installedVersion,
       }),
     ]);
     expect(harness.effectiveInventory()).toEqual({
@@ -107,15 +124,21 @@ describe("Codex activation plugin manager lifecycle", () => {
     harness.addMarketplace();
     harness.installPlugin();
 
-    expect(harness.installedVersion()).toBe("0.1.0");
+    const initialVersion = harness.installedVersion();
+    expect(initialVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    if (initialVersion === undefined) {
+      throw new Error("expected an installed plugin version");
+    }
+    expect(harness.installedVersion()).toBe(initialVersion);
     expect(harness.attemptInterruptedUpgrade()).toBe(false);
-    expect(harness.installedVersion()).toBe("0.1.0");
+    expect(harness.installedVersion()).toBe(initialVersion);
     expect(harness.attemptInvalidUpgrade()).toBe(false);
-    expect(harness.installedVersion()).toBe("0.1.0");
+    expect(harness.installedVersion()).toBe(initialVersion);
     expect(harness.installedPackageMatchesSource()).toBe(true);
 
-    harness.upgradePlugin("0.1.1");
-    expect(harness.installedVersion()).toBe("0.1.1");
+    const upgradedVersion = nextPatchVersion(initialVersion);
+    harness.upgradePlugin(upgradedVersion);
+    expect(harness.installedVersion()).toBe(upgradedVersion);
     expect(harness.installedPackageMatchesSource()).toBe(true);
     expect(harness.effectiveInventory().installedPluginCount).toBe(1);
     expect(harness.repositoryIsUnchanged()).toBe(true);

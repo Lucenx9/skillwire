@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
+  existsSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -296,5 +298,57 @@ describe("composed service startup", () => {
     await service.close();
     expect(service.server.listening).toBe(false);
     expect(service.application.readiness.isReady()).toBe(false);
+  });
+
+  it("binds and removes an owner-only Unix socket without opening TCP", async () => {
+    const root = mkdtempSync(join(tmpdir(), "skillwire-service-socket-"));
+    const socketPath = join(root, "mcp.sock");
+    try {
+      const service = await startHttpService(
+        {
+          host: "localhost",
+          unixSocketPath: socketPath,
+          allowedHosts: ["localhost"],
+          port: 3000,
+          databaseUrl: database.connectionString,
+          apiKeyPepper: pepper,
+          shutdownGraceMilliseconds: 1000,
+        },
+        silentSecurityLogger,
+      );
+      expect(service.server.address()).toBe(socketPath);
+      expect(existsSync(socketPath)).toBe(true);
+      await service.close();
+      expect(existsSync(socketPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a Unix socket path with a symlinked ancestor", async () => {
+    const root = mkdtempSync(join(tmpdir(), "skillwire-service-symlink-"));
+    const target = join(root, "target");
+    const linked = join(root, "linked");
+    mkdirSync(target, { mode: 0o700 });
+    symlinkSync(target, linked);
+    try {
+      await expect(
+        startHttpService(
+          {
+            host: "localhost",
+            unixSocketPath: join(linked, "mcp.sock"),
+            allowedHosts: ["localhost"],
+            port: 3000,
+            databaseUrl: database.connectionString,
+            apiKeyPepper: pepper,
+            shutdownGraceMilliseconds: 1000,
+          },
+          silentSecurityLogger,
+        ),
+      ).rejects.toThrow(/ancestry.*unsafe/i);
+      expect(existsSync(join(target, "mcp.sock"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

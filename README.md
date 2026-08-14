@@ -72,16 +72,36 @@ temporary storage.
 Bootstrap an account and API key using the out-of-band CLI:
 
 ```bash
-docker compose exec -T skillwire \
-  node dist/src/authentication/admin-cli.js account:create
-docker compose exec -T skillwire \
-  node dist/src/authentication/admin-cli.js key:create --account-id '<account-uuid>'
+account_json="$(docker compose exec -T skillwire \
+  node dist/src/authentication/admin-cli.js account:create)"
+account_id="$(node -e \
+  'process.stdout.write(JSON.parse(process.argv[1]).accountId)' "$account_json")"
+key_id="$(node -e \
+  'process.stdout.write(require("node:crypto").randomUUID())')"
+private_directory="$(mktemp -d)"
+mkfifo --mode=0600 "$private_directory/token"
+docker compose run --rm --no-TTY --no-deps \
+  --user "$(id -u):$(id -g)" \
+  --entrypoint node \
+  --volume "$private_directory:/run/skillwire-private:rw" \
+  skillwire dist/src/authentication/admin-cli.js key:create \
+  --account-id "$account_id" --key-id "$key_id" \
+  --token-output /run/skillwire-private/token \
+  > "$private_directory/metadata.json" &
+admin_pid=$!
+timeout 30s sh -c 'cat "$1" > "$2"' _ \
+  "$private_directory/token" .secrets/api-key
+wait "$admin_pid"
+chmod 0600 .secrets/api-key
+rm -f "$private_directory/token" "$private_directory/metadata.json"
+rmdir "$private_directory"
+unset account_json account_id key_id admin_pid private_directory
 ```
 
-The key token is emitted once. Store it in a secret manager or
-`.secrets/api-key` with mode `0600`. The database URL and pepper are read-only
-because Compose bind-mounts them into the UID 10001 runtime; the enclosing
-`.secrets` directory remains mode `0700`. See
+The key token crosses only the owner-only FIFO and is stored in
+`.secrets/api-key` with mode `0600`; stdout contains non-secret metadata. The
+database URL and pepper are read-only because Compose bind-mounts them into the
+UID 10001 runtime; the enclosing `.secrets` directory remains mode `0700`. See
 [API-key operations](docs/api-keys.md) for rotation and revocation.
 
 ## MCP client configuration
