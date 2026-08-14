@@ -204,6 +204,8 @@ export async function createApplication(
         accountRequestsPerMinute: 120,
         apiKeyRequestsPerMinute: 120,
         burst: 30,
+        authenticationRequestsPerMinute: 600,
+        authenticationBurst: 60,
       },
     });
     await scheduler.start();

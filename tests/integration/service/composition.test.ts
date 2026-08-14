@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { createApiKeyToken } from "../../../src/authentication/api-key-token.js";
 import {
   createApplication,
   type Application,
@@ -238,6 +239,50 @@ describe("composed service startup", () => {
         SKILLWIRE_GITHUB_MAX_QUERIES: "1",
       }),
     ).toThrow("GitHub ingestion budgets are inconsistent");
+  });
+
+  it("preserves configured authentication defaults when composition receives no explicit rate-limit policy", async () => {
+    const defaults = loadConfig({
+      DATABASE_URL: database.connectionString,
+      SKILLWIRE_API_KEY_PEPPER: pepper,
+      SKILLWIRE_CATALOG_ROOT: process.cwd(),
+    }).rateLimit;
+    expect(defaults).toMatchObject({
+      accountRequestsPerMinute: 120,
+      apiKeyRequestsPerMinute: 120,
+      burst: 30,
+      authenticationRequestsPerMinute: 600,
+      authenticationBurst: 60,
+    });
+
+    const composed = await createApplication({
+      host: "127.0.0.1",
+      port: 0,
+      databaseUrl: database.connectionString,
+      apiKeyPepper: pepper,
+      logLevel: "silent",
+    });
+    try {
+      const unknownToken = createApiKeyToken().token;
+      const responses = await Promise.all(
+        Array.from({ length: 61 }, async () =>
+          composed.app.request("/mcp", {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${unknownToken}`,
+              "content-type": "application/json",
+              host: "127.0.0.1",
+            },
+            body: "{}",
+          }),
+        ),
+      );
+      const statuses = responses.map(({ status }) => status);
+      expect(statuses.filter((status) => status === 401)).toHaveLength(60);
+      expect(statuses.filter((status) => status === 429)).toHaveLength(1);
+    } finally {
+      await composed.close();
+    }
   });
 
   it("starts and stops the optional scheduler without contacting GitHub during startup or readiness", async () => {
