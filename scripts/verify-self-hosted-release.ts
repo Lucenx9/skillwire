@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -159,137 +160,178 @@ const CertifiedMatrixSchema = z
   })
   .strict();
 
-function record(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Production Compose policy is invalid");
-  return value as Record<string, unknown>;
-}
+const EXPECTED_PRODUCTION_COMPOSE = {
+  name: "${SKILLWIRE_COMPOSE_PROJECT:?compose project is required}",
+  services: {
+    postgres: {
+      image:
+        "${SKILLWIRE_POSTGRES_IMAGE:?digest-pinned PostgreSQL image is required}",
+      environment: {
+        POSTGRES_DB: "skillwire",
+        POSTGRES_USER: "skillwire",
+        POSTGRES_PASSWORD_FILE: "/run/secrets/database_password",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+      ],
+      volumes: ["postgres_data:/var/lib/postgresql/data"],
+      healthcheck: {
+        test: ["CMD-SHELL", "pg_isready -U skillwire -d skillwire"],
+        interval: "5s",
+        timeout: "3s",
+        retries: 20,
+      },
+      restart: "unless-stopped",
+      stop_grace_period: "15s",
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+    },
+    migrate: {
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"],
+      command: [
+        "database",
+        "node",
+        "dist/src/persistence/postgres/migration-runner.js",
+      ],
+      user: "0:0",
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+      ],
+      depends_on: { postgres: { condition: "service_healthy" } },
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+      restart: "no",
+    },
+    skillwire: {
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["/usr/local/bin/skillwire-secret-entrypoint"],
+      command: ["application", "node", "dist/src/main.js"],
+      user: "0:0",
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+        SKILLWIRE_API_KEY_PEPPER_FILE: "/run/secrets/application_pepper",
+        SKILLWIRE_BIND_HOST: "localhost",
+        SKILLWIRE_UNIX_SOCKET_PATH: "/run/skillwire/mcp.sock",
+        SKILLWIRE_RUNTIME_UID:
+          "${SKILLWIRE_RUNTIME_UID:?runtime uid is required}",
+        SKILLWIRE_RUNTIME_GID:
+          "${SKILLWIRE_RUNTIME_GID:?runtime gid is required}",
+        SKILLWIRE_ALLOWED_HOSTS: "localhost,127.0.0.1",
+        SKILLWIRE_CATALOG_ROOT: "/app",
+        SKILLWIRE_CATALOG_RELEASE: "launch-catalog-v1",
+        SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE:
+          "${SKILLWIRE_AUTHENTICATION_REQUESTS_PER_MINUTE:-600}",
+        SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST:
+          "${SKILLWIRE_AUTHENTICATION_RATE_LIMIT_BURST:-60}",
+        SKILLWIRE_GITHUB_INGESTION_ENABLED: "false",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+        {
+          source: "api_key_pepper",
+          target: "application_pepper",
+          mode: 400,
+        },
+      ],
+      volumes: [
+        "${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is required}:/run/skillwire:rw",
+      ],
+      depends_on: {
+        postgres: { condition: "service_healthy" },
+        migrate: { condition: "service_completed_successfully" },
+      },
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"],
+      security_opt: ["no-new-privileges:true"],
+      restart: "unless-stopped",
+      stop_grace_period: "15s",
+      healthcheck: {
+        test: [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:http').request({socketPath:'/run/skillwire/mcp.sock',path:'/health/ready',headers:{host:'localhost'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1)).end()",
+        ],
+        interval: "10s",
+        timeout: "3s",
+        start_period: "15s",
+        retries: 6,
+      },
+    },
+    admin: {
+      profiles: ["admin"],
+      image: "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}",
+      entrypoint: ["node", "dist/src/authentication/admin-cli.js"],
+      environment: {
+        SKILLWIRE_DATABASE_PASSWORD_FILE: "/run/secrets/database_password",
+        SKILLWIRE_DATABASE_HOST: "postgres",
+        SKILLWIRE_API_KEY_PEPPER_FILE: "/run/secrets/application_pepper",
+      },
+      secrets: [
+        {
+          source: "postgres_password",
+          target: "database_password",
+          mode: 400,
+        },
+        {
+          source: "api_key_pepper",
+          target: "application_pepper",
+          mode: 400,
+        },
+      ],
+      read_only: true,
+      tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"],
+      cap_drop: ["ALL"],
+      security_opt: ["no-new-privileges:true"],
+      logging: { driver: "none" },
+      restart: "no",
+    },
+  },
+  secrets: {
+    postgres_password: {
+      file: "${SKILLWIRE_DATABASE_PASSWORD_SECRET_FILE:?database password file is required}",
+    },
+    api_key_pepper: {
+      file: "${SKILLWIRE_APPLICATION_PEPPER_SECRET_FILE:?application pepper file is required}",
+    },
+  },
+  volumes: {
+    postgres_data: {
+      name: "${SKILLWIRE_POSTGRES_VOLUME:?owned PostgreSQL volume is required}",
+    },
+  },
+} as const;
 
-function stringList(value: unknown): readonly string[] {
-  const parsed = z.array(z.string()).safeParse(value);
-  if (!parsed.success) throw new Error("Production Compose policy is invalid");
-  return parsed.data;
-}
-
-function requireExactStrings(
-  value: unknown,
-  expected: readonly string[],
-): void {
-  const actual = stringList(value);
+export function verifyProductionComposeText(composeText: string): void {
   if (
-    actual.length !== expected.length ||
-    actual.some((entry, index) => entry !== expected[index])
-  ) {
-    throw new Error("Production Compose policy is unsafe");
-  }
-}
-
-const FORBIDDEN_SERVICE_CONTROLS = new Set([
-  "build",
-  "cgroup",
-  "cgroup_parent",
-  "configs",
-  "device_cgroup_rules",
-  "devices",
-  "dns",
-  "dns_search",
-  "extra_hosts",
-  "ipc",
-  "links",
-  "network_mode",
-  "pid",
-  "ports",
-  "privileged",
-  "uts",
-  "volumes_from",
-]);
-
-function rejectForbiddenServiceControls(
-  service: Record<string, unknown>,
-): void {
-  if ([...FORBIDDEN_SERVICE_CONTROLS].some((key) => key in service))
-    throw new Error("Production Compose policy is unsafe");
-}
-
-function verifyProductionCompose(value: unknown): void {
-  const compose = record(value);
-  const services = record(compose["services"]);
-  const serviceNames = Object.keys(services).toSorted();
-  if (
-    JSON.stringify(serviceNames) !==
-    JSON.stringify(["admin", "migrate", "postgres", "skillwire"])
-  ) {
-    throw new Error("Production Compose policy is unsafe");
-  }
-  const postgres = record(services["postgres"]);
-  const migrate = record(services["migrate"]);
-  const skillwire = record(services["skillwire"]);
-  const admin = record(services["admin"]);
-  for (const service of [postgres, migrate, skillwire, admin])
-    rejectForbiddenServiceControls(service);
-
-  if (
-    compose["name"] !==
-      "${SKILLWIRE_COMPOSE_PROJECT:?compose project is required}" ||
-    postgres["image"] !==
-      "${SKILLWIRE_POSTGRES_IMAGE:?digest-pinned PostgreSQL image is required}" ||
-    migrate["image"] !==
-      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
-    skillwire["image"] !==
-      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
-    admin["image"] !==
-      "${SKILLWIRE_IMAGE:?digest-pinned SkillWire image is required}" ||
-    migrate["read_only"] !== true ||
-    skillwire["read_only"] !== true ||
-    admin["read_only"] !== true
-  ) {
-    throw new Error("Production Compose policy is unsafe");
-  }
-
-  requireExactStrings(postgres["cap_drop"], ["ALL"]);
-  requireExactStrings(postgres["cap_add"], [
-    "CHOWN",
-    "DAC_OVERRIDE",
-    "FOWNER",
-    "SETGID",
-    "SETUID",
-  ]);
-  requireExactStrings(migrate["cap_drop"], ["ALL"]);
-  requireExactStrings(migrate["cap_add"], [
-    "CHOWN",
-    "DAC_OVERRIDE",
-    "SETGID",
-    "SETUID",
-  ]);
-  requireExactStrings(skillwire["cap_drop"], ["ALL"]);
-  requireExactStrings(skillwire["cap_add"], [
-    "CHOWN",
-    "DAC_OVERRIDE",
-    "SETGID",
-    "SETUID",
-  ]);
-  requireExactStrings(admin["cap_drop"], ["ALL"]);
-  for (const service of [postgres, migrate, skillwire, admin])
-    requireExactStrings(service["security_opt"], ["no-new-privileges:true"]);
-
-  requireExactStrings(postgres["volumes"], [
-    "postgres_data:/var/lib/postgresql/data",
-  ]);
-  requireExactStrings(skillwire["volumes"], [
-    "${SKILLWIRE_RUNTIME_SOCKET_DIRECTORY:?runtime socket directory is required}:/run/skillwire:rw",
-  ]);
-  if ("volumes" in migrate || "volumes" in admin)
-    throw new Error("Production Compose policy is unsafe");
-
-  const volumes = record(compose["volumes"]);
-  const postgresVolume = record(volumes["postgres_data"]);
-  if (
-    Object.keys(volumes).length !== 1 ||
-    postgresVolume["name"] !==
-      "${SKILLWIRE_POSTGRES_VOLUME:?owned PostgreSQL volume is required}" ||
-    Object.keys(postgresVolume).length !== 1 ||
-    "networks" in compose ||
-    "configs" in compose
+    !isDeepStrictEqual(
+      parseYaml(composeText) as unknown,
+      EXPECTED_PRODUCTION_COMPOSE,
+    )
   ) {
     throw new Error("Production Compose policy is unsafe");
   }
@@ -307,7 +349,7 @@ export async function verifySelfHostedReleasePolicy(
     resolve(releaseRoot, "distribution/self-hosted/compose.yaml"),
     "utf8",
   );
-  verifyProductionCompose(parseYaml(composeText) as unknown);
+  verifyProductionComposeText(composeText);
   const matrixResult = CertifiedMatrixSchema.safeParse(
     JSON.parse(
       await readFile(

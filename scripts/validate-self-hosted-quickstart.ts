@@ -25,6 +25,7 @@ import { verifyOwnershipRecord } from "../src/onboarding/domain/ownership.js";
 import {
   pinVerifiedArchive,
   validateArchiveListings,
+  verifyProductionComposeText,
   verifySelfHostedReleasePolicy,
 } from "./verify-self-hosted-release.js";
 
@@ -168,7 +169,7 @@ export function quickstartCleanupPlan(
       "--project-name",
       deployment.projectName,
       "--file",
-      deployment.composePath,
+      "-",
       "down",
       "--volumes",
     ],
@@ -182,6 +183,10 @@ export async function cleanupQuickstartDeployment(
   run: (options: CommandOptions) => Promise<CommandResult> = runCommand,
 ): Promise<void> {
   const { deployment, args } = quickstartCleanupPlan(value, ownershipValue);
+  const composeText = await readProtectedQuickstartCompose(
+    deployment.composePath,
+  );
+  verifyProductionComposeText(composeText);
   const commandEnvironment = dockerProcessEnvironment(environment, {
     SKILLWIRE_COMPOSE_PROJECT: deployment.projectName,
     SKILLWIRE_POSTGRES_VOLUME: deployment.volumeName,
@@ -195,6 +200,7 @@ export async function cleanupQuickstartDeployment(
   });
   const invoke = async (
     commandArgs: readonly string[],
+    stdin?: string,
   ): Promise<CommandResult> => {
     const result = await run({
       executable: "/usr/bin/docker",
@@ -202,6 +208,7 @@ export async function cleanupQuickstartDeployment(
       environment: commandEnvironment,
       deadlineMilliseconds: 120_000,
       maximumOutputBytes: 256 * 1024,
+      ...(stdin === undefined ? {} : { stdin }),
     });
     if (result.code !== 0)
       throw new Error("Quickstart Docker ownership verification failed");
@@ -268,7 +275,7 @@ export async function cleanupQuickstartDeployment(
   ) {
     throw new Error("Quickstart PostgreSQL volume identity drifted");
   }
-  await invoke(args);
+  await invoke(args, composeText);
 }
 
 export async function runQuickstartPostSetupChecks(options: {
@@ -314,6 +321,26 @@ async function readProtectedQuickstartJson(path: string): Promise<unknown> {
       throw new Error("Quickstart state is unsafe");
     }
     return JSON.parse(await handle.readFile("utf8")) as unknown;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readProtectedQuickstartCompose(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stats = await handle.stat();
+    if (
+      !stats.isFile() ||
+      stats.nlink !== 1 ||
+      stats.uid !== process.getuid?.() ||
+      (stats.mode & 0o022) !== 0 ||
+      stats.size < 1 ||
+      stats.size > 256 * 1024
+    ) {
+      throw new Error("Quickstart Compose policy is unsafe");
+    }
+    return await handle.readFile("utf8");
   } finally {
     await handle.close();
   }

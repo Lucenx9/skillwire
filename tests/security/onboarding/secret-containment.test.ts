@@ -61,6 +61,8 @@ describe("Feature 004 secret containment release gate", () => {
       repository: await readFile("package.json", "utf8"),
       repositoryDiff: (
         await execute("/usr/bin/git", [
+          "-c",
+          `safe.directory=${process.cwd()}`,
           "diff",
           "--binary",
           "--no-ext-diff",
@@ -75,6 +77,8 @@ describe("Feature 004 secret containment release gate", () => {
 
   it("keeps onboarding free of a telemetry transport or telemetry SDK", async () => {
     const { stdout } = await execute("/usr/bin/git", [
+      "-c",
+      `safe.directory=${process.cwd()}`,
       "ls-files",
       "-z",
       "--",

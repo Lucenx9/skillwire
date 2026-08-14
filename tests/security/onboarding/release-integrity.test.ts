@@ -62,10 +62,11 @@ const RELEASE_BOUNDARY_EVIDENCE = [
 ] as const;
 
 interface MutableComposeFixture {
-  readonly services: {
-    readonly postgres: Record<string, unknown>;
-    readonly skillwire: Record<string, unknown>;
-  };
+  readonly services: Record<
+    "admin" | "migrate" | "postgres" | "skillwire",
+    Record<string, unknown>
+  >;
+  readonly secrets: Record<string, unknown>;
 }
 
 describe("self-hosted release integrity policy", () => {
@@ -185,6 +186,90 @@ describe("self-hosted release integrity policy", () => {
       "a mutable PostgreSQL image",
       (compose: MutableComposeFixture) => {
         compose.services.postgres["image"] = "postgres:latest";
+      },
+    ],
+    [
+      "an undeclared host-file secret",
+      (compose: MutableComposeFixture) => {
+        compose.secrets["host_key"] = {
+          file: "/home/operator/.ssh/id_rsa",
+        };
+        const secrets = compose.services.skillwire["secrets"];
+        if (!Array.isArray(secrets))
+          throw new Error("Fixture secrets are missing");
+        secrets.push({ source: "host_key", target: "host_key", mode: 0o400 });
+      },
+    ],
+    [
+      "an entrypoint override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["entrypoint"] = ["/bin/sh", "-c"];
+      },
+    ],
+    [
+      "a command override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["command"] = ["cat /run/secrets/host_key"];
+      },
+    ],
+    [
+      "a user override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["user"] = "1000:1000";
+      },
+    ],
+    [
+      "an environment-file override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["env_file"] = ["/tmp/attacker.env"];
+      },
+    ],
+    [
+      "an environment override",
+      (compose: MutableComposeFixture) => {
+        const environment = compose.services.skillwire["environment"];
+        if (environment === null || typeof environment !== "object")
+          throw new Error("Fixture environment is missing");
+        (environment as Record<string, unknown>)["SKILLWIRE_BIND_HOST"] =
+          "0.0.0.0";
+      },
+    ],
+    [
+      "a healthcheck override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["healthcheck"] = {
+          test: ["CMD-SHELL", "exit 0"],
+        };
+      },
+    ],
+    [
+      "a dependency override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["depends_on"] = {};
+      },
+    ],
+    [
+      "a writable temporary filesystem override",
+      (compose: MutableComposeFixture) => {
+        compose.services.skillwire["tmpfs"] = ["/tmp:rw,size=1g"];
+      },
+    ],
+    [
+      "a restart-policy override",
+      (compose: MutableComposeFixture) => {
+        compose.services.admin["restart"] = "always";
+      },
+    ],
+    [
+      "a logging override",
+      (compose: MutableComposeFixture) => {
+        compose.services.admin["logging"] = { driver: "json-file" };
+      },
+    ],
+    [
+      "a profile override",
+      (compose: MutableComposeFixture) => {
+        compose.services.admin["profiles"] = ["default"];
       },
     ],
   ] as const)("rejects production Compose with %s", async (_label, mutate) => {

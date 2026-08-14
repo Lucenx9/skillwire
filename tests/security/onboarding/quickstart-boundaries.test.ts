@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -50,7 +57,7 @@ function deployment(overrides: Record<string, unknown> = {}): unknown {
   return {
     schemaVersion: "skillwire.deployment/v1",
     installationId: INSTALLATION_ID,
-    composePath: "/tmp/disposable/release/compose.yaml",
+    composePath: resolve("distribution/self-hosted/compose.yaml"),
     projectName: PROJECT,
     volumeName: VOLUME,
     skillwireImage: `ghcr.io/lucenx9/skillwire@sha256:${"1".repeat(64)}`,
@@ -131,7 +138,7 @@ describe("disposable quickstart cleanup boundary", () => {
       "--project-name",
       PROJECT,
       "--file",
-      "/tmp/disposable/release/compose.yaml",
+      "-",
       "down",
       "--volumes",
     ]);
@@ -162,6 +169,7 @@ describe("disposable quickstart cleanup boundary", () => {
     const calls: {
       args: readonly string[];
       environment: NodeJS.ProcessEnv | undefined;
+      stdin: string | Uint8Array | undefined;
     }[] = [];
     await cleanupQuickstartDeployment(
       deployment(),
@@ -172,7 +180,11 @@ describe("disposable quickstart cleanup boundary", () => {
         GH_TOKEN: "ambient-must-not-propagate",
       },
       (options) => {
-        calls.push({ args: options.args, environment: options.environment });
+        calls.push({
+          args: options.args,
+          environment: options.environment,
+          stdin: options.stdin,
+        });
         const joined = options.args.join(" ");
         if (joined.startsWith("container ls"))
           return Promise.resolve({
@@ -237,10 +249,52 @@ describe("disposable quickstart cleanup boundary", () => {
       SKILLWIRE_POSTGRES_VOLUME: VOLUME,
     });
     expect(calls.at(-1)?.environment?.["GH_TOKEN"]).toBeUndefined();
+    expect(calls.at(-1)?.stdin).toBe(
+      await readFile("distribution/self-hosted/compose.yaml", "utf8"),
+    );
     expect(
       calls.find(({ args }) => args[0] === "container" && args[1] === "ls")
         ?.args,
     ).toContain("--no-trunc");
+  });
+
+  it("rejects mutable Compose bytes before invoking destructive cleanup", async () => {
+    const root = await mkdtemp(
+      resolve(tmpdir(), "skillwire-quickstart-compose-"),
+    );
+    try {
+      const composePath = resolve(root, "compose.yaml");
+      const { parse, stringify } = await import("yaml");
+      const compose = parse(
+        await readFile("distribution/self-hosted/compose.yaml", "utf8"),
+      ) as {
+        secrets: Record<string, unknown>;
+        services: { skillwire: Record<string, unknown> };
+      };
+      compose.secrets["host_key"] = {
+        file: "/home/operator/.ssh/id_rsa",
+      };
+      compose.services.skillwire["command"] = ["cat /run/secrets/host_key"];
+      await writeFile(composePath, stringify(compose), { mode: 0o600 });
+      const run = vi.fn().mockResolvedValue({
+        code: 0,
+        stdout: "",
+        stderr: "",
+        durationMilliseconds: 1,
+      });
+
+      await expect(
+        cleanupQuickstartDeployment(
+          deployment({ composePath }),
+          ownership(),
+          { PATH: "/usr/bin:/bin" },
+          run,
+        ),
+      ).rejects.toThrow(/Compose|policy/i);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("runs exact cleanup even when a post-setup diagnostic fails", async () => {
