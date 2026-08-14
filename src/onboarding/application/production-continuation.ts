@@ -9,7 +9,11 @@ import { CodexClientAdapter } from "../adapters/clients/codex.js";
 import { ClaudeClientAdapter } from "../adapters/clients/claude.js";
 import { clientComponentIdentity } from "../adapters/clients/client-state.js";
 import { DeploymentAdapter } from "../adapters/docker/deployment.js";
-import { dockerProcessEnvironment } from "../adapters/docker/environment.js";
+import {
+  assertLocalDockerContext,
+  dockerProcessEnvironment,
+  pinLocalDockerEndpoint,
+} from "../adapters/docker/environment.js";
 import { SecretToolCredentialStore } from "../adapters/credentials/secret-tool.js";
 import {
   RestrictiveFileCredentialStore,
@@ -187,6 +191,10 @@ export async function continueProductionSetup(options: {
   readonly environment: NodeJS.ProcessEnv;
   readonly signal: AbortSignal;
   readonly journal: OperationJournal;
+  readonly verifyPriorSelectedClients: (
+    clients: readonly ClientName[],
+    dockerEnvironment: NodeJS.ProcessEnv,
+  ) => Promise<void>;
 }): Promise<GuidedSetupResult> {
   const { installation, stateRoot, dataRoot, environment, signal, journal } =
     options;
@@ -224,7 +232,33 @@ export async function continueProductionSetup(options: {
   )
     throw new Error("Retained setup installation identities differ");
 
-  const dockerEnvironment = composeEnvironment(deployment, environment);
+  const localDockerEndpoint = await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
+    environment,
+    signal,
+  });
+  const operationEnvironment = pinLocalDockerEndpoint(
+    environment,
+    localDockerEndpoint,
+  );
+  const dockerEnvironment = composeEnvironment(
+    deployment,
+    operationEnvironment,
+  );
+  if (installation.status !== "data-retained") {
+    const priorSelectedClients = installation.selectedClients.filter(
+      (client) => {
+        const state = integrations.integrations.find(
+          (entry) => entry.client === client,
+        )?.state;
+        return state === "verified" || state === "external-verified";
+      },
+    );
+    await options.verifyPriorSelectedClients(
+      priorSelectedClients,
+      operationEnvironment,
+    );
+  }
   if (installation.status === "data-retained") {
     const adapter = new DeploymentAdapter({
       dockerExecutable: "/usr/bin/docker",
@@ -237,7 +271,7 @@ export async function continueProductionSetup(options: {
       applicationPepperFile: deployment.applicationPepperFile,
       runtimeSocketDirectory: deployment.runtimeSocketDirectory,
       socketPath: deployment.socketPath,
-      hostEnvironment: environment,
+      hostEnvironment: operationEnvironment,
     });
     await journal.runEffect({
       step: "retained-service-reactivation",
@@ -290,9 +324,8 @@ export async function continueProductionSetup(options: {
     const mustReconcile =
       installation.status === "data-retained" ||
       priorIntegration === undefined ||
-      priorIntegration.state === "failed" ||
-      priorIntegration.state === "removed" ||
-      priorIntegration.state === "retained-external";
+      (priorIntegration.state !== "verified" &&
+        priorIntegration.state !== "external-verified");
     if (!mustReconcile) {
       clientResults.push({
         client,

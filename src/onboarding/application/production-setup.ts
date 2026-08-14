@@ -1946,6 +1946,24 @@ export async function runProductionSetup(
         environment,
         signal,
         journal,
+        verifyPriorSelectedClients: async (
+          clientsToVerify,
+          dockerEnvironment,
+        ) => {
+          const integrations = ClientIntegrationsStateSchema.parse(
+            await readProtectedSetupJson(
+              resolve(setupRoots.stateRoot, "client-integrations.json"),
+            ),
+          );
+          await verifyUnchangedProductionSetup({
+            installation: current,
+            integrations,
+            clientsToVerify,
+            roots: setupRoots,
+            environment: dockerEnvironment,
+            signal,
+          });
+        },
       });
       await journal.commit({ status: "success" });
       return continued;

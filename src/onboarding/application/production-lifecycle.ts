@@ -267,6 +267,18 @@ function deploymentEnvironment(
   });
 }
 
+async function resolveLocalLifecycleDockerEnvironment(
+  environment: NodeJS.ProcessEnv,
+  signal: AbortSignal,
+): Promise<NodeJS.ProcessEnv> {
+  const endpoint = await assertLocalDockerContext({
+    dockerExecutable: "/usr/bin/docker",
+    environment,
+    signal,
+  });
+  return pinLocalDockerEndpoint(environment, endpoint);
+}
+
 async function observeOwnedComposeService(
   deployment: z.infer<typeof DeploymentStateSchema>,
   service: "skillwire" | "postgres",
@@ -1307,7 +1319,7 @@ async function repairOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -1629,10 +1641,12 @@ async function rotateClientKeyOperation(
       recovery: { rollbackBoundary: "none", backupId: null, instructions: [] },
     });
   } catch (error) {
-    await journal.cancel({
-      status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
-    });
-    throw error;
+    await journal
+      .cancel({
+        status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
+      })
+      .catch(() => undefined);
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -1918,7 +1932,7 @@ async function rotateServiceSecretOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -2131,7 +2145,7 @@ async function backupOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -2964,7 +2978,7 @@ async function upgradeOperation(
       })
       .catch(() => undefined);
     if (recovery === undefined || !(error instanceof UpgradeRecoveryError))
-      throw error;
+      throw journal.failure(error);
     return result({
       command: "upgrade",
       status:
@@ -3280,7 +3294,7 @@ async function defaultUninstallOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -3643,7 +3657,7 @@ async function clientUninstallOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -3932,7 +3946,7 @@ async function purgeOperation(
         status: journal.hasUnprovenEffect() ? "recovery-required" : "failed",
       })
       .catch(() => undefined);
-    throw error;
+    throw journal.failure(error);
   } finally {
     await lock.release();
   }
@@ -3940,22 +3954,44 @@ async function purgeOperation(
 
 export function createProductionLifecycleOperations(
   environment: NodeJS.ProcessEnv = process.env,
+  dependencies: {
+    readonly resolveDockerEnvironment?:
+      | ((
+          environment: NodeJS.ProcessEnv,
+          signal: AbortSignal,
+        ) => Promise<NodeJS.ProcessEnv>)
+      | undefined;
+  } = {},
 ): AdministrativeOperations {
+  const resolveDockerEnvironment =
+    dependencies.resolveDockerEnvironment ??
+    resolveLocalLifecycleDockerEnvironment;
+  const withLocalDocker =
+    (
+      operation: (
+        command: ParsedCommand,
+        signal: AbortSignal,
+        environment: NodeJS.ProcessEnv,
+      ) => Promise<AdminResult>,
+    ) =>
+    async (command: ParsedCommand, signal: AbortSignal) =>
+      operation(
+        command,
+        signal,
+        await resolveDockerEnvironment(environment, signal),
+      );
   return {
     status: (command, signal) => statusOperation(command, signal, environment),
     doctor: (command, signal) => doctorOperation(command, signal, environment),
-    repair: (command, signal) => repairOperation(command, signal, environment),
-    "clients:rotate-key": (command, signal) =>
-      rotateClientKeyOperation(command, signal, environment),
-    "maintenance:rotate-service-secret": (command, signal) =>
-      rotateServiceSecretOperation(command, signal, environment),
-    backup: (command, signal) => backupOperation(command, signal, environment),
-    upgrade: (command, signal) =>
-      upgradeOperation(command, signal, environment),
-    "clients:uninstall": (command, signal) =>
-      clientUninstallOperation(command, signal, environment),
-    uninstall: (command, signal) =>
-      defaultUninstallOperation(command, signal, environment),
-    purge: (command, signal) => purgeOperation(command, signal, environment),
+    repair: withLocalDocker(repairOperation),
+    "clients:rotate-key": withLocalDocker(rotateClientKeyOperation),
+    "maintenance:rotate-service-secret": withLocalDocker(
+      rotateServiceSecretOperation,
+    ),
+    backup: withLocalDocker(backupOperation),
+    upgrade: withLocalDocker(upgradeOperation),
+    "clients:uninstall": withLocalDocker(clientUninstallOperation),
+    uninstall: withLocalDocker(defaultUninstallOperation),
+    purge: withLocalDocker(purgeOperation),
   };
 }

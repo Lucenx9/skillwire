@@ -12,6 +12,7 @@ import {
 import { createProductionLifecycleOperations } from "../../../src/onboarding/application/production-lifecycle.js";
 import { ensureServiceSecrets } from "../../../src/onboarding/secrets/service-secrets.js";
 import { createOwnershipLedger } from "../../../src/onboarding/domain/ownership.js";
+import { JournaledOperationFailure } from "../../../src/onboarding/domain/operation-journal.js";
 import type { ParsedCommand } from "../../../src/onboarding/cli/main.js";
 import {
   createOnboardingEnvironment,
@@ -303,6 +304,90 @@ describe("administrative lifecycle routes", () => {
       expect(stderr).toBe("");
     },
   );
+
+  it.each([
+    ["repair", { component: "service" }],
+    ["clients:rotate-key", { client: "codex" }],
+    [
+      "maintenance:rotate-service-secret",
+      { serviceSecret: "database-password" },
+    ],
+    ["backup", {}],
+    ["upgrade", { release: "/tmp/verified-release.tar.zst" }],
+    ["clients:uninstall", { client: "claude" }],
+    ["uninstall", {}],
+    ["purge", {}],
+  ] as const)(
+    "rejects a remote named Docker context before executing %s",
+    async (route, extra) => {
+      fixture = await createOnboardingEnvironment();
+      const resolveDockerEnvironment = vi.fn(async () => {
+        throw new Error(
+          "A local Docker context is required; remote contexts are refused",
+        );
+      });
+      const operations = createProductionLifecycleOperations(
+        fixture.environment,
+        { resolveDockerEnvironment },
+      );
+      const operation = operations[route];
+      expect(operation).toBeDefined();
+
+      await expect(
+        operation?.(
+          {
+            route,
+            output: "json",
+            previewOnly: false,
+            ...extra,
+          },
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow(/local Docker context|remote context/i);
+      expect(resolveDockerEnvironment).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("reports a journaled partial lifecycle mutation as recovery-required", async () => {
+    let stdout = "";
+    const code = await routeAdministrativeCommand(
+      {
+        route: "uninstall",
+        output: "json",
+        previewOnly: false,
+        confirmPreview: "a".repeat(64),
+      },
+      {
+        stdout: (value) => (stdout += value),
+        stderr: vi.fn(),
+      },
+      new AbortController().signal,
+      {
+        uninstall: async () => {
+          throw new JournaledOperationFailure(
+            "owned uninstall effect may have completed",
+            "application-config",
+            { cause: new Error("simulated post-effect failure") },
+          );
+        },
+      },
+    );
+
+    expect(code).toBe(10);
+    expect(JSON.parse(stdout)).toMatchObject({
+      command: "uninstall",
+      status: "recovery-required",
+      exitClass: "rollback-required",
+      changed: true,
+      findings: [
+        {
+          code: "LIFECYCLE_RECOVERY_REQUIRED",
+          severity: "recovery-required",
+        },
+      ],
+      recovery: { rollbackBoundary: "application-config" },
+    });
+  });
 });
 
 async function fixtureSnapshot(root: string): Promise<string> {

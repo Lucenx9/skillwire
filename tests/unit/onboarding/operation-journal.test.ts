@@ -11,6 +11,7 @@ import {
 import {
   currentProcessIdentity,
   InstallationLock,
+  JournaledOperationFailure,
   OperationJournal,
 } from "../../../src/onboarding/domain/operation-journal.js";
 
@@ -105,6 +106,33 @@ describe("operation journal and installation lock", () => {
       recoveryRequired: false,
     });
     expect(journal.hasUnprovenEffect()).toBe(false);
+  });
+
+  it("wraps only unresolved journaled mutations for the CLI recovery envelope", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "uninstall",
+    );
+    const failure = new Error("post-effect publication failed");
+    await journal.intent("uninstall", { confirmed: true });
+    expect(journal.failure(failure)).toBe(failure);
+
+    await journal.runEffect({
+      step: "uninstall-owned-client",
+      intent: { client: "codex" },
+      signal: new AbortController().signal,
+      action: () => Promise.resolve(),
+      verification: () => ({ removed: true }),
+    });
+    expect(journal.failure(failure)).toBeInstanceOf(JournaledOperationFailure);
+
+    await journal.compensate("uninstall-owned-client", {
+      completion: "reverted",
+      recoveryRequired: false,
+    });
+    expect(journal.failure(failure)).toBe(failure);
   });
 
   it("persists the required setup effect inventory as intent/effect/verify triplets", async () => {

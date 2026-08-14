@@ -13,6 +13,7 @@ import {
   runProductionSetup,
 } from "../application/production-setup.js";
 import { inspectInstalledStatus } from "../application/status.js";
+import { JournaledOperationFailure } from "../domain/operation-journal.js";
 import type { AdminResult, ExitClass } from "./output.js";
 
 function emit(
@@ -466,34 +467,47 @@ export async function routeAdministrativeCommand(
     try {
       return emit(await operation(command, signal), command, io);
     } catch (error) {
+      const mutated = error instanceof JournaledOperationFailure;
+      const cancelled = signalIsAborted(signal);
       return emit(
         AdminResultSchema.parse({
           schemaVersion: "skillwire.admin-result/v1",
           command: command.route,
           operationId: randomUUID(),
-          status: signalIsAborted(signal) ? "cancelled" : "failure",
-          exitClass: signalIsAborted(signal)
+          status: cancelled
+            ? "cancelled"
+            : mutated
+              ? "recovery-required"
+              : "failure",
+          exitClass: cancelled
             ? "user-cancellation"
-            : failureClass(error),
+            : mutated
+              ? "rollback-required"
+              : failureClass(error),
           previewHash: null,
-          changed: false,
-          summary: `${command.route} stopped before successful completion`,
+          changed: mutated,
+          summary: mutated
+            ? `${command.route} stopped after an owned mutation began`
+            : `${command.route} stopped before successful completion`,
           components: [],
           findings: [
             {
-              code: "LIFECYCLE_OPERATION_FAILED",
-              severity: "error",
+              code: mutated
+                ? "LIFECYCLE_RECOVERY_REQUIRED"
+                : "LIFECYCLE_OPERATION_FAILED",
+              severity: mutated ? "recovery-required" : "error",
               component: command.route,
               summary:
                 error instanceof Error
                   ? error.message.slice(0, 512)
                   : "Lifecycle operation failed",
-              nextAction:
-                "Resolve the reported condition and generate a fresh preview",
+              nextAction: mutated
+                ? "Inspect and recover the owned operation journal before retrying"
+                : "Resolve the reported condition and generate a fresh preview",
             },
           ],
           recovery: {
-            rollbackBoundary: "none",
+            rollbackBoundary: mutated ? error.rollbackBoundary : "none",
             backupId: null,
             instructions: [],
           },

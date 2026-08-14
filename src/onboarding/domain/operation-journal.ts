@@ -80,6 +80,25 @@ export class JournaledEffectError extends Error {
   }
 }
 
+export class JournaledOperationFailure extends Error {
+  readonly changed = true;
+  readonly recoveryRequired = true;
+
+  public constructor(
+    message: string,
+    readonly rollbackBoundary:
+      | "automatic"
+      | "client-only"
+      | "application-config"
+      | "database-restore-required"
+      | "none" = "application-config",
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "JournaledOperationFailure";
+  }
+}
+
 export class OperationJournal {
   readonly entries: JournalEntry[] = [];
 
@@ -264,6 +283,34 @@ export class OperationJournal {
       else unproven.delete(entry.step);
     }
     return unproven.size > 0;
+  }
+
+  hasIncompleteMutation(): boolean {
+    const unresolved = new Set<string>();
+    for (const entry of this.entries) {
+      if (entry.phase === "effect") unresolved.add(entry.step);
+      if (entry.phase !== "compensate") continue;
+      if (entry.detail["completion"] === "unproven") unresolved.add(entry.step);
+      else unresolved.delete(entry.step);
+    }
+    return unresolved.size > 0;
+  }
+
+  failure(error: unknown): unknown {
+    if (!this.hasIncompleteMutation()) return error;
+    if (error instanceof JournaledOperationFailure) return error;
+    return new JournaledOperationFailure(
+      error instanceof Error
+        ? error.message
+        : "Lifecycle operation stopped after an owned mutation began",
+      this.command === "clients-uninstall" ||
+        this.command === "clients-rotate-key"
+        ? "client-only"
+        : this.command === "purge"
+          ? "none"
+          : "application-config",
+      { cause: error },
+    );
   }
 }
 

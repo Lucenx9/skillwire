@@ -34,13 +34,63 @@ const AdvisoryEventSchema = z.object({
   eventSha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
+const SqlIdentifierSchema = z.string().regex(/^[a-z_][a-z0-9_$]{0,127}$/);
+
+const ConstraintEvidenceSchema = z
+  .object({
+    schemaName: SqlIdentifierSchema,
+    tableName: SqlIdentifierSchema,
+    constraintName: SqlIdentifierSchema,
+    constraintType: z.enum([
+      "check",
+      "foreign-key",
+      "primary-key",
+      "unique",
+      "constraint-trigger",
+      "not-null",
+      "exclusion",
+    ]),
+    definition: z
+      .string()
+      .min(1)
+      .max(16 * 1024),
+    validated: z.boolean(),
+  })
+  .strict();
+
+const TriggerEventSchema = z.enum(["INSERT", "DELETE", "UPDATE", "TRUNCATE"]);
+
+const TriggerEvidenceSchema = z
+  .object({
+    schemaName: SqlIdentifierSchema,
+    tableName: SqlIdentifierSchema,
+    triggerName: SqlIdentifierSchema,
+    functionSchema: SqlIdentifierSchema,
+    functionName: SqlIdentifierSchema,
+    functionArguments: z.string().max(4096),
+    functionDefinition: z
+      .string()
+      .min(1)
+      .max(64 * 1024),
+    functionBodySha256: z.string().regex(/^[0-9a-f]{64}$/),
+    timing: z.enum(["BEFORE", "AFTER", "INSTEAD OF"]),
+    level: z.enum(["ROW", "STATEMENT"]),
+    events: z.array(TriggerEventSchema).min(1).max(4),
+    enabled: z.enum(["origin", "disabled", "replica", "always"]),
+    definition: z
+      .string()
+      .min(1)
+      .max(16 * 1024),
+  })
+  .strict();
+
 const EvidenceSchema = z.object({
   currentDatabase: z.string(),
   inRecovery: z.boolean(),
   transactionReadOnly: z.string(),
   migrations: z.array(MigrationSchema).max(999),
-  constraints: z.array(z.string().min(1).max(128)).max(4096),
-  triggers: z.array(z.string().min(1).max(128)).max(4096),
+  constraints: z.array(ConstraintEvidenceSchema).max(4096),
+  triggers: z.array(TriggerEvidenceSchema).max(4096),
   catalog: z.object({
     snapshotCount: z.number().int().nonnegative(),
     revisionCount: z.number().int().nonnegative(),
@@ -70,6 +120,10 @@ const EvidenceSchema = z.object({
 export type RestoredDatabaseEvidence = z.infer<typeof EvidenceSchema>;
 
 export interface DatabaseStateExpectation {
+  readonly schemaControls: {
+    readonly constraints: RestoredDatabaseEvidence["constraints"];
+    readonly triggers: RestoredDatabaseEvidence["triggers"];
+  };
   readonly catalog: {
     readonly snapshotCount: number;
     readonly revisionCount: number;
@@ -110,13 +164,167 @@ const REQUIRED_CONSTRAINTS = [
   "schema_migrations_pkey",
 ] as const;
 
+const FUNCTION_BODY_SHA256 = {
+  reject_external_history_mutation:
+    "4adf876c6bd96600896c6d48b63a2900408722ed33f8603af7a413555788e83c",
+  protect_github_registration_identity:
+    "b7e09311ad9c92f1d002dabe2991ee0e987071de9dfcec937f17fe62fab8071e",
+  validate_external_classification_transition:
+    "7e29bd82153cfd0976b925d2dd6a18879f3c9e16a4c79faf1586fdddb9aad718",
+  validate_external_classification_transition_after_migration_010:
+    "511e1833ab29d867a5c5a7ad5036aaabac942dab4e4f55d3de3247a0322507cd",
+  validate_external_advisory_append:
+    "ec80f70ea91225d44339c1a6aef7da0569e6aee6630f57c495430546fb6178df",
+  guard_external_snapshot_finalization:
+    "37167092120146842dfe2976dfcc45034ea58ad6eb4a4a576b0e0fd0e3ada9c9",
+  require_external_snapshot_finalization:
+    "e26c0466292fb76c9f4cce6af78ea7f617617d7a5f117fd20e15f3bfbbfdde8c",
+  validate_external_revision_classification_transition:
+    "01461630956a69c1ead4bfd7bf1df621e217a352052123fcfe79e401dea840b8",
+} as const;
+
 const REQUIRED_TRIGGERS = [
-  "external_advisory_append_valid",
-  "external_advisory_events_immutable",
-  "external_dependencies_immutable",
-  "external_resources_immutable",
-  "external_revisions_immutable",
-  "external_snapshots_immutable",
+  {
+    minimumMigration: 5,
+    triggerName: "external_content_immutable",
+    tableName: "external_content_objects",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
+    triggerName: "external_identities_immutable",
+    tableName: "external_skill_identities",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
+    triggerName: "external_revisions_immutable",
+    tableName: "external_skill_revisions",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
+    triggerName: "external_resources_immutable",
+    tableName: "external_revision_resources",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
+    triggerName: "external_dependencies_immutable",
+    tableName: "external_revision_dependencies",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
+    triggerName: "external_observations_immutable",
+    tableName: "external_snapshot_skill_observations",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 6,
+    triggerName: "github_source_registration_identity_immutable",
+    tableName: "github_source_registrations",
+    functionName: "protect_github_registration_identity",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.protect_github_registration_identity,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 6,
+    triggerName: "external_classification_transition_valid",
+    tableName: "external_classification_events",
+    functionName: "validate_external_classification_transition",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.validate_external_classification_transition,
+    replacementFunctionBody: {
+      minimumMigration: 10,
+      functionBodySha256:
+        FUNCTION_BODY_SHA256.validate_external_classification_transition_after_migration_010,
+    },
+    events: ["INSERT"],
+  },
+  {
+    minimumMigration: 6,
+    triggerName: "external_advisory_append_valid",
+    tableName: "external_revision_advisory_events",
+    functionName: "validate_external_advisory_append",
+    functionBodySha256: FUNCTION_BODY_SHA256.validate_external_advisory_append,
+    events: ["INSERT"],
+  },
+  ...[
+    ["external_candidates_immutable", "external_import_candidates"],
+    ["external_reports_immutable", "external_verification_reports"],
+    ["external_findings_immutable", "external_validation_findings"],
+    [
+      "external_classification_events_immutable",
+      "external_classification_events",
+    ],
+    ["external_curation_decisions_immutable", "external_curation_decisions"],
+    ["external_advisory_events_immutable", "external_revision_advisory_events"],
+  ].map(([triggerName, tableName]) => ({
+    minimumMigration: 6,
+    triggerName: triggerName ?? "",
+    tableName: tableName ?? "",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  })),
+  {
+    minimumMigration: 7,
+    triggerName: "github_sync_candidate_results_immutable",
+    tableName: "github_sync_candidate_results",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 8,
+    triggerName: "external_snapshots_immutable",
+    tableName: "external_source_snapshots",
+    functionName: "guard_external_snapshot_finalization",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.guard_external_snapshot_finalization,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 8,
+    triggerName: "external_snapshot_finalization_required",
+    tableName: "external_source_snapshots",
+    functionName: "require_external_snapshot_finalization",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.require_external_snapshot_finalization,
+    events: ["INSERT", "UPDATE"],
+    timing: "AFTER",
+  },
+  {
+    minimumMigration: 10,
+    triggerName: "external_revision_classification_transition_valid",
+    tableName: "external_revision_classification_events",
+    functionName: "validate_external_revision_classification_transition",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.validate_external_revision_classification_transition,
+    events: ["INSERT"],
+  },
+  {
+    minimumMigration: 10,
+    triggerName: "external_revision_classification_events_immutable",
+    tableName: "external_revision_classification_events",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
 ] as const;
 
 export async function expectedMigrationInventory(
@@ -210,12 +418,55 @@ export function assessRestoredDatabaseEvidence(
     JSON.stringify(evidence.migrations) !== JSON.stringify(expectedMigrations)
   )
     throw new Error("Restored migration inventory or checksum is invalid");
-  const constraints = new Set(evidence.constraints);
-  const triggers = new Set(evidence.triggers);
-  const constraintsValid = REQUIRED_CONSTRAINTS.every((name) =>
-    constraints.has(name),
+  const latestMigration = Number(expectedMigrations.at(-1)?.version ?? "0");
+  const constraintNames = new Set(
+    evidence.constraints.map(({ constraintName }) => constraintName),
   );
-  const triggersValid = REQUIRED_TRIGGERS.every((name) => triggers.has(name));
+  const uniqueConstraints = new Set(
+    evidence.constraints.map(
+      ({ schemaName, tableName, constraintName }) =>
+        `${schemaName}\0${tableName}\0${constraintName}`,
+    ),
+  );
+  const uniqueTriggers = new Set(
+    evidence.triggers.map(
+      ({ schemaName, tableName, triggerName }) =>
+        `${schemaName}\0${tableName}\0${triggerName}`,
+    ),
+  );
+  const constraintsValid =
+    uniqueConstraints.size === evidence.constraints.length &&
+    evidence.constraints.every(({ validated }) => validated) &&
+    REQUIRED_CONSTRAINTS.every((name) => constraintNames.has(name)) &&
+    JSON.stringify(evidence.constraints) ===
+      JSON.stringify(expectations.expectedState.schemaControls.constraints);
+  const triggersValid =
+    uniqueTriggers.size === evidence.triggers.length &&
+    evidence.triggers.every(({ enabled }) => enabled === "origin") &&
+    REQUIRED_TRIGGERS.filter(
+      ({ minimumMigration }) => minimumMigration <= latestMigration,
+    ).every((required) =>
+      evidence.triggers.some(
+        (trigger) =>
+          trigger.schemaName === "public" &&
+          trigger.triggerName === required.triggerName &&
+          trigger.tableName === required.tableName &&
+          trigger.functionSchema === "public" &&
+          trigger.functionName === required.functionName &&
+          trigger.functionArguments === "" &&
+          trigger.functionBodySha256 ===
+            ("replacementFunctionBody" in required &&
+            latestMigration >= required.replacementFunctionBody.minimumMigration
+              ? required.replacementFunctionBody.functionBodySha256
+              : required.functionBodySha256) &&
+          trigger.timing ===
+            ("timing" in required ? required.timing : "BEFORE") &&
+          trigger.level === "ROW" &&
+          JSON.stringify(trigger.events) === JSON.stringify(required.events),
+      ),
+    ) &&
+    JSON.stringify(evidence.triggers) ===
+      JSON.stringify(expectations.expectedState.schemaControls.triggers);
   const catalogValid =
     evidence.catalog.invalidSnapshotCounts === 0 &&
     evidence.catalog.invalidPublishedPointers === 0 &&
@@ -285,6 +536,10 @@ export function databaseStateExpectation(
 ): DatabaseStateExpectation {
   const evidence = EvidenceSchema.parse(input);
   return {
+    schemaControls: {
+      constraints: evidence.constraints,
+      triggers: evidence.triggers,
+    },
     catalog: {
       snapshotCount: evidence.catalog.snapshotCount,
       revisionCount: evidence.catalog.revisionCount,
@@ -308,8 +563,44 @@ function restoredDatabaseEvidenceQuery(installationAccountId: string): string {
     'inRecovery', pg_is_in_recovery(),
     'transactionReadOnly', current_setting('transaction_read_only'),
     'migrations', (SELECT COALESCE(json_agg(json_build_object('version',version,'checksum',checksum) ORDER BY version),'[]'::json) FROM schema_migrations),
-    'constraints', (SELECT COALESCE(json_agg(conname ORDER BY conname),'[]'::json) FROM pg_constraint JOIN pg_namespace ON pg_namespace.oid=pg_constraint.connamespace WHERE nspname='public'),
-    'triggers', (SELECT COALESCE(json_agg(tgname ORDER BY tgname),'[]'::json) FROM pg_trigger JOIN pg_class ON pg_class.oid=pg_trigger.tgrelid JOIN pg_namespace ON pg_namespace.oid=pg_class.relnamespace WHERE nspname='public' AND NOT tgisinternal),
+    'constraints', (SELECT COALESCE(json_agg(json_build_object(
+      'schemaName', namespace.nspname,
+      'tableName', relation.relname,
+      'constraintName', constraint_entry.conname,
+      'constraintType', CASE constraint_entry.contype WHEN 'c' THEN 'check' WHEN 'f' THEN 'foreign-key' WHEN 'p' THEN 'primary-key' WHEN 'u' THEN 'unique' WHEN 't' THEN 'constraint-trigger' WHEN 'n' THEN 'not-null' WHEN 'x' THEN 'exclusion' ELSE 'unsupported' END,
+      'definition', pg_get_constraintdef(constraint_entry.oid, true),
+      'validated', constraint_entry.convalidated
+    ) ORDER BY namespace.nspname, relation.relname, constraint_entry.conname),'[]'::json)
+      FROM pg_constraint constraint_entry
+      JOIN pg_namespace namespace ON namespace.oid=constraint_entry.connamespace
+      JOIN pg_class relation ON relation.oid=constraint_entry.conrelid
+      WHERE namespace.nspname='public' AND constraint_entry.conrelid<>0),
+    'triggers', (SELECT COALESCE(json_agg(json_build_object(
+      'schemaName', namespace.nspname,
+      'tableName', relation.relname,
+      'triggerName', trigger_entry.tgname,
+      'functionSchema', function_namespace.nspname,
+      'functionName', function_entry.proname,
+      'functionArguments', pg_get_function_identity_arguments(function_entry.oid),
+      'functionDefinition', pg_get_functiondef(function_entry.oid),
+      'functionBodySha256', encode(sha256(convert_to(btrim(function_entry.prosrc), 'UTF8')), 'hex'),
+      'timing', CASE WHEN (trigger_entry.tgtype & 64)<>0 THEN 'INSTEAD OF' WHEN (trigger_entry.tgtype & 2)<>0 THEN 'BEFORE' ELSE 'AFTER' END,
+      'level', CASE WHEN (trigger_entry.tgtype & 1)<>0 THEN 'ROW' ELSE 'STATEMENT' END,
+      'events', array_remove(ARRAY[
+        CASE WHEN (trigger_entry.tgtype & 4)<>0 THEN 'INSERT' END,
+        CASE WHEN (trigger_entry.tgtype & 8)<>0 THEN 'DELETE' END,
+        CASE WHEN (trigger_entry.tgtype & 16)<>0 THEN 'UPDATE' END,
+        CASE WHEN (trigger_entry.tgtype & 32)<>0 THEN 'TRUNCATE' END
+      ], NULL),
+      'enabled', CASE trigger_entry.tgenabled WHEN 'O' THEN 'origin' WHEN 'D' THEN 'disabled' WHEN 'R' THEN 'replica' WHEN 'A' THEN 'always' ELSE 'unknown' END,
+      'definition', pg_get_triggerdef(trigger_entry.oid, true)
+    ) ORDER BY namespace.nspname, relation.relname, trigger_entry.tgname),'[]'::json)
+      FROM pg_trigger trigger_entry
+      JOIN pg_class relation ON relation.oid=trigger_entry.tgrelid
+      JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+      JOIN pg_proc function_entry ON function_entry.oid=trigger_entry.tgfoid
+      JOIN pg_namespace function_namespace ON function_namespace.oid=function_entry.pronamespace
+      WHERE namespace.nspname='public' AND NOT trigger_entry.tgisinternal),
     'catalog', json_build_object(
       'snapshotCount', (SELECT count(*) FROM external_source_snapshots),
       'revisionCount', (SELECT count(*) FROM external_skill_revisions),
