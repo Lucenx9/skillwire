@@ -167,7 +167,7 @@ export async function createApplication(
   const logger = createSecurityLogger(undefined, config.logLevel ?? "info");
   let githubScheduler: GitHubSyncScheduler | undefined;
   try {
-    await runMigrations(pool, `${catalogRoot}/migrations`);
+    await runMigrations(pool, `${projectRoot}/migrations`);
     const memoryStore = new PostgresRepositoryMemoryStore(pool);
     const auditStore = new PostgresErasureAuditStore(pool);
     const expiration = new AuditExpirationService(auditStore);
