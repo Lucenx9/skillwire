@@ -83,7 +83,12 @@ describe("explicit service-secret rotation", () => {
 
   it("blocks application-pepper rotation before mutation when the runtime has no safe overlap support", async () => {
     fixture = await createOnboardingEnvironment();
-    const operations = createProductionLifecycleOperations(fixture.environment);
+    const operations = createProductionLifecycleOperations(
+      fixture.environment,
+      {
+        resolveDockerEnvironment: async (environment) => environment,
+      },
+    );
     const before = await snapshotTree(fixture.root);
 
     await expect(

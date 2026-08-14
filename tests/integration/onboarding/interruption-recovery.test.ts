@@ -384,9 +384,9 @@ describe("observation-based interruption recovery", () => {
     await interrupted.intent("upgrade-migration", { schema: 10 });
     await interrupted.effect("upgrade-migration", { completion: "recorded" });
 
-    const repair = createProductionLifecycleOperations(
-      fixture.environment,
-    ).repair;
+    const repair = createProductionLifecycleOperations(fixture.environment, {
+      resolveDockerEnvironment: async (environment) => environment,
+    }).repair;
     expect(repair).toBeDefined();
     const preview = await repair?.(
       {
