@@ -1,9 +1,24 @@
 /* eslint-disable @typescript-eslint/require-await -- Async fakes mirror production removal interfaces. */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rm as filesystemRm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { resolve } from "node:path";
+import type * as FileSystemPromises from "node:fs/promises";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FileSystemPromises>();
+  return { ...actual, rm: vi.fn(actual.rm) };
+});
 
 import {
   previewPurge,
@@ -183,6 +198,61 @@ describe("removal ownership and filesystem boundaries", () => {
       removeOwnedFilesystemTree(link, protectedRoot),
     ).rejects.toThrow(/unsafe|link/i);
     await expect(readFile(external, "utf8")).resolves.toBe("keep");
+  });
+
+  it("binds recursive deletion to a quarantined inode before a target-path substitution", async () => {
+    fixture = await createOnboardingEnvironment();
+    const protectedRoot = resolve(fixture.root, "purge-root");
+    const owned = resolve(protectedRoot, "owned");
+    const externalRoot = resolve(fixture.root, "external");
+    const external = resolve(externalRoot, "keep.txt");
+    await mkdir(owned, { recursive: true, mode: 0o700 });
+    await mkdir(externalRoot, { mode: 0o700 });
+    await writeFile(resolve(owned, "state.json"), "owned", { mode: 0o600 });
+    await writeFile(external, "keep", { mode: 0o600 });
+    const before = await lstat(owned, { bigint: true });
+    const actual =
+      await vi.importActual<typeof FileSystemPromises>("node:fs/promises");
+    vi.mocked(filesystemRm).mockImplementationOnce(
+      async (candidate, options) => {
+        if (typeof candidate !== "string")
+          throw new Error("expected a string purge target");
+        expect(resolve(candidate)).not.toBe(owned);
+        const quarantined = await lstat(candidate, { bigint: true });
+        expect({ dev: quarantined.dev, ino: quarantined.ino }).toEqual({
+          dev: before.dev,
+          ino: before.ino,
+        });
+        await symlink(externalRoot, owned);
+        await actual.rm(candidate, options);
+      },
+    );
+
+    await removeOwnedFilesystemTree(owned, protectedRoot, [
+      resolve(owned, "state.json"),
+    ]);
+
+    await expect(readFile(external, "utf8")).resolves.toBe("keep");
+    await unlink(owned);
+  });
+
+  it("restores an identity-proven quarantine when recursive deletion fails", async () => {
+    fixture = await createOnboardingEnvironment();
+    const protectedRoot = resolve(fixture.root, "purge-root");
+    const owned = resolve(protectedRoot, "owned");
+    const ownedFile = resolve(owned, "state.json");
+    await mkdir(owned, { recursive: true, mode: 0o700 });
+    await writeFile(ownedFile, "owned", { mode: 0o600 });
+    vi.mocked(filesystemRm).mockRejectedValueOnce(
+      new Error("simulated recursive removal failure"),
+    );
+
+    await expect(
+      removeOwnedFilesystemTree(owned, protectedRoot, [ownedFile]),
+    ).rejects.toThrow(/restored|retry/i);
+
+    await expect(readFile(ownedFile, "utf8")).resolves.toBe("owned");
+    await expect(readdir(protectedRoot)).resolves.toEqual(["owned"]);
   });
 
   it("stops an interrupted purge before the first asset", async () => {

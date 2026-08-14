@@ -23,6 +23,46 @@ export interface DefaultUninstallPreview {
   readonly previewHash: string;
 }
 
+interface UninstallEffectGroup {
+  readonly step: string;
+  readonly assets: readonly OwnedAsset[];
+}
+
+function groupUninstallEffects(
+  assets: readonly OwnedAsset[],
+): readonly UninstallEffectGroup[] {
+  const groups: UninstallEffectGroup[] = [];
+  const clientIntegrations = new Map<"codex" | "claude", OwnedAsset[]>();
+  for (const asset of assets) {
+    if (
+      asset.client !== null &&
+      (asset.kind === "marketplace" || asset.kind === "plugin")
+    ) {
+      const existing = clientIntegrations.get(asset.client);
+      if (existing === undefined) {
+        const grouped = [asset];
+        clientIntegrations.set(asset.client, grouped);
+        groups.push({
+          step: `uninstall-client-integration-${asset.client}`,
+          assets: grouped,
+        });
+      } else {
+        if (existing.some(({ kind }) => kind === asset.kind))
+          throw new Error(
+            `Uninstall ${asset.client} integration ownership is ambiguous`,
+          );
+        existing.push(asset);
+      }
+      continue;
+    }
+    groups.push({
+      step: `uninstall-${asset.kind}-${asset.assetId}`,
+      assets: [asset],
+    });
+  }
+  return groups;
+}
+
 export function previewDefaultUninstall(
   ownership: unknown,
 ): DefaultUninstallPreview {
@@ -106,20 +146,27 @@ export async function runDefaultUninstall(options: {
       verification: () => ({ ...detail, completed: true }),
     });
   };
-  for (const asset of options.preview.remove) {
+  for (const group of groupUninstallEffects(options.preview.remove)) {
     if (options.signal.aborted)
       throw new Error("Uninstall stopped at a recoverable asset boundary");
-    requireCurrentOwnedAssetIdentity(
-      asset,
-      await options.observeIdentity(asset),
-    );
-    await effect(
-      `uninstall-${asset.kind}-${asset.assetId}`,
-      () => options.removeAsset(asset),
-      { assetId: asset.assetId, kind: asset.kind },
-    );
-    ownership = recordAssetDisposition(ownership, asset.assetId, "removed");
-    removed.push(asset.assetId);
+    for (const asset of group.assets)
+      requireCurrentOwnedAssetIdentity(
+        asset,
+        await options.observeIdentity(asset),
+      );
+    const representative = group.assets[0];
+    if (representative === undefined)
+      throw new Error("Uninstall effect group is empty");
+    await effect(group.step, () => options.removeAsset(representative), {
+      assetId: representative.assetId,
+      groupedAssets: group.assets.length,
+      kind:
+        group.assets.length > 1 ? "client-integration" : representative.kind,
+    });
+    for (const asset of group.assets) {
+      ownership = recordAssetDisposition(ownership, asset.assetId, "removed");
+      removed.push(asset.assetId);
+    }
   }
   await effect("uninstall-owned-service", options.stopOwnedService, {
     installationId: options.preview.installationId,

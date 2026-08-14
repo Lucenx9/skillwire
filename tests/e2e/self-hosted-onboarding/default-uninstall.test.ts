@@ -1,21 +1,29 @@
 /* eslint-disable @typescript-eslint/require-await -- Async fakes mirror production lifecycle interfaces. */
 import { randomUUID } from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   previewDefaultUninstall,
   runDefaultUninstall,
 } from "../../../src/onboarding/application/uninstall.js";
 import { uninstallClientLifecycle } from "../../../src/onboarding/application/client-lifecycle.js";
+import { OperationJournal } from "../../../src/onboarding/domain/operation-journal.js";
 import {
   createOwnershipLedger,
   planOwnedAssetDispositions,
   recordAssetDisposition,
   recordOwnedAsset,
 } from "../../../src/onboarding/domain/ownership.js";
+import {
+  createOnboardingEnvironment,
+  type OnboardingEnvironment,
+} from "../../helpers/onboarding-environment.js";
 
 describe("data-preserving default uninstall", () => {
+  let fixture: OnboardingEnvironment | undefined;
+  afterEach(async () => fixture?.close());
+
   it("removes only owned client/service runtime assets and retains recovery state", async () => {
     const installationId = randomUUID();
     const operationId = randomUUID();
@@ -96,6 +104,73 @@ describe("data-preserving default uninstall", () => {
     expect(stopOwnedService).toHaveBeenCalledTimes(1);
     expect(result.retained).toHaveLength(7);
     expect(unrelatedExternal).toEqual(beforeExternal);
+  });
+
+  it("removes same-client marketplace and plugin aliases as one journaled inverse", async () => {
+    fixture = await createOnboardingEnvironment();
+    const operationId = randomUUID();
+    let ledger = createOwnershipLedger(randomUUID());
+    for (const client of ["codex", "claude"] as const)
+      for (const kind of ["marketplace", "plugin"] as const)
+        ledger = recordOwnedAsset(ledger, {
+          kind,
+          client,
+          locator: `${client}-${kind}`,
+          expectedIdentitySha256: (client === "codex" ? "c" : "d").repeat(64),
+          createdByOperation: operationId,
+          retention: "remove-on-uninstall",
+          disposition: "present",
+        });
+    const preview = previewDefaultUninstall(ledger.record);
+    const present = new Map([
+      ["codex", true],
+      ["claude", true],
+    ]);
+    const removeAsset = vi.fn(
+      async (asset: (typeof preview.remove)[number]) => {
+        if (asset.client === null) throw new Error("missing client fixture");
+        present.set(asset.client, false);
+      },
+    );
+    const journal = await OperationJournal.create(
+      fixture.root,
+      randomUUID(),
+      "uninstall",
+    );
+
+    const result = await runDefaultUninstall({
+      ownership: ledger.record,
+      preview,
+      confirmation: preview.previewHash,
+      signal: new AbortController().signal,
+      observeIdentity: async (asset) =>
+        asset.client !== null && present.get(asset.client) === true
+          ? asset.expectedIdentitySha256
+          : "0".repeat(64),
+      removeAsset,
+      stopOwnedService: async () => undefined,
+      publishRetained: async () => undefined,
+      journal,
+    });
+
+    expect(removeAsset).toHaveBeenCalledTimes(2);
+    expect(
+      removeAsset.mock.calls.map(([asset]) => asset.client).sort(),
+    ).toEqual(["claude", "codex"]);
+    expect(result.removed).toHaveLength(4);
+    expect(
+      journal.entries
+        .filter(
+          ({ phase, step }) =>
+            phase === "effect" &&
+            step.startsWith("uninstall-client-integration-"),
+        )
+        .map(({ step }) => step)
+        .sort(),
+    ).toEqual([
+      "uninstall-client-integration-claude",
+      "uninstall-client-integration-codex",
+    ]);
   });
 
   it("uninstalls one owned client including its key while preserving its sibling and external integrations", async () => {

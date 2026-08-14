@@ -22,7 +22,7 @@ describe("observation-based interruption recovery", () => {
   afterEach(async () => fixture?.close());
 
   it.each([
-    ["intent", "safe-retry"],
+    ["intent", "resume"],
     ["effect", "resume"],
     ["verify", "resume"],
     ["compensate", "resume"],
@@ -61,6 +61,42 @@ describe("observation-based interruption recovery", () => {
         false,
       );
       expect(compensate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["matching", "resume", ["intent", "effect", "verify", "commit"], 0],
+    ["absent", "safe-retry", ["intent", "compensate", "commit"], 0],
+    ["owned-mismatch", "resume", ["intent", "compensate", "commit"], 1],
+    ["ambiguous", "recovery-required", ["intent"], 0],
+  ] as const)(
+    "observes an intent-only %s boundary before deciding recovery",
+    async (observation, disposition, phases, compensations) => {
+      fixture = await createOnboardingEnvironment();
+      const journal = await OperationJournal.create(
+        resolve(fixture.root, "journals"),
+        randomUUID(),
+        "repair",
+      );
+      await journal.intent("owned-plugin", { client: "codex" });
+      const observe = vi.fn(async () => observation);
+      const compensate = vi.fn(async () => undefined);
+
+      await expect(
+        recoverOperation({
+          journal,
+          signal: new AbortController().signal,
+          observe,
+          compensate,
+        }),
+      ).resolves.toMatchObject({
+        disposition,
+        boundary: "owned-plugin",
+      });
+
+      expect(observe).toHaveBeenCalledExactlyOnceWith("owned-plugin");
+      expect(compensate).toHaveBeenCalledTimes(compensations);
+      expect(journal.entries.map(({ phase }) => phase)).toEqual(phases);
     },
   );
 
@@ -184,6 +220,111 @@ describe("observation-based interruption recovery", () => {
         compensate: vi.fn(),
       }),
     ).resolves.toMatchObject({ disposition: "recovery-required" });
+  });
+
+  it("retains and consumes a verified effect boundary after a failed cancellation", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "uninstall",
+    );
+    await journal.intent("client-codex-plugin", { client: "codex" });
+    await journal.effect("client-codex-plugin", { completion: "recorded" });
+    await journal.verify("client-codex-plugin", { removed: true });
+    await journal.cancel({ status: "failed" });
+    const observe = vi.fn(async () => "matching" as const);
+
+    expect(journalNeedsRecovery(journal.entries)).toBe(true);
+    await expect(
+      recoverOperation({
+        journal,
+        signal: new AbortController().signal,
+        observe,
+        compensate: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      disposition: "resume",
+      changed: true,
+      boundary: "client-codex-plugin",
+    });
+    expect(observe).toHaveBeenCalledExactlyOnceWith("client-codex-plugin");
+    expect(journal.entries.at(-2)).toMatchObject({
+      phase: "compensate",
+      step: "client-codex-plugin",
+      detail: { completion: "recovered" },
+    });
+    expect(journal.entries.at(-1)).toMatchObject({
+      phase: "commit",
+      detail: { status: "recovered" },
+    });
+  });
+
+  it("does not hide an earlier unresolved effect behind a later compensation", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "uninstall",
+    );
+    await journal.intent("client-codex-plugin", { client: "codex" });
+    await journal.effect("client-codex-plugin", { completion: "recorded" });
+    await journal.verify("client-codex-plugin", { removed: true });
+    await journal.intent("client-claude-plugin", { client: "claude" });
+    await journal.effect("client-claude-plugin", { completion: "recorded" });
+    await journal.verify("client-claude-plugin", { removed: true });
+    await journal.compensate("client-claude-plugin", {
+      completion: "recovered",
+      recoveryRequired: false,
+    });
+    await journal.cancel({ status: "failed" });
+    const observe = vi.fn(async () => "matching" as const);
+
+    expect(journalNeedsRecovery(journal.entries)).toBe(true);
+    await expect(
+      recoverOperation({
+        journal,
+        signal: new AbortController().signal,
+        observe,
+        compensate: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      disposition: "resume",
+      boundary: "client-codex-plugin",
+    });
+    expect(observe).toHaveBeenCalledExactlyOnceWith("client-codex-plugin");
+  });
+
+  it("treats a fully compensated failed cancellation as terminally safe", async () => {
+    fixture = await createOnboardingEnvironment();
+    const journal = await OperationJournal.create(
+      resolve(fixture.root, "journals"),
+      randomUUID(),
+      "uninstall",
+    );
+    await journal.intent("client-codex-plugin", { client: "codex" });
+    await journal.effect("client-codex-plugin", { completion: "recorded" });
+    await journal.verify("client-codex-plugin", { removed: true });
+    await journal.compensate("client-codex-plugin", {
+      completion: "recovered",
+      recoveryRequired: false,
+    });
+    await journal.cancel({ status: "failed" });
+    const observe = vi.fn(async () => "ambiguous" as const);
+
+    expect(journalNeedsRecovery(journal.entries)).toBe(false);
+    await expect(
+      recoverOperation({
+        journal,
+        signal: new AbortController().signal,
+        observe,
+        compensate: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      disposition: "safe-retry",
+      changed: false,
+    });
+    expect(observe).not.toHaveBeenCalled();
   });
 
   it("returns a stable recovery result when production repair finds an ambiguous interrupted effect", async () => {

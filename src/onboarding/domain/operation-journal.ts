@@ -146,13 +146,14 @@ export class OperationJournal {
     detail: JournalEntry["detail"],
   ): Promise<void> {
     const last = this.entries.at(-1);
-    const resumingRecoveryRequiredCancellation =
+    const resumingCancelledOperation =
       last?.phase === "cancel" &&
-      last.detail["status"] === "recovery-required" &&
+      (last.detail["status"] === "failed" ||
+        last.detail["status"] === "recovery-required") &&
       phase === "compensate";
     if (
       last?.phase === "commit" ||
-      (last?.phase === "cancel" && !resumingRecoveryRequiredCancellation)
+      (last?.phase === "cancel" && !resumingCancelledOperation)
     ) {
       throw new Error("Operation journal is already terminal");
     }
