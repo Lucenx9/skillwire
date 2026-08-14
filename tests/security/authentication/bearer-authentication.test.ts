@@ -114,3 +114,40 @@ describe("database-backed bearer authentication", () => {
     }
   });
 });
+
+describe("pre-authentication rate limiting", () => {
+  it("rejects excess bearer attempts before invoking the authenticator", async () => {
+    let calls = 0;
+    const app = createTestApplication({
+      authenticator: {
+        authenticate: () => {
+          calls += 1;
+          return Promise.resolve(undefined);
+        },
+      },
+      rateLimit: {
+        accountRequestsPerMinute: 60_000,
+        apiKeyRequestsPerMinute: 60_000,
+        burst: 1000,
+        authenticationRequestsPerMinute: 1,
+        authenticationBurst: 1,
+      },
+    }).app;
+    const request = () =>
+      app.request("/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${createApiKeyToken().token}`,
+          "content-type": "application/json",
+          host: "127.0.0.1",
+        },
+        body: initializeBody,
+      });
+
+    expect((await request()).status).toBe(401);
+    const limited = await request();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("60");
+    expect(calls).toBe(1);
+  });
+});

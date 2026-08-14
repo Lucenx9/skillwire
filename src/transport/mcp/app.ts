@@ -9,7 +9,9 @@ import { bodyLimit } from "hono/body-limit";
 import type { ApiKeyAuthenticator } from "../../authentication/api-key-authenticator.js";
 import {
   AccountApiKeyRateLimiter,
+  AuthenticationRateLimiter,
   bearerAuthentication,
+  rateLimitAuthentication,
   rateLimitRequests,
   type RateLimitPolicy,
   type SkillWireHonoEnvironment,
@@ -37,6 +39,10 @@ export function createApp(options: CreateAppOptions) {
   const app = new Hono<SkillWireHonoEnvironment>();
   const now = options.now ?? Date.now;
   const limiter = new AccountApiKeyRateLimiter(options.rateLimit, now);
+  const authenticationLimiter = new AuthenticationRateLimiter(
+    options.rateLimit,
+    now,
+  );
 
   app.use("*", requestContext(options.requestDeadlineMilliseconds, now));
   app.use("*", async (context, next) => {
@@ -186,6 +192,10 @@ export function createApp(options: CreateAppOptions) {
     await next();
     return;
   });
+  app.use(
+    "/mcp",
+    rateLimitAuthentication(authenticationLimiter, options.logger),
+  );
   app.use("/mcp", bearerAuthentication(options.authenticator, options.logger));
   app.use("/mcp", rateLimitRequests(limiter, options.logger));
 

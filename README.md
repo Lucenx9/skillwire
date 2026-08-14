@@ -283,8 +283,9 @@ skill bodies or secrets, and writes nothing to the client tree.
 ## Security model
 
 - API keys are high-entropy bearer tokens; PostgreSQL stores only keyed digests.
-- Authentication and repository-memory state are checked directly in PostgreSQL
-  on every request.
+- API-key and repository-memory state are authoritative in PostgreSQL. A cheap
+  global token bucket may reject excess syntactically valid bearer attempts
+  before authentication; accepted attempts are checked directly in PostgreSQL.
 - Published trust is immutable; current availability/revocation is derived from
   a verified, release-anchored advisory chain.
 - Runtime schemas accept no caller URL, repository source, executable extension,
