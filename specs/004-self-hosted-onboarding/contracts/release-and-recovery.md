@@ -15,6 +15,26 @@ The bootstrap instructions in `distribution/self-hosted/README.md` require an in
 
 Bootstrap runs `cosign verify-blob` with outbound network blocked, the local trusted root, external bundle, canonical release manifest, exact certificate identity/issuer, and the policy-required repository/workflow/tag/SHA claims. It then validates canonical encoding, policy/manifest sequences, archive size/digest, and deny lists before extraction. Once started, the CLI independently repeats the same release-pinned verification before any installation path, image, container, service secret, credential, client profile, or database mutation. Missing or stale trusted material is a blocking integrity result with bounded instructions for an explicit TUF refresh; verification never silently refreshes or performs an unbounded transparency lookup.
 
+## Stable release entrypoints
+
+The protected release workflow and trusted source checkout use these stable package commands:
+
+```text
+pnpm build:self-hosted <payload-root> <output-directory> <amd64|arm64>
+pnpm verify:self-hosted \
+  --manifest <release-manifest> \
+  --bundle <sigstore-bundle> \
+  --archive <release-archive> \
+  --policy <trust-policy> \
+  --trusted-root <trusted-root> \
+  --cosign <policy-pinned-cosign> \
+  --architecture <amd64|arm64>
+```
+
+`build:self-hosted` consumes only explicit, immutable workflow inputs and deterministically emits the unsigned canonical archive and release manifest. It does not sign, publish, install, or mutate user or service state. Signing remains the separate protected-tag workflow step described below.
+
+`verify:self-hosted` validates the complete published or extracted release contract: canonical manifest and policy bytes, archive identity and safe extraction, Bundle v0.3 evidence, signer claims, the local TrustedRoot, payload inventory, and release policy. It fails closed when any required asset or trust input is absent and performs offline verification without consulting mutable GitHub state. A locally built unsigned payload cannot satisfy this command or enter the production installation path.
+
 ## Signing and trust-policy contract
 
 `.github/workflows/self-hosted-release.yml` is the only release signer. The protected-tag workflow accepts only `self-hosted-v<package.version>`, requires an annotated tag object, recursively peels it to the exact workflow SHA, proves the target is reachable from protected `main`, and checks manifest version/source identity before signing. It uses only command-scoped `safe.directory`, builds and completes all acceptance gates before signing, and grants only `contents: read` and `id-token: write`.

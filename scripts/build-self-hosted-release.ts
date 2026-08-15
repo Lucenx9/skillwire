@@ -42,6 +42,9 @@ export interface BuiltRelease {
   readonly manifest: ReleaseManifest;
 }
 
+const BUILD_USAGE =
+  "Usage: build-self-hosted-release <payload-root> <output-directory> <amd64|arm64>";
+
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -296,6 +299,10 @@ export async function buildSelfHostedRelease(
 }
 
 async function main(): Promise<void> {
+  if (process.argv.length === 3 && process.argv[2] === "--help") {
+    process.stdout.write(`${BUILD_USAGE}\n`);
+    return;
+  }
   const payloadRoot = process.argv[2];
   const outputDirectory = process.argv[3];
   const architecture = process.argv[4];
@@ -304,9 +311,7 @@ async function main(): Promise<void> {
     outputDirectory === undefined ||
     (architecture !== "amd64" && architecture !== "arm64")
   ) {
-    throw new Error(
-      "Usage: build-self-hosted-release <payload-root> <output-directory> <amd64|arm64>",
-    );
+    throw new Error(BUILD_USAGE);
   }
   const imagesJson = process.env["SKILLWIRE_RELEASE_IMAGES_JSON"];
   if (imagesJson === undefined) {

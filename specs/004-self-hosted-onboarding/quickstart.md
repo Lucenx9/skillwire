@@ -96,14 +96,72 @@ pnpm exec vitest run --project integration \
 
 Expected: the compiled `skillwire` executable reaches every administrative command and bridge mode, JSON and MCP stdout stay pure, `SIGINT`/`SIGTERM` propagate, every exit maps to the contract, and the entire process-start-to-STDIO-ready/failure path remains within 10.0 seconds by a monotonic clock. The Secret Service job uses real `/usr/bin/secret-tool` inside an isolated D-Bus/keyring session, destroys all runtime/session processes and state, then proves a fresh session can use retained persistent state. A supported-host physical reboot smoke remains manual and consent-gated.
 
-## 3. Build and verify the local release candidate
+## 3. Reproduce the unsigned build and verify signed workflow assets
 
-Build only the platform matching the current fixture:
+These are separate gates. Run the first block only inside a pre-populated
+release-workflow environment: `SW004_PAYLOAD_ROOT` must already contain the
+exact application, bundled runtime, verified Cosign binary, catalogs,
+migrations, distributions, and integrations assembled by
+`.github/workflows/self-hosted-release.yml`. The remaining inputs must be the
+same immutable values selected by that workflow. This quickstart deliberately
+does not synthesize a substitute payload, image identity, sequence, timestamp,
+or source commit.
+
+The guards make that precondition explicit before the public build entrypoint
+deterministically creates the unsigned archive and canonical external
+manifest. The command does not sign or publish them:
 
 ```bash
-pnpm build:self-hosted -- --platform linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-pnpm verify:self-hosted
+: "${SW004_PAYLOAD_ROOT:?use the pre-populated release-workflow payload root}"
+: "${SW004_RELEASE_IMAGES_JSON:?use the workflow's digest-pinned image JSON}"
+: "${SW004_RELEASE_SEQUENCE:?use the immutable workflow release sequence}"
+: "${SW004_PUBLISHED_AT:?use the immutable workflow publication time}"
+: "${SW004_SOURCE_COMMIT:?use the exact protected-tag source commit}"
+
+export SW004_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+export SW004_RELEASE_OUTPUT="$SW004_ROOT/release-$SW004_ARCH"
+
+env \
+  SKILLWIRE_RELEASE_IMAGES_JSON="$SW004_RELEASE_IMAGES_JSON" \
+  SKILLWIRE_RELEASE_VERSION="$(node -p "require('./package.json').version")" \
+  SKILLWIRE_RELEASE_SEQUENCE="$SW004_RELEASE_SEQUENCE" \
+  SKILLWIRE_PUBLISHED_AT="$SW004_PUBLISHED_AT" \
+  GITHUB_SHA="$SW004_SOURCE_COMMIT" \
+  SKILLWIRE_TRUST_SEQUENCE=1 \
+  pnpm build:self-hosted \
+    "$SW004_PAYLOAD_ROOT" "$SW004_RELEASE_OUTPUT" "$SW004_ARCH"
 ```
+
+The unsigned output is never an input to production verification. For the
+acceptance flow below, obtain the four sibling assets from the protected-tag
+workflow, place them in one private directory, and separately provide the
+independently authenticated TrustedRoot and Cosign 3.1.3 paths. A normal
+source/test checkout can begin here without running the reproducibility block:
+
+```bash
+: "${SW004_SIGNED_ASSET_ROOT:?directory containing protected-workflow assets}"
+: "${SW004_TRUSTED_ROOT:?independently authenticated local TrustedRoot}"
+: "${SW004_COSIGN:?independently verified absolute Cosign 3.1.3 path}"
+
+export SW004_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+export SW004_VERSION="$(node -p "require('./package.json').version")"
+
+pnpm verify:self-hosted \
+  --manifest "$SW004_SIGNED_ASSET_ROOT/skillwire-$SW004_VERSION-linux-$SW004_ARCH.release.json" \
+  --bundle "$SW004_SIGNED_ASSET_ROOT/skillwire-$SW004_VERSION-linux-$SW004_ARCH.release.sigstore.json" \
+  --archive "$SW004_SIGNED_ASSET_ROOT/skillwire-$SW004_VERSION-linux-$SW004_ARCH.tar.zst" \
+  --policy "$SW004_SIGNED_ASSET_ROOT/skillwire-trust-policy-v1.json" \
+  --trusted-root "$SW004_TRUSTED_ROOT" \
+  --cosign "$SW004_COSIGN" \
+  --architecture "$SW004_ARCH"
+```
+
+`SW004_RELEASE_IMAGES_JSON`, `SW004_RELEASE_SEQUENCE`,
+`SW004_PUBLISHED_AT`, and `SW004_SOURCE_COMMIT` are explicit immutable inputs
+from the protected release workflow. The signed-asset verifier requires the
+external Bundle v0.3 and policy-pinned TrustedRoot; the unsigned reproducibility
+output therefore cannot pass production verification or become an
+installation input.
 
 The release job emits exactly four sibling assets for that platform:
 

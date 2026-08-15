@@ -82,7 +82,7 @@ Run the release verifier from a trusted source checkout, still with outbound
 networking blocked:
 
 ```sh
-pnpm exec tsx scripts/verify-self-hosted-release.ts \
+pnpm verify:self-hosted \
   --manifest skillwire-VERSION-linux-ARCH.release.json \
   --bundle skillwire-VERSION-linux-ARCH.release.sigstore.json \
   --archive skillwire-VERSION-linux-ARCH.tar.zst \
