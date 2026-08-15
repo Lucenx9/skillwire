@@ -156,7 +156,7 @@ describe("Feature 004 certified release matrix", () => {
     expect(workflowSource).toContain("actual-release-assets.txt");
   });
 
-  it("pins every action and exposes no privileged pull-request release event", async () => {
+  it("pins every action and exposes no privileged non-tag release event", async () => {
     const workflowSource = await readFile(
       ".github/workflows/self-hosted-release.yml",
       "utf8",
@@ -166,6 +166,7 @@ describe("Feature 004 certified release matrix", () => {
     );
     expect(uses.length).toBeGreaterThan(0);
     expect(uses.every((use) => /@[0-9a-f]{40}$/.test(use))).toBe(true);
+    expect(workflowSource).not.toMatch(/^  workflow_dispatch:/mu);
     expect(workflowSource).not.toMatch(/^\s+pull_request(?:_target)?:/mu);
     expect(workflowSource).not.toContain("pull-requests: write");
   });

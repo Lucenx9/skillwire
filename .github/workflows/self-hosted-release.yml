@@ -1,7 +1,6 @@
 name: Self-hosted release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "self-hosted-v*"
@@ -15,9 +14,7 @@ env:
 
 jobs:
   certified-matrix:
-    if:
-      startsWith(github.ref, 'refs/tags/self-hosted-v') || github.event_name ==
-      'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/self-hosted-v')
     strategy:
       fail-fast: false
       matrix:
