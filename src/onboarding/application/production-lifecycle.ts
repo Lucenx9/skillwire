@@ -68,6 +68,7 @@ import {
   assessRestoredDatabaseEvidence,
   databaseStateExpectation,
   expectedMigrationInventory,
+  forwardMigrationStateExpectation,
   readDatabaseEvidence,
   validateRestoredDatabaseContainer,
 } from "../adapters/postgres/restore-validation.js";
@@ -2709,7 +2710,13 @@ async function upgradeOperation(
           installationAccountId: installation.accountId,
           expectedActiveApiKeys: activeCredentialReferenceCount,
           expectedDatabase: "skillwire",
-          expectedState,
+          expectedState:
+            liveSchema === candidate.target.latestMigration
+              ? expectedState
+              : forwardMigrationStateExpectation(
+                  sourceEvidence,
+                  targetEvidence,
+                ),
         });
       },
       verifyClients: async () => {

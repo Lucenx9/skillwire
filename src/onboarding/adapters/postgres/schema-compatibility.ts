@@ -41,7 +41,7 @@ export function classifySchemaUpgrade(input: {
     { length: input.latestMigration - input.liveSchema },
     (_, index) => input.liveSchema + index + 1,
   );
-  const forwardOnly = new Set(input.forwardOnlyMigrations ?? [10]);
+  const forwardOnly = new Set(input.forwardOnlyMigrations ?? [10, 11]);
   if (!migrations.some((migration) => forwardOnly.has(migration)))
     throw new Error("Unclassified forward migration is forbidden");
   return {

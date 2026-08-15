@@ -125,7 +125,7 @@ export async function runUpgrade(options: {
     schemaMinimum: target.schemaMinimum,
     schemaMaximum: target.schemaMaximum,
     latestMigration: target.latestMigration,
-    forwardOnlyMigrations: [10],
+    forwardOnlyMigrations: [10, 11],
   });
   const backup = await effect(
     "upgrade-backup",

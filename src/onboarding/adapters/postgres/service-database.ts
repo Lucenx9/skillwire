@@ -84,9 +84,9 @@ export class ServiceDatabase {
     if (
       version === undefined ||
       !version.startsWith("17.") ||
-      latestMigration !== "010"
+      latestMigration !== "011"
     )
-      throw new Error("PostgreSQL 17/migration 010 readiness gate failed");
+      throw new Error("PostgreSQL 17/migration 011 readiness gate failed");
     return { version, latestMigration };
   }
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +34,10 @@ interface HistoricalRevisionFixture {
   readonly terminalEventId: string;
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 async function insertHistoricalRevision(
   pool: Pool,
   sourceId: string,
@@ -51,18 +55,21 @@ async function insertHistoricalRevision(
     classification === "curated" ? randomUUID() : verifiedEventId;
   const key = ordinal.toString(16);
   const root = `${classification}-${String(ordinal)}`;
+  const canonicalBytes = JSON.stringify({ ordinal });
   await pool.query(
     `INSERT INTO external_source_snapshots (
        id,source_id,commit_sha,tree_sha,manifest_version,revision_count,
+       candidate_count,quarantine_count,decoded_bytes,
        advisory_chain_head_sha256,origin_github_repository_id,
        origin_owner,origin_repository
-     ) VALUES ($1,$2,$3,$4,'nested-v1',1,$5,7002,'fixture-org',
+     ) VALUES ($1,$2,$3,$4,'nested-v1',1,1,$5,2,$6,7002,'fixture-org',
                'migration-shapes')`,
     [
       snapshotId,
       sourceId,
       key.repeat(40),
       ((ordinal + 8) % 16).toString(16).repeat(40),
+      classification === "quarantined" ? 1 : 0,
       "0".repeat(64),
     ],
   );
@@ -79,20 +86,21 @@ async function insertHistoricalRevision(
        source_owner,spdx_license_id,license_sha256,instructions_sha256,
        invocation_mode,canonical_bytes,origin_owner,origin_repository
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'Migration shape fixture.',$8,$9,
-               'Fixture Owner','MIT',$10,$11,'automatic','{}',
+               'Fixture Owner','MIT',$10,$11,'automatic',$12,
                'fixture-org','migration-shapes')`,
     [
       revisionId,
       identityId,
       snapshotId,
       `gh-${key.repeat(64)}`,
-      ((ordinal + 1) % 16).toString(16).repeat(64),
+      sha256(canonicalBytes),
       ((ordinal + 2) % 16).toString(16).repeat(64),
       `${root}-skill`,
       `${root}/SKILL.md`,
       key.repeat(40),
-      "e".repeat(64),
-      "f".repeat(64),
+      sha256("MIT"),
+      sha256("ok"),
+      canonicalBytes,
     ],
   );
   await pool.query(
@@ -202,9 +210,10 @@ async function insertHistoricalSibling(
   await pool.query(
     `INSERT INTO external_source_snapshots (
        id,source_id,commit_sha,tree_sha,manifest_version,revision_count,
+       candidate_count,decoded_bytes,
        advisory_chain_head_sha256,origin_github_repository_id,
        origin_owner,origin_repository
-     ) VALUES ($1,$2,$3,$4,'nested-v1',1,$5,7002,'fixture-org',
+     ) VALUES ($1,$2,$3,$4,'nested-v1',1,1,2,$5,7002,'fixture-org',
                'migration-shapes')`,
     [snapshotId, sourceId, "a".repeat(40), "b".repeat(40), "0".repeat(64)],
   );
@@ -275,9 +284,10 @@ async function insertUnobservedHistoricalCandidate(
   await pool.query(
     `INSERT INTO external_source_snapshots (
        id,source_id,commit_sha,tree_sha,manifest_version,revision_count,
+       candidate_count,
        advisory_chain_head_sha256,origin_github_repository_id,
        origin_owner,origin_repository
-     ) VALUES ($1,$2,$3,$4,'nested-v1',0,$5,7002,'fixture-org',
+     ) VALUES ($1,$2,$3,$4,'nested-v1',0,1,$5,7002,'fixture-org',
                'migration-shapes')`,
     [snapshotId, sourceId, "c".repeat(40), "d".repeat(40), "0".repeat(64)],
   );
@@ -339,7 +349,7 @@ describe("external policy migration", () => {
     const versions = await database.pool.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version",
     );
-    expect(versions.rows.at(-1)?.version).toBe("010");
+    expect(versions.rows.at(-1)?.version).toBe("011");
     const required = [
       "github_discovery_runs",
       "github_discovery_evidence",
@@ -401,8 +411,8 @@ describe("external policy migration", () => {
       const discoveredEventId = randomUUID();
       const verifiedEventId = randomUUID();
       const curatedEventId = randomUUID();
-      const instructionsSha256 = "1".repeat(64);
-      const licenseSha256 = "2".repeat(64);
+      const instructionsSha256 = sha256("ok");
+      const licenseSha256 = sha256("MIT");
       const contentIdentitySha256 = "3".repeat(64);
       await legacy.pool.query(
         `INSERT INTO github_sources (
@@ -415,9 +425,10 @@ describe("external policy migration", () => {
       await legacy.pool.query(
         `INSERT INTO external_source_snapshots (
            id,source_id,commit_sha,tree_sha,manifest_version,revision_count,
+           candidate_count,decoded_bytes,
            advisory_chain_head_sha256,origin_github_repository_id,
            origin_owner,origin_repository
-         ) VALUES ($1,$2,$3,$4,'nested-v1',1,$5,7001,'fixture-org',
+         ) VALUES ($1,$2,$3,$4,'nested-v1',1,1,2,$5,7001,'fixture-org',
                    'legacy-events')`,
         [snapshotId, sourceId, "a".repeat(40), "b".repeat(40), "0".repeat(64)],
       );
@@ -449,7 +460,7 @@ describe("external policy migration", () => {
           identityId,
           snapshotId,
           `gh-${"4".repeat(64)}`,
-          "5".repeat(64),
+          sha256("{}"),
           contentIdentitySha256,
           "a".repeat(40),
           licenseSha256,
@@ -679,7 +690,7 @@ describe("external policy migration", () => {
            sha256,kind,media_type,byte_length,content
          ) VALUES ($1,'license','text/plain',3,'MIT'),
                   ($2,'instructions','text/markdown',2,'ok')`,
-        ["e".repeat(64), "f".repeat(64)],
+        [sha256("MIT"), sha256("ok")],
       );
       const verified = await insertHistoricalRevision(
         legacy.pool,
@@ -891,7 +902,7 @@ describe("external policy migration", () => {
            sha256,kind,media_type,byte_length,content
          ) VALUES ($1,'license','text/plain',3,'MIT'),
                   ($2,'instructions','text/markdown',2,'ok')`,
-        ["e".repeat(64), "f".repeat(64)],
+        [sha256("MIT"), sha256("ok")],
       );
       const verified = await insertHistoricalRevision(
         legacy.pool,

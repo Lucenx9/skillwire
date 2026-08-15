@@ -233,6 +233,24 @@ schema. An active forgotten writer causes a bounded lock-timeout failure; the
 transaction and migration registration roll back, leaving schema 009 usable.
 Stop that writer and rerun the unchanged migration.
 
+Migration 011 reconciles the historical
+`external_source_snapshots.decoded_bytes` counter. Native ingestion before 011
+counted UTF-8 instruction bytes plus resource bytes, while the restore gate and
+migration-006 backfill defined the same derived counter as the sum of immutable
+canonical revision-object bytes. The migration accepts only an exact match to
+one of those two representations, recomputes the canonical total through
+immutable snapshot observations (including reused revisions), and records every
+prior and resulting value in the append-only
+`external_snapshot_byte_total_reconciliations` ledger. It does not change bundle
+or content hashes, revision identities, provenance, resources, classifications,
+or advisory history. Any other total, malformed object, hash mismatch, overflow,
+or duplicate accounting aborts the transaction and leaves schema 010 unchanged.
+Migration 011 is safe to rerun through the normal idempotent migrator, but it is
+also a forward-only boundary. A deferred database constraint rejects every new
+snapshot unless its canonical projection and reconciliation evidence agree at
+commit, so a pre-011 writer fails rather than advancing mixed-format history.
+Never start that writer against schema 011.
+
 ### Backup, restore, and rollback for migration 010
 
 The pre-upgrade backup must include the complete PostgreSQL database and be
@@ -287,13 +305,14 @@ corrections. Do not edit the migration table.
 
 `Database migration ... is newer than binary migration ...` means the selected
 image is too old for that database; select a compatible post-migration image. Do
-not bypass the guard. A lock or statement timeout during migration 010 means
-either a writer was not drained or the rehearsed bound is too small. Confirm
-writers are stopped before changing a bound. Because each migration and its
-registration are transactional, a failed 010 leaves schema 009 in place and is
-safe to rerun after the cause is fixed. A historical candidate-attribution
-failure is a data-integrity stop: keep traffic down, preserve evidence, and
-repair it only through a separately reviewed forward migration or restore.
+not bypass the guard. A lock or statement timeout during migration 010 or 011
+means either a writer was not drained or the rehearsed bound is too small.
+Confirm writers are stopped before changing a bound. Because each migration and
+its registration are transactional, a failed migration leaves the preceding
+schema in place and is safe to rerun after the cause is fixed. A historical
+candidate-attribution failure is a data-integrity stop: keep traffic down,
+preserve evidence, and repair it only through a separately reviewed forward
+migration or restore.
 
 ### Catalog verification fails
 

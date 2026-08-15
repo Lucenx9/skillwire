@@ -35,11 +35,11 @@ export function deriveReleaseComponents(payload: Payload): ReleaseComponents {
   const versions = migrations.map(({ path }) =>
     path.slice("migrations/".length, "migrations/".length + 3),
   );
-  const expectedVersions = Array.from({ length: 10 }, (_value, index) =>
+  const expectedVersions = Array.from({ length: 11 }, (_value, index) =>
     String(index + 1).padStart(3, "0"),
   );
   if (versions.join("\0") !== expectedVersions.join("\0")) {
-    throw new Error("Release migration set must bind exact migrations 001-010");
+    throw new Error("Release migration set must bind exact migrations 001-011");
   }
   const catalogEntries = entriesBelow(payload, ["catalog/"]);
   const advisory = payload.find(
@@ -70,9 +70,9 @@ export function deriveReleaseComponents(payload: Payload): ReleaseComponents {
     },
     migrations: {
       sha256: aggregate(migrations),
-      count: 10,
-      latest: "010",
-      forwardOnly: ["010"],
+      count: 11,
+      latest: "011",
+      forwardOnly: ["010", "011"],
     },
     catalog: {
       sha256: aggregate(catalogEntries),

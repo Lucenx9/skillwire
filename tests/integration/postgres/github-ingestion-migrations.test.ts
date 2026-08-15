@@ -35,6 +35,7 @@ describe("GitHub ingestion migrations", () => {
       "008",
       "009",
       "010",
+      "011",
     ]);
     expect(
       versions.rows.every(({ checksum }) => /^[0-9a-f]{64}$/.test(checksum)),
@@ -45,6 +46,12 @@ describe("GitHub ingestion migrations", () => {
     expect(
       versions.rows.find(({ version }) => version === "010")?.checksum,
     ).toBe(createHash("sha256").update(migration010).digest("hex"));
+    const migration011 = await readFile(
+      join(process.cwd(), "migrations/011_reconcile_snapshot_byte_totals.sql"),
+    );
+    expect(
+      versions.rows.find(({ version }) => version === "011")?.checksum,
+    ).toBe(createHash("sha256").update(migration011).digest("hex"));
 
     const legacyTables = await database.pool.query<{ name: string }>(
       `
@@ -70,15 +77,29 @@ describe("GitHub ingestion migrations", () => {
       `,
       [sourceId],
     );
-    await database.pool.query(
-      `
-        INSERT INTO external_source_snapshots (
-          id, source_id, commit_sha, tree_sha, manifest_version, revision_count,
-          origin_github_repository_id, origin_owner, origin_repository
-        ) VALUES ($1, $2, $3, $4, '1.2.3', 25, 1148788086, 'mattpocock', 'skills')
-      `,
-      [snapshotId, sourceId, "8".repeat(40), "1".repeat(40)],
-    );
+    const client = await database.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          INSERT INTO external_source_snapshots (
+            id, source_id, commit_sha, tree_sha, manifest_version, revision_count,
+            origin_github_repository_id, origin_owner, origin_repository
+          ) VALUES ($1, $2, $3, $4, '1.2.3', 0, 1148788086, 'mattpocock', 'skills')
+        `,
+        [snapshotId, sourceId, "8".repeat(40), "1".repeat(40)],
+      );
+      await client.query(
+        `INSERT INTO external_snapshot_byte_total_reconciliations (
+           snapshot_id,prior_decoded_bytes,legacy_payload_decoded_bytes,
+           reconciled_decoded_bytes,prior_representation
+         ) VALUES ($1,0,0,0,'canonical')`,
+        [snapshotId],
+      );
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
     await expect(
       database.pool.query(
         "UPDATE external_source_snapshots SET manifest_version = '9.9.9' WHERE id = $1",

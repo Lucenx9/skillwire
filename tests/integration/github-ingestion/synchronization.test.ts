@@ -1411,6 +1411,34 @@ describe("immutable source synchronization", () => {
       classification: "quarantined",
       reasonCodes: ["DEPENDENCY_MISSING"],
     });
+    const secondByteTotals = await database.pool.query<{
+      canonical_total: string;
+      decoded_bytes: string;
+      prior_decoded_bytes: string;
+      reconciled_decoded_bytes: string;
+    }>(
+      `SELECT
+         sum(octet_length(revision.canonical_bytes))::text AS canonical_total,
+         snapshot.decoded_bytes::text,
+         reconciliation.prior_decoded_bytes::text,
+         reconciliation.reconciled_decoded_bytes::text
+       FROM external_source_snapshots snapshot
+       JOIN external_snapshot_skill_observations observation
+         ON observation.snapshot_id=snapshot.id
+       JOIN external_skill_revisions revision
+         ON revision.id=observation.revision_id
+       JOIN external_snapshot_byte_total_reconciliations reconciliation
+         ON reconciliation.snapshot_id=snapshot.id
+       WHERE snapshot.id=$1
+       GROUP BY snapshot.id,reconciliation.snapshot_id`,
+      [second.snapshotId],
+    );
+    expect(secondByteTotals.rows[0]).toEqual({
+      canonical_total: secondByteTotals.rows[0]?.canonical_total,
+      decoded_bytes: secondByteTotals.rows[0]?.canonical_total,
+      prior_decoded_bytes: secondByteTotals.rows[0]?.canonical_total,
+      reconciled_decoded_bytes: secondByteTotals.rows[0]?.canonical_total,
+    });
     const initialTransitions = await database.pool.query<{
       previous_classification: string | null;
       next_classification: string;

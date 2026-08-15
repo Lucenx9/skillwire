@@ -75,6 +75,8 @@ const TriggerEvidenceSchema = z
     functionBodySha256: z.string().regex(/^[0-9a-f]{64}$/),
     timing: z.enum(["BEFORE", "AFTER", "INSTEAD OF"]),
     level: z.enum(["ROW", "STATEMENT"]),
+    deferrable: z.boolean(),
+    initiallyDeferred: z.boolean(),
     events: z.array(TriggerEventSchema).min(1).max(4),
     enabled: z.enum(["origin", "disabled", "replica", "always"]),
     definition: z
@@ -98,6 +100,12 @@ const EvidenceSchema = z.object({
     dependencyCount: z.number().int().nonnegative(),
     contentObjectCount: z.number().int().nonnegative(),
     identitySha256: z.string().regex(/^[0-9a-f]{64}$/),
+    legacySnapshotByteTotals: z.number().int().nonnegative(),
+    invalidSnapshotByteTotals: z.number().int().nonnegative(),
+    invalidSnapshotByteOverflows: z.number().int().nonnegative(),
+    invalidSnapshotObjectGraph: z.number().int().nonnegative(),
+    invalidRevisionHashes: z.number().int().nonnegative(),
+    invalidSnapshotReconciliations: z.number().int().nonnegative(),
     invalidSnapshotCounts: z.number().int().nonnegative(),
     invalidPublishedPointers: z.number().int().nonnegative(),
     invalidContentLengths: z.number().int().nonnegative(),
@@ -181,6 +189,8 @@ const FUNCTION_BODY_SHA256 = {
     "e26c0466292fb76c9f4cce6af78ea7f617617d7a5f117fd20e15f3bfbbfdde8c",
   validate_external_revision_classification_transition:
     "01461630956a69c1ead4bfd7bf1df621e217a352052123fcfe79e401dea840b8",
+  validate_external_snapshot_byte_total_projection:
+    "6c866c631670b92a1ea5082ad0440ce207c0a53274073871acdcf45de5d18877",
 } as const;
 
 const REQUIRED_TRIGGERS = [
@@ -307,6 +317,8 @@ const REQUIRED_TRIGGERS = [
       FUNCTION_BODY_SHA256.require_external_snapshot_finalization,
     events: ["INSERT", "UPDATE"],
     timing: "AFTER",
+    deferrable: true,
+    initiallyDeferred: true,
   },
   {
     minimumMigration: 10,
@@ -324,6 +336,36 @@ const REQUIRED_TRIGGERS = [
     functionName: "reject_external_history_mutation",
     functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
     events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 11,
+    triggerName: "external_snapshot_byte_total_projection_valid",
+    tableName: "external_source_snapshots",
+    functionName: "validate_external_snapshot_byte_total_projection",
+    functionBodySha256:
+      FUNCTION_BODY_SHA256.validate_external_snapshot_byte_total_projection,
+    events: ["INSERT", "UPDATE"],
+    timing: "AFTER",
+    deferrable: true,
+    initiallyDeferred: true,
+  },
+  {
+    minimumMigration: 11,
+    triggerName: "external_snapshot_byte_total_reconciliations_immutable",
+    tableName: "external_snapshot_byte_total_reconciliations",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 11,
+    triggerName:
+      "external_snapshot_byte_total_reconciliations_truncate_rejected",
+    tableName: "external_snapshot_byte_total_reconciliations",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["TRUNCATE"],
+    level: "STATEMENT",
   },
 ] as const;
 
@@ -461,13 +503,25 @@ export function assessRestoredDatabaseEvidence(
               : required.functionBodySha256) &&
           trigger.timing ===
             ("timing" in required ? required.timing : "BEFORE") &&
-          trigger.level === "ROW" &&
+          trigger.level === ("level" in required ? required.level : "ROW") &&
+          trigger.deferrable ===
+            ("deferrable" in required ? required.deferrable : false) &&
+          trigger.initiallyDeferred ===
+            ("initiallyDeferred" in required
+              ? required.initiallyDeferred
+              : false) &&
           JSON.stringify(trigger.events) === JSON.stringify(required.events),
       ),
     ) &&
     JSON.stringify(evidence.triggers) ===
       JSON.stringify(expectations.expectedState.schemaControls.triggers);
   const catalogValid =
+    (latestMigration < 11 || evidence.catalog.legacySnapshotByteTotals === 0) &&
+    evidence.catalog.invalidSnapshotByteTotals === 0 &&
+    evidence.catalog.invalidSnapshotByteOverflows === 0 &&
+    evidence.catalog.invalidSnapshotObjectGraph === 0 &&
+    evidence.catalog.invalidRevisionHashes === 0 &&
+    evidence.catalog.invalidSnapshotReconciliations === 0 &&
     evidence.catalog.invalidSnapshotCounts === 0 &&
     evidence.catalog.invalidPublishedPointers === 0 &&
     evidence.catalog.invalidContentLengths === 0 &&
@@ -556,9 +610,180 @@ export function databaseStateExpectation(
   };
 }
 
+function schemaControlKey(input: {
+  readonly schemaName: string;
+  readonly tableName: string;
+  readonly constraintName?: string;
+  readonly triggerName?: string;
+}): string {
+  return `${input.schemaName}\0${input.tableName}\0${input.constraintName ?? input.triggerName ?? ""}`;
+}
+
+export function forwardMigrationStateExpectation(
+  sourceInput: unknown,
+  targetInput: unknown,
+): DatabaseStateExpectation {
+  const source = EvidenceSchema.parse(sourceInput);
+  const target = EvidenceSchema.parse(targetInput);
+  const sourceLatest = Number(source.migrations.at(-1)?.version ?? "0");
+  const targetLatest = Number(target.migrations.at(-1)?.version ?? "0");
+  if (
+    targetLatest <= sourceLatest ||
+    JSON.stringify(target.migrations.slice(0, source.migrations.length)) !==
+      JSON.stringify(source.migrations)
+  )
+    throw new Error("Forward migration inventory is not an exact extension");
+
+  const targetConstraints = new Map(
+    target.constraints.map((control) => [schemaControlKey(control), control]),
+  );
+  if (targetConstraints.size !== target.constraints.length)
+    throw new Error("Forward migration produced duplicate schema constraints");
+  const changedConstraint = source.constraints.find((control) => {
+    if (
+      JSON.stringify(targetConstraints.get(schemaControlKey(control))) ===
+      JSON.stringify(control)
+    )
+      return false;
+    if (
+      control.constraintName !==
+        "external_current_revision_classifications_latest_event_id_fkey" ||
+      sourceLatest >= 10 ||
+      targetLatest < 10
+    )
+      return true;
+    const replacement = targetConstraints.get(
+      "public\0external_current_revision_classifications\0external_current_revision_event_subject_valid",
+    );
+    return (
+      replacement?.constraintType !== "foreign-key" || !replacement.validated
+    );
+  });
+  if (changedConstraint !== undefined)
+    throw new Error(
+      `Forward migration changed pre-existing constraint ${changedConstraint.constraintName}`,
+    );
+  const targetTriggers = new Map(
+    target.triggers.map((control) => [schemaControlKey(control), control]),
+  );
+  if (targetTriggers.size !== target.triggers.length)
+    throw new Error("Forward migration produced duplicate schema triggers");
+  const changedTrigger = source.triggers.find((control) => {
+    const migrated = targetTriggers.get(schemaControlKey(control));
+    if (migrated === undefined) return true;
+    if (JSON.stringify(migrated) === JSON.stringify(control)) return false;
+    if (
+      control.triggerName !== "external_classification_transition_valid" ||
+      sourceLatest >= 10 ||
+      targetLatest < 10
+    )
+      return true;
+    const {
+      functionBodySha256: _sourceBody,
+      functionDefinition: _sourceDefinition,
+      ...sourceIdentity
+    } = control;
+    const {
+      functionBodySha256: _targetBody,
+      functionDefinition: _targetDefinition,
+      ...targetIdentity
+    } = migrated;
+    return JSON.stringify(targetIdentity) !== JSON.stringify(sourceIdentity);
+  });
+  if (changedTrigger !== undefined)
+    throw new Error(
+      `Forward migration changed pre-existing trigger ${changedTrigger.triggerName}`,
+    );
+
+  return {
+    ...databaseStateExpectation(source),
+    schemaControls: databaseStateExpectation(target).schemaControls,
+  };
+}
+
 function restoredDatabaseEvidenceQuery(installationAccountId: string): string {
   const accountId = z.uuid().parse(installationAccountId);
-  return `SELECT json_build_object(
+  return `WITH snapshot_totals AS (
+    SELECT
+      snapshot.id AS snapshot_id,
+      snapshot.revision_count,
+      snapshot.candidate_count,
+      snapshot.quarantine_count,
+      snapshot.resource_count,
+      snapshot.dependency_count,
+      snapshot.decoded_bytes,
+      count(observation.revision_id)::numeric AS observed_revision_count,
+      count(DISTINCT observation.revision_id)::numeric
+        AS distinct_observed_revision_count,
+      COALESCE(sum(
+        CASE WHEN observation.revision_id IS NULL THEN 0
+             ELSE octet_length(revision.canonical_bytes)::numeric END
+      ), 0) AS canonical_total,
+      COALESCE(sum(
+        CASE WHEN observation.revision_id IS NULL THEN 0
+             ELSE instructions.byte_length::numeric
+                  + COALESCE(resources.total_bytes, 0) END
+      ), 0) AS legacy_total,
+      COALESCE(sum(COALESCE(resources.resource_count, 0)), 0)::numeric
+        AS observed_resource_count,
+      COALESCE(sum(COALESCE(dependencies.dependency_count, 0)), 0)::numeric
+        AS observed_dependency_count,
+      count(*) FILTER (
+        WHERE (observation.revision_id IS NULL
+          AND observation.snapshot_id IS NOT NULL
+          AND (
+            observation.result NOT IN ('missing','quarantined')
+            OR observation.observed_content_identity_sha256 IS NOT NULL
+          ))
+          OR (observation.revision_id IS NOT NULL AND (
+            revision.id IS NULL
+            OR instructions.sha256 IS NULL
+            OR candidate.id IS NULL
+            OR candidate.snapshot_id <> observation.snapshot_id
+            OR candidate.skill_identity_id IS NOT NULL
+               AND candidate.skill_identity_id <> observation.skill_identity_id
+            OR candidate.published_revision_id IS NOT NULL
+               AND candidate.published_revision_id <> observation.revision_id
+            OR observation.skill_identity_id <> revision.skill_identity_id
+            OR observation.observed_content_identity_sha256 IS DISTINCT FROM
+               revision.content_identity_sha256
+            OR COALESCE(resources.invalid_object_count, 0) <> 0
+          ))
+      )::numeric AS invalid_object_count
+    FROM external_source_snapshots snapshot
+    LEFT JOIN external_snapshot_skill_observations observation
+      ON observation.snapshot_id=snapshot.id
+    LEFT JOIN external_skill_revisions revision
+      ON revision.id=observation.revision_id
+    LEFT JOIN external_content_objects instructions
+      ON instructions.sha256=revision.instructions_sha256
+     AND instructions.kind='instructions'
+    LEFT JOIN external_import_candidates candidate
+      ON candidate.id=observation.candidate_id
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*)::numeric AS resource_count,
+        COALESCE(sum(resource.byte_length::numeric), 0) AS total_bytes,
+        count(*) FILTER (
+          WHERE content.sha256 IS NULL
+             OR content.kind <> 'resource'
+             OR content.byte_length <> resource.byte_length
+        )::numeric AS invalid_object_count
+      FROM external_revision_resources resource
+      LEFT JOIN external_content_objects content
+        ON content.sha256=resource.content_sha256
+      WHERE resource.revision_id=revision.id
+    ) resources ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*)::numeric AS dependency_count
+      FROM external_revision_dependencies dependency
+      WHERE dependency.revision_id=revision.id
+    ) dependencies ON true
+    GROUP BY snapshot.id
+  ), latest_schema AS (
+    SELECT COALESCE(max(version), '000') AS version FROM schema_migrations
+  )
+  SELECT json_build_object(
     'currentDatabase', current_database(),
     'inRecovery', pg_is_in_recovery(),
     'transactionReadOnly', current_setting('transaction_read_only'),
@@ -583,9 +808,11 @@ function restoredDatabaseEvidenceQuery(installationAccountId: string): string {
       'functionName', function_entry.proname,
       'functionArguments', pg_get_function_identity_arguments(function_entry.oid),
       'functionDefinition', pg_get_functiondef(function_entry.oid),
-      'functionBodySha256', encode(sha256(convert_to(btrim(function_entry.prosrc), 'UTF8')), 'hex'),
+      'functionBodySha256', encode(sha256(convert_to(regexp_replace(function_entry.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g'), 'UTF8')), 'hex'),
       'timing', CASE WHEN (trigger_entry.tgtype & 64)<>0 THEN 'INSTEAD OF' WHEN (trigger_entry.tgtype & 2)<>0 THEN 'BEFORE' ELSE 'AFTER' END,
       'level', CASE WHEN (trigger_entry.tgtype & 1)<>0 THEN 'ROW' ELSE 'STATEMENT' END,
+      'deferrable', trigger_entry.tgdeferrable,
+      'initiallyDeferred', trigger_entry.tginitdeferred,
       'events', array_remove(ARRAY[
         CASE WHEN (trigger_entry.tgtype & 4)<>0 THEN 'INSERT' END,
         CASE WHEN (trigger_entry.tgtype & 8)<>0 THEN 'DELETE' END,
@@ -608,7 +835,19 @@ function restoredDatabaseEvidenceQuery(installationAccountId: string): string {
       'dependencyCount', (SELECT count(*) FROM external_revision_dependencies),
       'contentObjectCount', (SELECT count(*) FROM external_content_objects),
       'identitySha256', (SELECT encode(sha256(convert_to(COALESCE(string_agg(identity,'\n' ORDER BY identity),''),'UTF8')),'hex') FROM (SELECT 'snapshot:'||id::text||':'||source_id::text||':'||commit_sha||':'||tree_sha||':'||COALESCE(advisory_chain_head_sha256,'null') AS identity FROM external_source_snapshots UNION ALL SELECT 'revision:'||id::text||':'||snapshot_id::text||':'||bundle_sha256||':'||content_identity_sha256 FROM external_skill_revisions UNION ALL SELECT 'resource:'||revision_id::text||':'||resource_path||':'||content_sha256 FROM external_revision_resources UNION ALL SELECT 'dependency:'||revision_id::text||':'||target_revision_id::text||':'||evidence_source_sha256 FROM external_revision_dependencies UNION ALL SELECT 'content:'||sha256||':'||byte_length::text FROM external_content_objects) catalog_identity),
-      'invalidSnapshotCounts', (SELECT count(*) FROM external_source_snapshots snapshot WHERE snapshot.revision_count<>(SELECT count(*) FROM external_skill_revisions revision WHERE revision.snapshot_id=snapshot.id) OR snapshot.candidate_count<>(SELECT count(*) FROM external_import_candidates candidate WHERE candidate.snapshot_id=snapshot.id) OR snapshot.quarantine_count<>(SELECT count(*) FROM external_import_candidates candidate JOIN external_current_classifications current ON current.candidate_id=candidate.id WHERE candidate.snapshot_id=snapshot.id AND current.classification='quarantined') OR snapshot.resource_count<>(SELECT count(*) FROM external_revision_resources resource JOIN external_skill_revisions revision ON revision.id=resource.revision_id WHERE revision.snapshot_id=snapshot.id) OR snapshot.dependency_count<>(SELECT count(*) FROM external_revision_dependencies dependency JOIN external_skill_revisions revision ON revision.id=dependency.revision_id WHERE revision.snapshot_id=snapshot.id) OR snapshot.decoded_bytes<>(SELECT COALESCE(sum(octet_length(revision.canonical_bytes)),0) FROM external_skill_revisions revision WHERE revision.snapshot_id=snapshot.id)),
+      'legacySnapshotByteTotals', (SELECT count(*) FROM snapshot_totals totals, latest_schema WHERE latest_schema.version<'011' AND totals.legacy_total<>totals.canonical_total AND totals.decoded_bytes=totals.legacy_total),
+      'invalidSnapshotByteTotals', (SELECT count(*) FROM snapshot_totals totals, latest_schema WHERE (latest_schema.version<'011' AND totals.decoded_bytes NOT IN (totals.canonical_total,totals.legacy_total)) OR (latest_schema.version>='011' AND totals.decoded_bytes<>totals.canonical_total)),
+      'invalidSnapshotByteOverflows', (SELECT count(*) FROM snapshot_totals WHERE canonical_total>9223372036854775807::numeric OR legacy_total>9223372036854775807::numeric),
+      'invalidSnapshotObjectGraph', (SELECT count(*) FROM snapshot_totals WHERE invalid_object_count<>0 OR observed_revision_count<>distinct_observed_revision_count),
+      'invalidRevisionHashes', (SELECT count(*) FROM external_skill_revisions WHERE bundle_sha256<>encode(sha256(convert_to(canonical_bytes,'UTF8')),'hex')),
+      'invalidSnapshotReconciliations', (SELECT CASE
+        WHEN version<'011' THEN 0
+        WHEN to_regclass('public.external_snapshot_byte_total_reconciliations') IS NULL THEN 1
+        ELSE cardinality(xpath('/table/row', query_to_xml(
+          'SELECT invalid.snapshot_id FROM (SELECT snapshot.id AS snapshot_id FROM external_source_snapshots snapshot LEFT JOIN external_snapshot_byte_total_reconciliations reconciliation ON reconciliation.snapshot_id=snapshot.id CROSS JOIN LATERAL (SELECT COALESCE(sum(octet_length(revision.canonical_bytes)::numeric),0) AS canonical_total,COALESCE(sum(instructions.byte_length::numeric + COALESCE((SELECT sum(resource.byte_length::numeric) FROM external_revision_resources resource WHERE resource.revision_id=revision.id),0)),0) AS legacy_total FROM external_snapshot_skill_observations observation JOIN external_skill_revisions revision ON revision.id=observation.revision_id JOIN external_content_objects instructions ON instructions.sha256=revision.instructions_sha256 WHERE observation.snapshot_id=snapshot.id) totals WHERE reconciliation.snapshot_id IS NULL OR (SELECT count(*) FROM external_snapshot_byte_total_reconciliations duplicate WHERE duplicate.snapshot_id=snapshot.id)<>1 OR reconciliation.migration_version<>''011'' OR reconciliation.reconciled_decoded_bytes<>snapshot.decoded_bytes OR reconciliation.reconciled_decoded_bytes<>totals.canonical_total OR reconciliation.legacy_payload_decoded_bytes<>totals.legacy_total OR reconciliation.prior_representation=''canonical'' AND reconciliation.prior_decoded_bytes<>totals.canonical_total OR reconciliation.prior_representation=''legacy-payload'' AND reconciliation.prior_decoded_bytes<>totals.legacy_total OR reconciliation.prior_representation NOT IN (''canonical'',''legacy-payload'') UNION ALL SELECT reconciliation.snapshot_id FROM external_snapshot_byte_total_reconciliations reconciliation LEFT JOIN external_source_snapshots snapshot ON snapshot.id=reconciliation.snapshot_id WHERE snapshot.id IS NULL) invalid',
+          false, false, '')))
+        END FROM latest_schema),
+      'invalidSnapshotCounts', (SELECT count(*) FROM snapshot_totals totals WHERE totals.revision_count<>totals.observed_revision_count OR totals.candidate_count<>(SELECT count(*) FROM external_import_candidates candidate WHERE candidate.snapshot_id=totals.snapshot_id) OR totals.quarantine_count<>(SELECT count(*) FROM external_import_candidates candidate JOIN external_current_classifications current ON current.candidate_id=candidate.id WHERE candidate.snapshot_id=totals.snapshot_id AND current.classification='quarantined') OR totals.resource_count<>totals.observed_resource_count OR totals.dependency_count<>totals.observed_dependency_count),
       'invalidPublishedPointers', (SELECT count(*) FROM github_sources source JOIN external_source_snapshots snapshot ON snapshot.id=source.current_published_snapshot_id WHERE snapshot.source_id<>source.id),
       'invalidContentLengths', (SELECT count(*) FROM external_content_objects WHERE byte_length<>octet_length(content)),
       'invalidContentHashes', (SELECT count(*) FROM external_content_objects WHERE sha256<>encode(sha256(convert_to(content,'UTF8')),'hex')),

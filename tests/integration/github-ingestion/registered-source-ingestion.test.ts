@@ -133,6 +133,31 @@ describe("registered mattpocock/skills ingestion", () => {
             row.bundle_sha256,
       ),
     ).toBe(true);
+    const byteTotals = await database.pool.query<{
+      decoded_bytes: string;
+      reconciled_decoded_bytes: string | null;
+    }>(
+      `
+      SELECT snapshot.decoded_bytes::text,
+             reconciliation.reconciled_decoded_bytes::text
+      FROM external_source_snapshots snapshot
+      LEFT JOIN external_snapshot_byte_total_reconciliations reconciliation
+        ON reconciliation.snapshot_id=snapshot.id
+      WHERE snapshot.id=$1
+    `,
+      [published.snapshotId],
+    );
+    const canonicalByteTotal = stored.rows.reduce(
+      (total, { canonical_bytes }) =>
+        total + Buffer.byteLength(canonical_bytes, "utf8"),
+      0,
+    );
+    expect(byteTotals.rows).toEqual([
+      {
+        decoded_bytes: String(canonicalByteTotal),
+        reconciled_decoded_bytes: String(canonicalByteTotal),
+      },
+    ]);
     const expectedInvocationModes = new Map(
       fixture.inventory.skills.map(({ name, userOnly }) => [
         name,

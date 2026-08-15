@@ -129,9 +129,9 @@
           "required": ["sha256", "count", "latest", "forwardOnly"],
           "properties": {
             "sha256": { "$ref": "#/$defs/sha256" },
-            "count": { "const": 10 },
-            "latest": { "const": "010" },
-            "forwardOnly": { "const": ["010"] }
+            "count": { "const": 11 },
+            "latest": { "const": "011" },
+            "forwardOnly": { "const": ["010", "011"] }
           }
         },
         "catalog": {

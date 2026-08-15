@@ -307,7 +307,7 @@ export class PostgresBackupAdapter {
         );
         if (
           validation.latestMigration !==
-            (this.options.expectedLatestMigration ?? "010") ||
+            (this.options.expectedLatestMigration ?? "011") ||
           !validation.migrationInventoryValid ||
           !validation.constraintsValid ||
           !validation.catalogValid ||
