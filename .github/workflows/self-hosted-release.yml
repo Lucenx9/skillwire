@@ -326,7 +326,7 @@ jobs:
           export SKILLWIRE_PUBLISHED_AT
           SKILLWIRE_PUBLISHED_AT="$(git show -s --format=%cI "${GITHUB_SHA}")"
           export SKILLWIRE_TRUST_SEQUENCE=1
-          pnpm exec tsx scripts/build-self-hosted-release.ts \
+          pnpm build:self-hosted \
             "${RUNNER_TEMP}/payload-${ARCH}" \
             "${RUNNER_TEMP}/release-${ARCH}" \
             "${ARCH}"
@@ -448,6 +448,14 @@ jobs:
         run: |
           set -euo pipefail
           base="${RUNNER_TEMP}/signed-assets/skillwire-${VERSION}-linux-${MATRIX_ARCH}"
+          pnpm verify:self-hosted \
+            --manifest "${base}.release.json" \
+            --bundle "${base}.release.sigstore.json" \
+            --archive "${base}.tar.zst" \
+            --policy "${RUNNER_TEMP}/signed-assets/skillwire-trust-policy-v1.json" \
+            --trusted-root "${PWD}/distribution/self-hosted/trusted-root.v1.json" \
+            --cosign "${RUNNER_TEMP}/cosign-independent" \
+            --architecture "${MATRIX_ARCH}"
           result="$(pnpm exec tsx scripts/validate-self-hosted-quickstart.ts \
             --manifest "${base}.release.json" \
             --bundle "${base}.release.sigstore.json" \

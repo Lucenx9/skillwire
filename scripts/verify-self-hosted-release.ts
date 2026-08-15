@@ -396,6 +396,12 @@ export async function verifySelfHostedReleasePolicy(
 }
 
 export async function verifyCandidateFromCommandLine(): Promise<void> {
+  const usage =
+    "Usage: verify-self-hosted-release --manifest PATH --bundle PATH --archive PATH --policy PATH --trusted-root PATH --cosign PATH --architecture amd64|arm64";
+  if (process.argv.length === 3 && process.argv[2] === "--help") {
+    process.stdout.write(`${usage}\n`);
+    return;
+  }
   const manifestPath = argument("--manifest");
   const bundlePaths = argumentsFor("--bundle");
   const bundlePath = bundlePaths[0];
@@ -413,9 +419,7 @@ export async function verifyCandidateFromCommandLine(): Promise<void> {
     cosign === undefined ||
     (architecture !== "amd64" && architecture !== "arm64")
   ) {
-    throw new Error(
-      "Usage: verify-self-hosted-release --manifest PATH --bundle PATH --archive PATH --policy PATH --trusted-root PATH --cosign PATH --architecture amd64|arm64",
-    );
+    throw new Error(usage);
   }
   const verified = await verifySignedReleaseEnvelope({
     manifestPath: resolve(manifestPath),

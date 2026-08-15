@@ -13,6 +13,8 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:self-hosted": "tsx scripts/build-self-hosted-release.ts",
+    "verify:self-hosted": "tsx scripts/verify-self-hosted-release.ts",
     "auth:admin": "tsx src/authentication/admin-cli.ts",
     "advisory:verify": "tsx src/catalog/advisory-verify-cli.ts",
     "catalog:publish": "tsx src/catalog/publish-cli.ts",

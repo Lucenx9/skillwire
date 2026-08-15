@@ -74,7 +74,8 @@ describe("protected self-hosted signing", () => {
     expect(workflow).toContain(
       "github.ref == format('refs/tags/self-hosted-v{0}'",
     );
-    expect(workflow).toContain("scripts/build-self-hosted-release.ts");
+    expect(workflow).toContain("pnpm build:self-hosted \\");
+    expect(workflow).toContain("pnpm verify:self-hosted \\");
     expect(workflow).toContain("NODE_VERSION: 24.18.0");
     expect(workflow).toContain("node-v${NODE_VERSION}-linux-${node_arch}");
     expect(workflow).toContain("cosign-linux-arm64");

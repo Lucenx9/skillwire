@@ -98,12 +98,42 @@ Expected: the compiled `skillwire` executable reaches every administrative comma
 
 ## 3. Build and verify the local release candidate
 
-Build only the platform matching the current fixture:
+Build only the platform matching the current fixture. The release workflow
+first assembles `SW004_PAYLOAD_ROOT` with the exact application, bundled
+runtime, verified Cosign binary, catalogs, migrations, distributions, and
+integrations shown in `.github/workflows/self-hosted-release.yml`. The public
+build entrypoint then deterministically creates the unsigned archive and
+canonical external manifest; it does not sign or publish them:
 
 ```bash
-pnpm build:self-hosted -- --platform linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-pnpm verify:self-hosted
+export SW004_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+export SW004_RELEASE_OUTPUT="$SW004_ROOT/release-$SW004_ARCH"
+
+env \
+  SKILLWIRE_RELEASE_IMAGES_JSON="$SW004_RELEASE_IMAGES_JSON" \
+  SKILLWIRE_RELEASE_VERSION="$(node -p "require('./package.json').version")" \
+  SKILLWIRE_RELEASE_SEQUENCE="$SW004_RELEASE_SEQUENCE" \
+  SKILLWIRE_PUBLISHED_AT="$SW004_PUBLISHED_AT" \
+  GITHUB_SHA="$SW004_SOURCE_COMMIT" \
+  SKILLWIRE_TRUST_SEQUENCE=1 \
+  pnpm build:self-hosted \
+    "$SW004_PAYLOAD_ROOT" "$SW004_RELEASE_OUTPUT" "$SW004_ARCH"
+
+pnpm verify:self-hosted \
+  --manifest "$SW004_RELEASE_OUTPUT/skillwire-0.2.0-linux-$SW004_ARCH.release.json" \
+  --bundle "$SW004_RELEASE_OUTPUT/skillwire-0.2.0-linux-$SW004_ARCH.release.sigstore.json" \
+  --archive "$SW004_RELEASE_OUTPUT/skillwire-0.2.0-linux-$SW004_ARCH.tar.zst" \
+  --policy "$SW004_RELEASE_OUTPUT/skillwire-trust-policy-v1.json" \
+  --trusted-root "$SW004_PAYLOAD_ROOT/distribution/self-hosted/trusted-root.v1.json" \
+  --cosign "$SW004_PAYLOAD_ROOT/tools/cosign" \
+  --architecture "$SW004_ARCH"
 ```
+
+`SW004_RELEASE_IMAGES_JSON`, `SW004_RELEASE_SEQUENCE`,
+`SW004_PUBLISHED_AT`, and `SW004_SOURCE_COMMIT` are explicit immutable inputs
+from the protected release workflow. The verifier requires the external
+Bundle v0.3 and policy-pinned TrustedRoot; an unsigned local build therefore
+cannot pass production verification or become an installation input.
 
 The release job emits exactly four sibling assets for that platform:
 
