@@ -96,7 +96,7 @@ describe("account and API-key rate policy", () => {
 });
 
 describe("authentication rate policy", () => {
-  it("caps unauthenticated database-bound attempts and refills globally", () => {
+  it("caps and refills database-bound attempts per public id", () => {
     let now = 0;
     const limiter = new AuthenticationRateLimiter(
       {
@@ -109,13 +109,14 @@ describe("authentication rate policy", () => {
       () => now,
     );
 
-    expect(limiter.consume().allowed).toBe(true);
-    expect(limiter.consume().allowed).toBe(true);
-    expect(limiter.consume()).toEqual({
+    expect(limiter.consume("public-a").allowed).toBe(true);
+    expect(limiter.consume("public-a").allowed).toBe(true);
+    expect(limiter.consume("public-a")).toEqual({
       allowed: false,
       retryAfterSeconds: 1,
     });
+    expect(limiter.consume("public-b").allowed).toBe(true);
     now = 1000;
-    expect(limiter.consume().allowed).toBe(true);
+    expect(limiter.consume("public-a").allowed).toBe(true);
   });
 });
