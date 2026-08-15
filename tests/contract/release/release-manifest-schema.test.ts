@@ -44,6 +44,63 @@ describe("external self-hosted release manifest", () => {
     expect(schema.additionalProperties).toBe(false);
   });
 
+  it("keeps bundle bytes and digests outside the canonical manifest", () => {
+    const fixture = releaseManifestFixture();
+    expect(fixture.signatureBundles).toEqual([
+      {
+        signerId: "github-release-primary",
+        path: "skillwire-0.1.0-test.1-linux-amd64.release.sigstore.json",
+      },
+    ]);
+    expect(fixture.signatureBundles[0]).not.toHaveProperty("sha256");
+    expect(fixture.signatureBundles[0]).not.toHaveProperty("mediaType");
+    expect(() =>
+      ReleaseManifestSchema.parse({
+        ...fixture,
+        signatureBundles: [
+          { ...fixture.signatureBundles[0], sha256: "1".repeat(64) },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicated, swapped, and cross-architecture bundle declarations", () => {
+    const fixture = releaseManifestFixture();
+    const declaration = fixture.signatureBundles[0];
+    if (declaration === undefined) throw new Error("Fixture bundle is missing");
+    expect(() =>
+      ReleaseManifestSchema.parse({
+        ...fixture,
+        signatureBundles: [declaration, declaration],
+      }),
+    ).toThrow();
+    expect(() =>
+      ReleaseManifestSchema.parse({
+        ...fixture,
+        signatureBundles: [
+          {
+            ...declaration,
+            path: declaration.path.replace("amd64", "arm64"),
+          },
+        ],
+      }),
+    ).toThrow(/sibling/i);
+    expect(() =>
+      ReleaseManifestSchema.parse({
+        ...fixture,
+        signatureBundles: [
+          {
+            ...declaration,
+            path: declaration.path.replace(
+              ".release.sigstore.json",
+              ".release.unexpected.sigstore.json",
+            ),
+          },
+        ],
+      }),
+    ).toThrow(/sibling/i);
+  });
+
   it("rejects non-sibling archives, unbounded archives, duplicate image roles, and platform drift", () => {
     const fixture = releaseManifestFixture();
     expect(() =>

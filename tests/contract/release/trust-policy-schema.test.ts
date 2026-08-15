@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { TrustPolicySchema } from "../../../src/onboarding/domain/release-manifest.js";
+import {
+  COSIGN_3_1_3_TRUSTED_ROOT_MEDIA_TYPE,
+  TrustPolicySchema,
+} from "../../../src/onboarding/domain/release-manifest.js";
 import {
   canonicalJson,
   trustPolicyFixture,
@@ -19,7 +22,9 @@ describe("self-hosted trust policy", () => {
     );
     expect(policy.signers[0]?.signerId).toBe("github-release-primary");
     expect(policy.minimumReleaseSequence).toBe(1);
-    expect(policy.trustedRoot.mediaType).toContain("trustedroot");
+    expect(policy.trustedRoot.mediaType).toBe(
+      COSIGN_3_1_3_TRUSTED_ROOT_MEDIA_TYPE,
+    );
     expect(policy.overlap.requiredSignerCount).toBe(1);
   });
 
@@ -53,6 +58,15 @@ describe("self-hosted trust policy", () => {
         ],
       }),
     ).toThrow(/duplicate/i);
+    expect(() =>
+      TrustPolicySchema.parse({
+        ...trustPolicyFixture(),
+        trustedRoot: {
+          ...trustPolicyFixture().trustedRoot,
+          mediaType: "application/vnd.dev.sigstore.trustedroot.v0.2+json",
+        },
+      }),
+    ).toThrow();
   });
 
   it("pins one canonical first policy and a complete local TrustedRoot identity", () => {
@@ -71,9 +85,11 @@ describe("self-hosted trust policy", () => {
       createHash("sha256").update(trustedRoot).digest("hex"),
     );
     const root = JSON.parse(trustedRoot.toString("utf8")) as {
+      mediaType?: string;
       tlogs?: unknown[];
       certificateAuthorities?: unknown[];
     };
+    expect(root.mediaType).toBe(COSIGN_3_1_3_TRUSTED_ROOT_MEDIA_TYPE);
     expect(root.tlogs?.length).toBeGreaterThan(0);
     expect(root.certificateAuthorities?.length).toBeGreaterThan(0);
   });

@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillwire.dev/schemas/skillwire.moderated-usability.v1.json",
+  "title": "SkillWire self-hosted moderated usability cohort evidence",
+  "description": "Privacy-safe evidence only. Prompt content, response content, credentials, and participant personal data are forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceKind",
+    "cohortId",
+    "targetMilliseconds",
+    "release",
+    "documentation",
+    "participants",
+    "aggregation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "skillwire.moderated-usability/v1" },
+    "evidenceKind": {
+      "enum": ["synthetic-fixture", "certified-observation"]
+    },
+    "cohortId": { "pattern": "^cohort-[0-9a-f]{16}$", "type": "string" },
+    "targetMilliseconds": { "const": 900000 },
+    "release": { "$ref": "#/$defs/cohortRelease" },
+    "documentation": { "$ref": "#/$defs/documentation" },
+    "participants": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/participant" }
+    },
+    "aggregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cohortSize",
+        "completedWithinTarget",
+        "sc001Required",
+        "sc001Passed",
+        "unassistedCompletions",
+        "sc014Required",
+        "sc014Passed"
+      ],
+      "properties": {
+        "cohortSize": { "const": 10 },
+        "completedWithinTarget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "sc001Required": { "const": 10 },
+        "sc001Passed": { "type": "boolean" },
+        "unassistedCompletions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "sc014Required": { "const": 9 },
+        "sc014Passed": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "publicCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"
+        },
+        "size": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 17179869184
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "cohortRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "tag", "sourceCommit", "assets"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "tag": {
+          "type": "string",
+          "pattern": "^self-hosted-v\\d+\\.\\d+\\.\\d+$"
+        },
+        "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "assets": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": { "$ref": "#/$defs/asset" }
+        }
+      }
+    },
+    "participantRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "tag",
+        "sourceCommit",
+        "assets",
+        "manifestSha256"
+      ],
+      "properties": {
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "tag": {
+          "type": "string",
+          "pattern": "^self-hosted-v\\d+\\.\\d+\\.\\d+$"
+        },
+        "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "assets": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": { "$ref": "#/$defs/asset" }
+        },
+        "manifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "documentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "const": "distribution/self-hosted/README.md" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "operatingSystem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "const": "ubuntu" },
+            "version": { "const": "24.04" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "const": "debian" },
+            "version": { "const": "12" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "const": "debian" },
+            "version": { "const": "13" }
+          }
+        }
+      ]
+    },
+    "milestoneName": {
+      "enum": [
+        "releaseVerified",
+        "serviceReady",
+        "clientIntegrated",
+        "installationStateIdentified",
+        "nextSafeRecoveryActionIdentified",
+        "sixToolDiscovery",
+        "mcpSearch",
+        "exactSkillLoad",
+        "optionalResourceJourney",
+        "cleanup"
+      ]
+    },
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "publicErrorCodes"],
+      "properties": {
+        "status": {
+          "enum": ["passed", "failed", "timeout", "abandoned", "not-applicable"]
+        },
+        "publicErrorCodes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/publicCode" }
+        }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "participantId",
+        "independent",
+        "previouslyInstalledSkillWire",
+        "attemptNumber",
+        "replacementForParticipantId",
+        "exclusionReason",
+        "environment",
+        "startingState",
+        "startedAt",
+        "endedAt",
+        "elapsedMilliseconds",
+        "release",
+        "documentation",
+        "usedOnlyPublishedQuickstart",
+        "manualConfigurationEdited",
+        "milestones",
+        "publicErrors",
+        "moderatorInterventions",
+        "documentationClarifications",
+        "serviceReady",
+        "discoveredTools",
+        "journey",
+        "cleanup",
+        "completed",
+        "unassisted"
+      ],
+      "properties": {
+        "participantId": {
+          "type": "string",
+          "pattern": "^participant-[0-9a-f]{16}$"
+        },
+        "independent": { "const": true },
+        "previouslyInstalledSkillWire": { "const": false },
+        "attemptNumber": { "const": 1 },
+        "replacementForParticipantId": { "type": "null" },
+        "exclusionReason": {
+          "type": ["string", "null"],
+          "enum": [
+            "unsupported-environment",
+            "prior-install",
+            "not-independent",
+            "invalid-starting-state",
+            null
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "environmentId",
+            "clean",
+            "operatingSystem",
+            "architecture",
+            "dockerMode"
+          ],
+          "properties": {
+            "environmentId": {
+              "type": "string",
+              "pattern": "^environment-[0-9a-f]{16}$"
+            },
+            "clean": { "const": true },
+            "operatingSystem": { "$ref": "#/$defs/operatingSystem" },
+            "architecture": { "enum": ["amd64", "arm64"] },
+            "dockerMode": { "enum": ["rootful", "rootless"] }
+          }
+        },
+        "startingState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "skillWireAbsent",
+            "serviceAbsent",
+            "selectedClientHasNoSkillWireIntegration",
+            "noRetainedSkillWireData"
+          ],
+          "properties": {
+            "skillWireAbsent": { "const": true },
+            "serviceAbsent": { "const": true },
+            "selectedClientHasNoSkillWireIntegration": { "const": true },
+            "noRetainedSkillWireData": { "const": true }
+          }
+        },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "endedAt": { "type": "string", "format": "date-time" },
+        "elapsedMilliseconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000
+        },
+        "release": { "$ref": "#/$defs/participantRelease" },
+        "documentation": { "$ref": "#/$defs/documentation" },
+        "usedOnlyPublishedQuickstart": { "const": true },
+        "manualConfigurationEdited": { "const": false },
+        "milestones": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "releaseVerified",
+            "serviceReady",
+            "clientIntegrated",
+            "installationStateIdentified",
+            "nextSafeRecoveryActionIdentified",
+            "sixToolDiscovery",
+            "mcpSearch",
+            "exactSkillLoad",
+            "optionalResourceJourney",
+            "cleanup"
+          ],
+          "properties": {
+            "releaseVerified": { "$ref": "#/$defs/milestone" },
+            "serviceReady": { "$ref": "#/$defs/milestone" },
+            "clientIntegrated": { "$ref": "#/$defs/milestone" },
+            "installationStateIdentified": { "$ref": "#/$defs/milestone" },
+            "nextSafeRecoveryActionIdentified": {
+              "$ref": "#/$defs/milestone"
+            },
+            "sixToolDiscovery": { "$ref": "#/$defs/milestone" },
+            "mcpSearch": { "$ref": "#/$defs/milestone" },
+            "exactSkillLoad": { "$ref": "#/$defs/milestone" },
+            "optionalResourceJourney": { "$ref": "#/$defs/milestone" },
+            "cleanup": { "$ref": "#/$defs/milestone" }
+          }
+        },
+        "publicErrors": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "milestone", "recovered"],
+            "properties": {
+              "code": { "$ref": "#/$defs/publicCode" },
+              "milestone": { "$ref": "#/$defs/milestoneName" },
+              "recovered": { "type": "boolean" }
+            }
+          }
+        },
+        "moderatorInterventions": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["occurredAt", "category", "milestone", "publicCode"],
+            "properties": {
+              "occurredAt": { "type": "string", "format": "date-time" },
+              "category": {
+                "enum": [
+                  "undocumented-command",
+                  "correction",
+                  "procedural-instruction"
+                ]
+              },
+              "milestone": { "$ref": "#/$defs/milestoneName" },
+              "publicCode": { "$ref": "#/$defs/publicCode" }
+            }
+          }
+        },
+        "documentationClarifications": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "occurredAt",
+              "criterion",
+              "documentPath",
+              "sectionId"
+            ],
+            "properties": {
+              "occurredAt": { "type": "string", "format": "date-time" },
+              "criterion": { "const": "visible-document-location-only" },
+              "documentPath": {
+                "const": "distribution/self-hosted/README.md"
+              },
+              "sectionId": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+              }
+            }
+          }
+        },
+        "serviceReady": { "type": "boolean" },
+        "discoveredTools": {
+          "type": "array",
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "search_skills",
+              "load_skill",
+              "get_skill_resource",
+              "import_repository",
+              "list_repositories",
+              "remove_repository"
+            ]
+          }
+        },
+        "journey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "searchCompleted",
+            "exactSkillLoaded",
+            "optionalResourceOutcome"
+          ],
+          "properties": {
+            "searchCompleted": { "type": "boolean" },
+            "exactSkillLoaded": { "type": "boolean" },
+            "optionalResourceOutcome": {
+              "enum": ["completed", "not-applicable"]
+            }
+          }
+        },
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verified", "completedAt"],
+          "properties": {
+            "verified": { "type": "boolean" },
+            "completedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "completed": { "type": "boolean" },
+        "unassisted": { "type": "boolean" }
+      }
+    }
+  }
+}

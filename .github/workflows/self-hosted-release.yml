@@ -48,7 +48,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.18.0
-          cache: pnpm
+      - name: Verify annotated release identity before repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-self-hosted-release-tag.ts \
+            --repository "${GITHUB_WORKSPACE}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}"
       - run:
           corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
       - run: pnpm install --frozen-lockfile
@@ -196,6 +203,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
@@ -203,20 +211,21 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.18.0
-          cache: pnpm
+      - id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-self-hosted-release-tag.ts \
+            --repository "${GITHUB_WORKSPACE}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}"
+          version="$(node -p "require('./package.json').version")"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
       - run: pnpm install --frozen-lockfile
       - name: Complete all source gates before signing
         run:
           pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm
           test
-      - id: release
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
-          test "${GITHUB_REF}" = "refs/tags/self-hosted-v${version}"
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
       - name: Acquire and verify pinned Cosign
         shell: bash
         env:
@@ -323,6 +332,12 @@ jobs:
             "${ARCH}"
           cp distribution/self-hosted/trust-policy.v1.json \
             "${RUNNER_TEMP}/release-${ARCH}/skillwire-trust-policy-v1.json"
+          manifest="${RUNNER_TEMP}/release-${ARCH}/skillwire-${VERSION}-linux-${ARCH}.release.json"
+          node scripts/verify-self-hosted-release-tag.ts \
+            --repository "${GITHUB_WORKSPACE}" \
+            --ref "${GITHUB_REF}" \
+            --sha "${GITHUB_SHA}" \
+            --manifest "${manifest}"
       - name: Sign external canonical manifest
         shell: bash
         env:
@@ -498,4 +513,4 @@ jobs:
             assets[index]="release-assets/${assets[index]}"
           done
           gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
-            --verify-tag --title "SkillWire self-hosted ${VERSION}"
+            --verify-tag --title "SkillWire Self-Hosted v${VERSION}"

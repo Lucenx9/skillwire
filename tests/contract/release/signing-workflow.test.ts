@@ -39,6 +39,37 @@ describe("protected self-hosted signing", () => {
     expect(workflow).toContain("sign-blob");
     expect(workflow).toContain("--bundle");
     expect(workflow).toContain("refs/tags/self-hosted-v");
+    expect(workflow).toContain("verify-self-hosted-release-tag.ts");
+    expect(workflow).toContain('--repository "${GITHUB_WORKSPACE}"');
+    expect(workflow).toContain('--ref "${GITHUB_REF}"');
+    expect(workflow).toContain('--sha "${GITHUB_SHA}"');
+    expect(workflow).toContain('--manifest "${manifest}"');
+    expect(workflow).toContain("fetch-depth: 0");
+    expect(workflow).not.toContain("git config --global");
+    const buildJob = workflow.slice(workflow.indexOf("  build-test-sign:"));
+    expect(buildJob.indexOf("verify-self-hosted-release-tag.ts")).toBeLessThan(
+      buildJob.indexOf("pnpm install --frozen-lockfile"),
+    );
+    expect(buildJob.indexOf("verify-self-hosted-release-tag.ts")).toBeLessThan(
+      buildJob.indexOf("pnpm format:check && pnpm lint"),
+    );
+    expect(workflow).toContain(
+      "node scripts/verify-self-hosted-release-tag.ts",
+    );
+    const certifiedJob = workflow.slice(
+      workflow.indexOf("  certified-matrix:"),
+      workflow.indexOf("  build-test-sign:"),
+    );
+    expect(
+      certifiedJob.indexOf("verify-self-hosted-release-tag.ts"),
+    ).toBeLessThan(certifiedJob.indexOf("pnpm install --frozen-lockfile"));
+    expect(workflow).toContain('--title "SkillWire Self-Hosted v${VERSION}"');
+    const tagVerifier = readFileSync(
+      resolve("scripts/verify-self-hosted-release-tag.ts"),
+      "utf8",
+    );
+    expect(tagVerifier).toContain("`safe.directory=${repositoryRoot}`");
+    expect(tagVerifier).not.toContain("config --global");
     expect(workflow).toContain("needs: build-test-sign");
     expect(workflow).toContain(
       "github.ref == format('refs/tags/self-hosted-v{0}'",

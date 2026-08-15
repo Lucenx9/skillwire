@@ -55,7 +55,7 @@ Immutable release input and its verified local materialization.
 | `adapters` | map | Codex and Claude plugin/marketplace identities, versions, inventories, and hashes. |
 | `feature003Integrity` | record | Exact path, byte size, and SHA-256 for `distribution/codex-marketplace/release-integrity.json`. |
 | `trustPolicy` | record | Required schema, policy sequence, sibling filename, byte size, and SHA-256. |
-| `signing` | record | One normal, or two signer-overlap, external Sigstore Bundle v0.3 filename/media-type/digest identities plus exact canonical-manifest digest; no private key. |
+| `signing` | record | One normal, or two signer-overlap, exact external Sigstore Bundle v0.3 filenames and signer IDs. Bundle media type/evidence and its binding to the canonical manifest bytes are verified outside the manifest; no bundle digest is embedded in the manifest it signs and no private key is stored. |
 | `rollbackCompatibility` | record | Minimum/maximum schema and pre/post-010 application compatibility. |
 
 The release manifest is an external UTF-8 RFC 8785 canonical JSON file with no BOM or trailing newline; it is never embedded in the archive it hashes. An Installed Release adds `installedPath`, verified manifest/archive/bundle/policy identities, verified file identities, image inspection results, verifier/trusted-root identities, and `installedAt`. It is immutable after verification. Changing any byte produces a different release or a failed integrity finding.
@@ -70,7 +70,7 @@ Versioned release-verification authority, independent of mutable network state.
 | `policySequence` | positive integer | Monotonic; a lower sequence is never accepted after a higher one. |
 | `validity` | record | Explicit not-before/not-after timestamps; staleness is a blocking finding for a new install/upgrade. |
 | `acceptedSigners` | non-empty ordered array | Exact Fulcio identity, issuer, repository, workflow ref, tag-ref form, and required workflow commit-SHA claims. |
-| `trustedRoot` | record | Sigstore TrustedRoot media type `application/vnd.dev.sigstore.trustedroot.v0.2+json`, local filename, and SHA-256. |
+| `trustedRoot` | record | Exact Cosign 3.1.3 / sigstore-go 1.2.2 TrustedRoot media type `application/vnd.dev.sigstore.trustedroot+json;version=0.1`, local filename, and SHA-256; the unsupported conflicting v0.2 value is rejected. |
 | `cosignVerifiers` | ordered array | Allowed exact Cosign version/platform/filename/SHA-256 identities. |
 | `minimumReleaseSequence` | non-negative integer | Releases below this boundary are denied. |
 | `denySet` | ordered array | Revoked manifest, archive, bundle, certificate, or signer identities/digests. |

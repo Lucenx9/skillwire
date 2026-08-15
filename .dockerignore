@@ -12,6 +12,7 @@ benchmarks/results/*
 !benchmarks/results/.gitkeep
 docs/*
 !docs/api-keys.md
+!docs/self-hosted-release-evidence.md
 *.log*
 *.tmp
 *.swp

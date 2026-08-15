@@ -140,6 +140,17 @@ const CertifiedMatrixSchema = z
       z.object({ id: z.literal("debian"), version: z.literal("13") }).strict(),
     ]),
     architectures: z.tuple([z.literal("amd64"), z.literal("arm64")]),
+    dockerModes: z.tuple([z.literal("rootful"), z.literal("rootless")]),
+    certification: z
+      .object({
+        cellCount: z.literal(12),
+        observationsPerCell: z.literal("exactly-one"),
+        releaseIdentity: z.literal("same-final-tag-and-seven-assets"),
+        failedOrIncomplete: z.literal(
+          "not-certified-no-replacement-or-exclusion",
+        ),
+      })
+      .strict(),
     docker: z
       .object({
         minimum: z.literal("29.7.2"),

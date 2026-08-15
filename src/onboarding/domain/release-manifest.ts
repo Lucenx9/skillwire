@@ -238,6 +238,9 @@ export const ReleaseManifestSchema = z
     },
   );
 
+export const COSIGN_3_1_3_TRUSTED_ROOT_MEDIA_TYPE =
+  "application/vnd.dev.sigstore.trustedroot+json;version=0.1" as const;
+
 export const TrustPolicySchema = z
   .object({
     schemaVersion: z.literal("skillwire.trust-policy/v1"),
@@ -247,9 +250,7 @@ export const TrustPolicySchema = z
     minimumReleaseSequence: z.number().int().positive(),
     trustedRoot: FileIdentitySchema.omit({ size: true })
       .extend({
-        mediaType: z.literal(
-          "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
-        ),
+        mediaType: z.literal(COSIGN_3_1_3_TRUSTED_ROOT_MEDIA_TYPE),
       })
       .strict(),
     cosign: z

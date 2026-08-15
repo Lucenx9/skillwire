@@ -6,6 +6,13 @@
     { "id": "debian", "version": "13" }
   ],
   "architectures": ["amd64", "arm64"],
+  "dockerModes": ["rootful", "rootless"],
+  "certification": {
+    "cellCount": 12,
+    "observationsPerCell": "exactly-one",
+    "releaseIdentity": "same-final-tag-and-seven-assets",
+    "failedOrIncomplete": "not-certified-no-replacement-or-exclusion"
+  },
   "docker": { "minimum": "29.7.2", "tested": "29.7.2" },
   "compose": { "minimum": "5.4.0", "tested": "5.4.0" },
   "postgresql": "17.10-alpine",
