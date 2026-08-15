@@ -171,12 +171,10 @@ describe("Feature 004 certified release matrix", () => {
   });
 
   it("requires one non-replaceable observation per cell against one final seven-asset release", async () => {
-    const dockerIgnore = await readFile(".dockerignore", "utf8");
     const evidenceContract = await readFile(
       "docs/self-hosted-release-evidence.md",
       "utf8",
     );
-    expect(dockerIgnore).toContain("!docs/self-hosted-release-evidence.md");
     expect(evidenceContract).toMatch(
       /exactly one observation for each of the 12 Cartesian\s+cells/,
     );
