@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { DeploymentAdapter } from "../../../src/onboarding/adapters/docker/deployment.js";
+import { ServiceDatabase } from "../../../src/onboarding/adapters/postgres/service-database.js";
 import type {
   CommandOptions,
   CommandResult,
@@ -19,6 +20,23 @@ describe("service-only deployment boundary", () => {
   });
   afterAll(async () => {
     await rm(runtimeDirectory, { recursive: true, force: true });
+  });
+  it("requires PostgreSQL 17 with the reconciled migration 011 schema", async () => {
+    const run = vi.fn((): Promise<CommandResult> =>
+      Promise.resolve(result("17.10|011\n")),
+    );
+    const database = new ServiceDatabase({
+      dockerExecutable: "/usr/bin/docker",
+      projectName: "skillwire-test-0123456789abcdef",
+      volumeName: "skillwire-test-0123456789abcdef_postgres_data",
+      composePath: "/tmp/disposable/compose.yaml",
+      run,
+    });
+
+    await expect(database.verifySchemaAndReadiness()).resolves.toEqual({
+      version: "17.10",
+      latestMigration: "011",
+    });
   });
   it("pulls each exact digest only when it is absent from a clean local cache", async () => {
     const cached = new Set<string>();

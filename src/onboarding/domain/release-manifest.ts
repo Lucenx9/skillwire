@@ -42,9 +42,9 @@ export const ReleaseComponentsSchema = z
     migrations: z
       .object({
         sha256: Sha256Schema,
-        count: z.literal(10),
-        latest: z.literal("010"),
-        forwardOnly: z.tuple([z.literal("010")]),
+        count: z.literal(11),
+        latest: z.literal("011"),
+        forwardOnly: z.tuple([z.literal("010"), z.literal("011")]),
       })
       .strict(),
     catalog: z

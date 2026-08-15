@@ -330,6 +330,47 @@ async function snapshotMatchesCandidateInputs(
   );
 }
 
+async function authoritativeCanonicalByteTotal(
+  client: PoolClient,
+  sourceId: string,
+  revisions: readonly ExternalSkillRevision[],
+): Promise<number> {
+  const total = await client.query<{ canonical_byte_total: string }>(
+    `WITH input AS (
+       SELECT *
+       FROM unnest($2::text[],$3::text[],$4::bigint[])
+         AS planned(normalized_skill_root,content_identity_sha256,fallback_bytes)
+     )
+     SELECT COALESCE(sum(COALESCE(
+       octet_length(stored.canonical_bytes)::numeric,
+       input.fallback_bytes::numeric
+     )),0)::text AS canonical_byte_total
+     FROM input
+     LEFT JOIN LATERAL (
+       SELECT revision.canonical_bytes
+       FROM external_skill_identities identity
+       JOIN external_skill_revisions revision
+         ON revision.skill_identity_id=identity.id
+       WHERE identity.source_id=$1
+         AND identity.normalized_skill_root=input.normalized_skill_root
+         AND revision.content_identity_sha256=input.content_identity_sha256
+     ) stored ON true`,
+    [
+      sourceId,
+      revisions.map(({ provenance }) => skillRoot(provenance.skillPath)),
+      revisions.map(({ contentIdentitySha256 }) => contentIdentitySha256),
+      revisions.map(({ canonicalBytes }) =>
+        Buffer.byteLength(canonicalBytes, "utf8"),
+      ),
+    ],
+  );
+  const canonicalByteTotal = Number(total.rows[0]?.canonical_byte_total);
+  if (!Number.isSafeInteger(canonicalByteTotal)) {
+    throw new Error("INVALID_REVISION_BATCH");
+  }
+  return canonicalByteTotal;
+}
+
 export class PostgresExternalCatalogStore implements ExternalCatalogStore {
   readonly #sources: PostgresGitHubSourceStore;
 
@@ -374,6 +415,27 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
     const validationInputSha256 =
       input.validationInputSha256 ??
       snapshotValidationInputSha256(input, candidates, true);
+    const proposedCanonicalByteTotal = input.revisions.reduce(
+      (total, revision) =>
+        total + Buffer.byteLength(revision.canonicalBytes, "utf8"),
+      0,
+    );
+    const legacyPayloadByteTotal = input.revisions.reduce(
+      (total, revision) =>
+        total +
+        Buffer.byteLength(revision.instructions, "utf8") +
+        revision.resources.reduce(
+          (resourceTotal, resource) => resourceTotal + resource.byteLength,
+          0,
+        ),
+      0,
+    );
+    if (
+      !Number.isSafeInteger(proposedCanonicalByteTotal) ||
+      !Number.isSafeInteger(legacyPayloadByteTotal)
+    ) {
+      throw new Error("INVALID_REVISION_BATCH");
+    }
     return requestTransaction(this.pool, context, async (client) => {
       if (input.lease !== undefined) await assertLeaseHeld(client, input.lease);
       const advisoryHead = await client.query<{ last_event_sha256: string }>(
@@ -532,6 +594,12 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
         throw new Error("PUBLICATION_CONFLICT");
       }
 
+      const canonicalByteTotal = await authoritativeCanonicalByteTotal(
+        client,
+        input.sourceId,
+        input.revisions,
+      );
+
       const snapshotId = randomUUID();
       await client.query(
         `
@@ -564,17 +632,7 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
             (count, revision) => count + revision.dependencies.length,
             0,
           ),
-          input.revisions.reduce(
-            (count, revision) =>
-              count +
-              Buffer.byteLength(revision.instructions, "utf8") +
-              revision.resources.reduce(
-                (resourceCount, resource) =>
-                  resourceCount + resource.byteLength,
-                0,
-              ),
-            0,
-          ),
+          canonicalByteTotal,
           validationInputSha256,
           null,
           input.observedRepository?.repositoryId ??
@@ -584,6 +642,13 @@ export class PostgresExternalCatalogStore implements ExternalCatalogStore {
           input.observedRepository?.repository ??
             input.revisions[0]?.provenance.repository,
         ],
+      );
+      await client.query(
+        `INSERT INTO external_snapshot_byte_total_reconciliations (
+           snapshot_id,prior_decoded_bytes,legacy_payload_decoded_bytes,
+           reconciled_decoded_bytes,prior_representation
+         ) VALUES ($1,$2,$3,$2,'canonical')`,
+        [snapshotId, canonicalByteTotal, legacyPayloadByteTotal],
       );
 
       const traces: ImportTraceResult[] = [];

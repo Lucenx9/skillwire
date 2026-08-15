@@ -60,7 +60,7 @@ export const RELEASE_PAYLOAD_FILES: Readonly<Record<string, string>> = {
     "claude-plugin",
   ...catalogFixtureFiles(),
   ...Object.fromEntries(
-    Array.from({ length: 10 }, (_value, index) => {
+    Array.from({ length: 11 }, (_value, index) => {
       const version = String(index + 1).padStart(3, "0");
       return [`migrations/${version}_fixture.sql`, `migration-${version}`];
     }),
@@ -155,8 +155,8 @@ export function releaseManifestFixture(
     compatibility: {
       node: "24.18.0",
       postgresql: "17.10",
-      schemaMinimum: 10,
-      schemaMaximum: 10,
+      schemaMinimum: 9,
+      schemaMaximum: 11,
     },
     feature003Integrity: {
       path: "distribution/codex-marketplace/release-integrity.json",

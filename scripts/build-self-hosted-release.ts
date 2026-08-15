@@ -276,8 +276,8 @@ export async function buildSelfHostedRelease(
     compatibility: {
       node: "24.18.0",
       postgresql: "17.10",
-      schemaMinimum: 10,
-      schemaMaximum: 10,
+      schemaMinimum: 9,
+      schemaMaximum: 11,
     },
     feature003Integrity: {
       path: feature003Integrity.path,

@@ -54,6 +54,7 @@ describe("versioned PostgreSQL migrations", () => {
       "008",
       "009",
       "010",
+      "011",
     ]);
   });
 
@@ -97,7 +98,7 @@ describe("versioned PostgreSQL migrations", () => {
     );
   });
 
-  it("times out behind a forgotten writer and recovers from the untouched pre-010 state", async () => {
+  it("times out behind a forgotten writer and recovers through the latest migration", async () => {
     const legacy = await createTestDatabase();
     const target = await copyMigrations(/^00[1-9]_.*\.sql$/);
     const blocker = await legacy.pool.connect();
@@ -141,7 +142,7 @@ describe("versioned PostgreSQL migrations", () => {
             "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
           )
         ).rows,
-      ).toEqual([{ version: "010" }]);
+      ).toEqual([{ version: "011" }]);
     } finally {
       await blocker.query("ROLLBACK").catch(() => undefined);
       blocker.release();

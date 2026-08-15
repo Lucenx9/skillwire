@@ -40,7 +40,7 @@ function localDockerContext(
   };
 }
 
-const completeValidation = (latestMigration = "010") => ({
+const completeValidation = (latestMigration = "011") => ({
   latestMigration,
   migrationInventoryValid: true,
   constraintsValid: true,
@@ -501,7 +501,7 @@ describe("restore-validated PostgreSQL backup", () => {
           environment: dockerEnvironment,
           stdin: [
             "CREATE TABLE schema_migrations (version text PRIMARY KEY);",
-            "INSERT INTO schema_migrations(version) VALUES ('010');",
+            "INSERT INTO schema_migrations(version) VALUES ('011');",
             "CREATE TABLE accounts (id uuid PRIMARY KEY);",
             "CREATE TABLE external_skill_revisions (id uuid PRIMARY KEY);",
             "CREATE TABLE external_advisory_chain_head (singleton boolean PRIMARY KEY);",
@@ -543,7 +543,7 @@ describe("restore-validated PostgreSQL backup", () => {
               ...completeValidation(migration ?? ""),
               constraintsValid: accounts === "true",
               catalogValid: catalog === "true" && advisory === "true",
-              ready: migration === "010",
+              ready: migration === "011",
             };
           },
         });
@@ -554,7 +554,7 @@ describe("restore-validated PostgreSQL backup", () => {
         expect(backup.archiveSha256).toMatch(/^[0-9a-f]{64}$/);
         expect(backup).toMatchObject({
           validation: {
-            latestMigration: "010",
+            latestMigration: "011",
             migrationInventoryValid: true,
             constraintsValid: true,
             catalogValid: true,

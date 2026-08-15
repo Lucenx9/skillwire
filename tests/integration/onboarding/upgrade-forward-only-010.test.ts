@@ -10,6 +10,53 @@ import {
 import type { UpgradeRecoveryError } from "../../../src/onboarding/application/upgrade.js";
 
 describe("forward-only migration 010 upgrade", () => {
+  it("treats migration 011 reconciliation as a forward-only boundary", async () => {
+    const target = {
+      releaseId: "11-amd64",
+      releaseSequence: 11,
+      trustPolicySequence: 4,
+      schemaMinimum: 9,
+      schemaMaximum: 11,
+      latestMigration: 11,
+      manifestSha256: "1".repeat(64),
+      imageDigest: `sha256:${"2".repeat(64)}`,
+    };
+    const preview = previewUpgrade({
+      installationId: randomUUID(),
+      currentReleaseSequence: 10,
+      currentTrustPolicySequence: 4,
+      liveSchema: 10,
+      target,
+    });
+    const drainWriters = vi.fn(async () => undefined);
+    const migrate = vi.fn(async () => undefined);
+
+    await expect(
+      runUpgrade({
+        preview,
+        confirmation: preview.previewHash,
+        signal: new AbortController().signal,
+        verifyTarget: async () => target,
+        createBackup: async () => ({
+          backupId: randomUUID(),
+          validated: true,
+        }),
+        drainWriters,
+        installApplication: async () => undefined,
+        migrate,
+        verifyLiveSchema: async () => 11,
+        preActivationReadiness: async () => undefined,
+        verifyClients: async () => undefined,
+        activateApplication: async () => undefined,
+        commitSelection: async () => undefined,
+        rollbackApplication: async () => undefined,
+        stopWriters: async () => undefined,
+      }),
+    ).resolves.toMatchObject({ releaseId: target.releaseId });
+    expect(drainWriters).toHaveBeenCalledTimes(1);
+    expect(migrate).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the public writer stopped through preactivation and client gates", async () => {
     const target = {
       releaseId: "10-amd64",

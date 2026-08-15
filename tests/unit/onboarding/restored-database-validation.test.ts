@@ -51,6 +51,7 @@ function trigger(
   functionName: string,
   events: RestoredDatabaseEvidence["triggers"][number]["events"],
   timing: RestoredDatabaseEvidence["triggers"][number]["timing"] = "BEFORE",
+  level: RestoredDatabaseEvidence["triggers"][number]["level"] = "ROW",
 ): RestoredDatabaseEvidence["triggers"][number] {
   const functionBodySha256 = {
     reject_external_history_mutation:
@@ -67,6 +68,8 @@ function trigger(
       "e26c0466292fb76c9f4cce6af78ea7f617617d7a5f117fd20e15f3bfbbfdde8c",
     validate_external_revision_classification_transition:
       "01461630956a69c1ead4bfd7bf1df621e217a352052123fcfe79e401dea840b8",
+    validate_external_snapshot_byte_total_projection:
+      "6c866c631670b92a1ea5082ad0440ce207c0a53274073871acdcf45de5d18877",
   }[functionName];
   if (functionBodySha256 === undefined)
     throw new Error("Test trigger function is not release-bound");
@@ -80,7 +83,13 @@ function trigger(
     functionDefinition: `CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS 'fixture'`,
     functionBodySha256,
     timing,
-    level: "ROW",
+    level,
+    deferrable:
+      triggerName === "external_snapshot_finalization_required" ||
+      triggerName === "external_snapshot_byte_total_projection_valid",
+    initiallyDeferred:
+      triggerName === "external_snapshot_finalization_required" ||
+      triggerName === "external_snapshot_byte_total_projection_valid",
     events,
     enabled: "origin",
     definition: `CREATE TRIGGER ${triggerName} ${timing} ${events.join(" OR ")} ON ${tableName} FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
@@ -191,6 +200,27 @@ const REQUIRED_TRIGGERS: RestoredDatabaseEvidence["triggers"] = [
     "reject_external_history_mutation",
     ["DELETE", "UPDATE"],
   ),
+  trigger(
+    "external_snapshot_byte_total_projection_valid",
+    "external_source_snapshots",
+    "validate_external_snapshot_byte_total_projection",
+    ["INSERT", "UPDATE"],
+    "AFTER",
+  ),
+  trigger(
+    "external_snapshot_byte_total_reconciliations_immutable",
+    "external_snapshot_byte_total_reconciliations",
+    "reject_external_history_mutation",
+    ["DELETE", "UPDATE"],
+  ),
+  trigger(
+    "external_snapshot_byte_total_reconciliations_truncate_rejected",
+    "external_snapshot_byte_total_reconciliations",
+    "reject_external_history_mutation",
+    ["TRUNCATE"],
+    "BEFORE",
+    "STATEMENT",
+  ),
 ];
 
 function evidence(options: {
@@ -225,6 +255,12 @@ function evidence(options: {
       dependencyCount: 1,
       contentObjectCount: 5,
       identitySha256: "c".repeat(64),
+      legacySnapshotByteTotals: 0,
+      invalidSnapshotByteTotals: 0,
+      invalidSnapshotByteOverflows: 0,
+      invalidSnapshotObjectGraph: 0,
+      invalidRevisionHashes: 0,
+      invalidSnapshotReconciliations: 0,
       invalidSnapshotCounts: 0,
       invalidPublishedPointers: 0,
       invalidContentLengths: 0,
@@ -246,6 +282,50 @@ function evidence(options: {
 }
 
 describe("production restored-database validation", () => {
+  it("accepts only the exact legacy byte-total representation before migration 011", () => {
+    const accountId = randomUUID();
+    const checksums = Array.from({ length: 10 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0"),
+    );
+    const legacy = evidence({
+      accountId,
+      checksums,
+      triggers: REQUIRED_TRIGGERS.slice(0, -3),
+    });
+    legacy.catalog.legacySnapshotByteTotals = 1;
+
+    expect(
+      assessRestoredDatabaseEvidence(legacy, {
+        expectedMigrations: legacy.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(legacy),
+      }),
+    ).toMatchObject({
+      latestMigration: "010",
+      catalogValid: true,
+    });
+
+    const arbitraryMismatch: RestoredDatabaseEvidence = {
+      ...legacy,
+      catalog: {
+        ...legacy.catalog,
+        legacySnapshotByteTotals: 0,
+        invalidSnapshotByteTotals: 1,
+      },
+    };
+    expect(() =>
+      assessRestoredDatabaseEvidence(arbitraryMismatch, {
+        expectedMigrations: arbitraryMismatch.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(legacy),
+      }),
+    ).toThrow(/restore validation/i);
+  });
+
   it("requires the complete immutable migration inventory and checksums", async () => {
     const fixture = await createOnboardingEnvironment();
     try {
@@ -360,6 +440,27 @@ describe("production restored-database validation", () => {
       }),
     ],
     [
+      "snapshot byte overflow",
+      (value: RestoredDatabaseEvidence) => ({
+        ...value,
+        catalog: { ...value.catalog, invalidSnapshotByteOverflows: 1 },
+      }),
+    ],
+    [
+      "duplicate snapshot accounting",
+      (value: RestoredDatabaseEvidence) => ({
+        ...value,
+        catalog: { ...value.catalog, invalidSnapshotObjectGraph: 1 },
+      }),
+    ],
+    [
+      "canonical revision hash",
+      (value: RestoredDatabaseEvidence) => ({
+        ...value,
+        catalog: { ...value.catalog, invalidRevisionHashes: 1 },
+      }),
+    ],
+    [
       "advisory integrity",
       (value: RestoredDatabaseEvidence) => ({
         ...value,
@@ -436,7 +537,7 @@ describe("production restored-database validation", () => {
     const valid = evidence({
       accountId,
       checksums,
-      triggers: REQUIRED_TRIGGERS,
+      triggers: REQUIRED_TRIGGERS.slice(0, -3),
     });
 
     expect(
@@ -454,6 +555,64 @@ describe("production restored-database validation", () => {
     });
   });
 
+  it("requires the append-only byte-total reconciliation ledger after migration 011", () => {
+    const accountId = randomUUID();
+    const checksums = Array.from({ length: 11 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0"),
+    );
+    const valid = evidence({
+      accountId,
+      checksums,
+      triggers: REQUIRED_TRIGGERS,
+    });
+
+    expect(
+      assessRestoredDatabaseEvidence(valid, {
+        expectedMigrations: valid.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(valid),
+      }),
+    ).toMatchObject({ latestMigration: "011", catalogValid: true });
+
+    const missingLedgerTrigger: RestoredDatabaseEvidence = {
+      ...valid,
+      triggers: valid.triggers.filter(
+        ({ triggerName }) =>
+          triggerName !==
+          "external_snapshot_byte_total_reconciliations_truncate_rejected",
+      ),
+    };
+    expect(() =>
+      assessRestoredDatabaseEvidence(missingLedgerTrigger, {
+        expectedMigrations: missingLedgerTrigger.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(missingLedgerTrigger),
+      }),
+    ).toThrow(/restore validation/i);
+
+    const nonDeferredProjection: RestoredDatabaseEvidence = {
+      ...valid,
+      triggers: valid.triggers.map((entry) =>
+        entry.triggerName === "external_snapshot_byte_total_projection_valid"
+          ? { ...entry, deferrable: false, initiallyDeferred: false }
+          : entry,
+      ),
+    };
+    expect(() =>
+      assessRestoredDatabaseEvidence(nonDeferredProjection, {
+        expectedMigrations: nonDeferredProjection.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(nonDeferredProjection),
+      }),
+    ).toThrow(/restore validation/i);
+  });
+
   it("rejects the superseded classification-trigger function body after migration 010", () => {
     const accountId = randomUUID();
     const checksums = Array.from({ length: 10 }, (_, index) =>
@@ -462,7 +621,7 @@ describe("production restored-database validation", () => {
     const valid = evidence({
       accountId,
       checksums,
-      triggers: REQUIRED_TRIGGERS,
+      triggers: REQUIRED_TRIGGERS.slice(0, -3),
     });
     const superseded: RestoredDatabaseEvidence = {
       ...valid,
@@ -555,7 +714,7 @@ describe("production restored-database validation", () => {
     const valid = evidence({
       accountId,
       checksums,
-      triggers: REQUIRED_TRIGGERS,
+      triggers: REQUIRED_TRIGGERS.slice(0, -3),
     });
     const corrupted = corrupt(valid);
 
@@ -578,7 +737,7 @@ describe("production restored-database validation", () => {
     const valid = evidence({
       accountId,
       checksums,
-      triggers: REQUIRED_TRIGGERS,
+      triggers: REQUIRED_TRIGGERS.slice(0, -3),
     });
     const drifted: RestoredDatabaseEvidence = {
       ...valid,
@@ -704,6 +863,8 @@ describe("production restored-database validation", () => {
     expect(query).toContain("pg_get_functiondef");
     expect(query).toContain("functionBodySha256");
     expect(query).toContain("tgenabled");
+    expect(query).toContain("tgdeferrable");
+    expect(query).toContain("tginitdeferred");
     expect(query).toContain("proname");
     expect(query).not.toMatch(/AS\s+(?:invariants|catalog|advisory)_valid/i);
   });

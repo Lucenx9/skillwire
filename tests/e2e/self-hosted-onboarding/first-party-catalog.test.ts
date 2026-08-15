@@ -56,7 +56,7 @@ async function catalogRelease(root: string): Promise<{
     sha256: "0".repeat(64),
     mode: "0644" as const,
   };
-  const migrations = Array.from({ length: 10 }, (_value, index) => ({
+  const migrations = Array.from({ length: 11 }, (_value, index) => ({
     path: `migrations/${String(index + 1).padStart(3, "0")}_fixture.sql`,
     size: 1,
     sha256: String(index).padStart(64, "0"),

@@ -66,9 +66,9 @@ describe("reproducible self-hosted release", () => {
       "distribution/self-hosted/compose.yaml",
     );
     expect(manifest.components.migrations).toMatchObject({
-      count: 10,
-      latest: "010",
-      forwardOnly: ["010"],
+      count: 11,
+      latest: "011",
+      forwardOnly: ["010", "011"],
     });
     expect(manifest.components.catalog.firstPartyRevisionCount).toBe(10);
     expect(manifest.components.catalog.advisorySha256).toMatch(
