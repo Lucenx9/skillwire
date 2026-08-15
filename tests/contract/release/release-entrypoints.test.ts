@@ -97,7 +97,13 @@ describe("public self-hosted release entrypoints", () => {
         expect(
           execFileSync(
             "/usr/bin/git",
-            ["ls-files", "--error-unmatch", implementation],
+            [
+              "-c",
+              `safe.directory=${process.cwd()}`,
+              "ls-files",
+              "--error-unmatch",
+              implementation,
+            ],
             {
               encoding: "utf8",
             },
