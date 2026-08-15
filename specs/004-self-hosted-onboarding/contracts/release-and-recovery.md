@@ -17,7 +17,7 @@ Bootstrap runs `cosign verify-blob` with outbound network blocked, the local tru
 
 ## Signing and trust-policy contract
 
-`.github/workflows/self-hosted-release.yml` is the only release signer. The protected-tag workflow checks out the exact `v<release-id>` commit, builds and completes all acceptance gates before signing, grants only `contents: read` and `id-token: write`, and invokes:
+`.github/workflows/self-hosted-release.yml` is the only release signer. The protected-tag workflow accepts only `self-hosted-v<package.version>`, requires an annotated tag object, recursively peels it to the exact workflow SHA, proves the target is reachable from protected `main`, and checks manifest version/source identity before signing. It uses only command-scoped `safe.directory`, builds and completes all acceptance gates before signing, and grants only `contents: read` and `id-token: write`.
 
 ```text
 cosign sign-blob --yes \
@@ -30,7 +30,7 @@ cosign sign-blob --yes \
 
 Cosign is pinned to 3.1.3. The bundle media type is exactly `application/vnd.dev.sigstore.bundle.v0.3+json` and contains the message signature, Fulcio certificate, signed transparency/timestamp evidence, and inclusion proof needed for offline verification. Publication fails when signing or required transparency material is absent.
 
-The exact issuer is `https://token.actions.githubusercontent.com`. For release `<release>`, the exact certificate identity is `https://github.com/Lucenx9/skillwire/.github/workflows/self-hosted-release.yml@refs/tags/v<release>`. Verification additionally pins repository `Lucenx9/skillwire`, workflow ref, tag ref, and exact workflow commit-SHA claims.
+The exact issuer is `https://token.actions.githubusercontent.com`. For release `<release>`, the exact certificate identity is `https://github.com/Lucenx9/skillwire/.github/workflows/self-hosted-release.yml@refs/tags/self-hosted-v<release>`. Verification additionally pins repository `Lucenx9/skillwire`, workflow ref, tag ref, and exact workflow commit-SHA claims.
 
 With outbound network denied, installer/bootstrap verification invokes the policy-pinned Cosign binary directly with no shell and this exact interface:
 
@@ -40,10 +40,10 @@ cosign verify-blob \
   --bundle skillwire-<release>-linux-<arch>.release.sigstore.json \
   --trusted-root <policy-pinned-local-trusted-root.json> \
   --certificate-identity \
-    https://github.com/Lucenx9/skillwire/.github/workflows/self-hosted-release.yml@refs/tags/v<release> \
+    https://github.com/Lucenx9/skillwire/.github/workflows/self-hosted-release.yml@refs/tags/self-hosted-v<release> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-github-workflow-repository Lucenx9/skillwire \
-  --certificate-github-workflow-ref refs/tags/v<release> \
+  --certificate-github-workflow-ref refs/tags/self-hosted-v<release> \
   --certificate-github-workflow-sha <exact-40-hex-tag-commit> \
   skillwire-<release>-linux-<arch>.release.json
 ```
@@ -51,6 +51,8 @@ cosign verify-blob \
 The verifier does not pass `--insecure-ignore-sct`, `--insecure-ignore-tlog`, a regular-expression identity/issuer, or a network-derived root. Before spawning, it validates every argument as bounded policy data and the manifest/bundle/root as exact contained regular files. It separately parses the returned Bundle v0.3 and policy evidence so process exit alone cannot bypass media-type, deny-set, sequence, claim, transparency, or digest checks.
 
 `skillwire.trust-policy/v1` is RFC 8785 canonical JSON and contains a monotonic policy sequence, validity window, exact accepted signer claims, TrustedRoot media type/path/SHA-256, allowed Cosign version/platform/SHA-256 entries, minimum release sequence, deny set, and signer-rotation evidence. The first policy is pinned in source and the bootstrap README. Installation state records the highest accepted policy and release sequences; lower sequences, changed hashes, unknown policies, invalid/legacy bundles, denied material, wrong claims, missing overlap proof, or invalid transparency/timestamp evidence fail before extraction or mutation.
+
+For the pinned Cosign 3.1.3 path, the TrustedRoot media type is exactly `application/vnd.dev.sigstore.trustedroot+json;version=0.1`. Cosign 3.1.3 pins `sigstore-go` 1.2.2, whose TrustedRoot loader accepts only that value. The conflicting `application/vnd.dev.sigstore.trustedroot.v0.2+json` value from the newer protobuf contract is rejected by this release rather than treated as an alias.
 
 For an update, the active installed policy first verifies the release manifest; the manifest's signed next-policy hash then authenticates that policy before it can become active. Signer rotation requires an old-policy-authorized policy update and an overlap release carrying the normal bundle plus an additional `skillwire-<release>-linux-<arch>.release.<new-signer-id>.sigstore.json`; the manifest enumerates both ordered filenames and signer identities, each Bundle v0.3 independently binds the canonical manifest digest, and the verifier hashes the bundle bytes to reject duplicate evidence before verifying each exact signer policy. Bundle digests cannot be fields of the manifest the bundles themselves sign because that would create a circular hash dependency. A later old-policy-authorized update may remove the old signer. Emergency revocation is an old-policy-authorized deny-set update. If no trusted signer survives, automatic update stops and recovery requires a separately authenticated out-of-band bootstrap. Offline verification cannot discover a later revocation, so every new install/upgrade must use the latest explicitly refreshed policy; cached evidence is scoped to its recorded policy sequence.
 
@@ -93,7 +95,7 @@ Paths are normalized UTF-8 relative paths with no empty, dot, traversal, absolut
 - exact path, byte size, and SHA-256 of Feature 003's `distribution/codex-marketplace/release-integrity.json`;
 - minimum/maximum compatible database schema and rollback rules;
 - required trust-policy schema/sequence/sibling filename/byte size/SHA-256;
-- one normal, or two signer-overlap, external Sigstore Bundle v0.3 filenames/media types/digests and the canonical manifest SHA-256.
+- one normal, or two signer-overlap, exact external Sigstore Bundle v0.3 filenames and signer IDs. Bundle bytes, media types, and digests are not manifest fields because the bundle signs the exact canonical manifest bytes; those properties are validated directly during Cosign verification.
 
 The manifest contains no registry credential, client key, GitHub token, database password, pepper, account ID, repository identity, or host path. A changed artifact requires a new manifest/release; a signature never authorizes bytes omitted from the artifact list.
 

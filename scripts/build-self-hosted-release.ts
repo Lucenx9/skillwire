@@ -315,11 +315,22 @@ async function main(): Promise<void> {
   const images = ReleaseManifestSchema.shape.images.parse(
     JSON.parse(imagesJson) as unknown,
   );
+  const packageVersion = ReleaseManifestSchema.shape.releaseVersion.parse(
+    (
+      JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
+        version?: unknown;
+      }
+    ).version,
+  );
+  const releaseVersion =
+    process.env["SKILLWIRE_RELEASE_VERSION"] ?? packageVersion;
+  if (releaseVersion !== packageVersion)
+    throw new Error("Release version does not match package.json");
   await buildSelfHostedRelease({
     payloadRoot,
     outputDirectory,
     architecture,
-    releaseVersion: process.env["SKILLWIRE_RELEASE_VERSION"] ?? "0.1.0",
+    releaseVersion,
     releaseSequence: Number(process.env["SKILLWIRE_RELEASE_SEQUENCE"] ?? "1"),
     publishedAt:
       process.env["SKILLWIRE_PUBLISHED_AT"] ?? "1970-01-01T00:00:00.000Z",

@@ -23,6 +23,15 @@ the 28-scenario gate. CI fixtures may prove deterministic logic but do not
 replace a real Docker, PostgreSQL, client-manager, D-Bus/keyring, or
 architecture boundary named by an acceptance contract.
 
+Certification requires exactly one observation for each of the 12 Cartesian
+cells. Every observation is bound to the same final
+`self-hosted-v<package.version>` annotated tag, source commit, and exact seven
+published assets: an archive, canonical manifest, and corresponding signature
+bundle for each architecture, plus the trust policy. A failed or incomplete cell
+remains failed or incomplete; it cannot be replaced, rerun as a substitute, or
+silently excluded from the matrix. No cell is claimed as passed by this
+preparation patch.
+
 ## Required deterministic gates
 
 - formatting, ESLint, strict TypeScript, build, migrations and idempotent rerun;
@@ -43,26 +52,15 @@ not turn a deterministic setup pass into an autonomous-activation claim.
 
 ## Duration and moderated usability
 
-The participant target of 15 minutes is informational and never a CI timeout or
-pass threshold. A duration record contains only environment ID, start/end
-monotonic duration, result category, source commit and manifest hash. A
-moderated result uses this redacted format:
-
-```json
-{
-  "schemaVersion": "skillwire.moderated-usability/v1",
-  "participantId": "opaque-session-id",
-  "matrixCell": "ubuntu-24.04-amd64-rootless",
-  "sourceCommit": "40-lowercase-hex",
-  "manifestSha256": "64-lowercase-hex",
-  "completed": true,
-  "elapsedMilliseconds": 0,
-  "assistanceCategories": [],
-  "failureCode": null,
-  "credentialOrContentCaptured": false,
-  "cleanupVerified": true
-}
-```
+The 15-minute target is not a deterministic CI wall-clock timeout, but it is a
+normative moderated-release threshold. Follow
+`docs/self-hosted-moderated-usability.md` with exactly ten independent,
+first-attempt participants and validate the privacy-safe cohort against
+`distribution/self-hosted/moderated-usability.schema.json` plus the semantic
+validator. SC-001 requires 10/10 participants to complete within 900,000
+milliseconds. SC-014 requires at least 9/10 completed journeys without a
+moderator intervention. Timeout, abandonment, unrecovered error, replacement,
+rerun, or post-assignment exclusion never improves the denominator.
 
 No participant run is recorded for the current uncommitted candidate. Release
 readiness therefore remains blocked until immutable commit-bound artifacts and

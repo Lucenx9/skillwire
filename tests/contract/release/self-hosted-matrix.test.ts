@@ -59,6 +59,13 @@ describe("Feature 004 certified release matrix", () => {
     ) as {
       operatingSystems: unknown[];
       architectures: unknown[];
+      dockerModes: unknown[];
+      certification: {
+        cellCount: number;
+        observationsPerCell: string;
+        releaseIdentity: string;
+        failedOrIncomplete: string;
+      };
       docker: { minimum: string; tested: string };
       compose: { minimum: string; tested: string };
       node: string;
@@ -73,6 +80,13 @@ describe("Feature 004 certified release matrix", () => {
         { id: "debian", version: "13" },
       ],
       architectures: ["amd64", "arm64"],
+      dockerModes: ["rootful", "rootless"],
+      certification: {
+        cellCount: 12,
+        observationsPerCell: "exactly-one",
+        releaseIdentity: "same-final-tag-and-seven-assets",
+        failedOrIncomplete: "not-certified-no-replacement-or-exclusion",
+      },
       docker: { minimum: "29.7.2", tested: "29.7.2" },
       compose: { minimum: "5.4.0", tested: "5.4.0" },
       node: "24.18.0",
@@ -154,5 +168,25 @@ describe("Feature 004 certified release matrix", () => {
     expect(uses.every((use) => /@[0-9a-f]{40}$/.test(use))).toBe(true);
     expect(workflowSource).not.toMatch(/^\s+pull_request(?:_target)?:/mu);
     expect(workflowSource).not.toContain("pull-requests: write");
+  });
+
+  it("requires one non-replaceable observation per cell against one final seven-asset release", async () => {
+    const evidenceContract = await readFile(
+      "docs/self-hosted-release-evidence.md",
+      "utf8",
+    );
+    expect(evidenceContract).toMatch(
+      /exactly one observation for each of the 12 Cartesian\s+cells/,
+    );
+    expect(evidenceContract).toMatch(
+      /same final\s+`self-hosted-v<package\.version>` annotated tag/,
+    );
+    expect(evidenceContract).toMatch(/exact seven\s+published assets/);
+    expect(evidenceContract).toContain(
+      "cannot be replaced, rerun as a substitute",
+    );
+    expect(evidenceContract).toMatch(
+      /No cell is claimed as passed by this\s+preparation patch/,
+    );
   });
 });

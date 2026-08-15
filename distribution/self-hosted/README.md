@@ -20,7 +20,10 @@ Do not use `latest`, `curl | sh`, an unverified package manager, or a Cosign
 binary shipped only inside the candidate archive. Obtain the current Sigstore
 production `trusted_root.json` through its signed TUF repository and verify its
 SHA-256 against the trust policy. The first source-pinned root in this release
-is `distribution/self-hosted/trusted-root.v1.json`.
+is `distribution/self-hosted/trusted-root.v1.json`. Its media type must be
+exactly `application/vnd.dev.sigstore.trustedroot+json;version=0.1`, the only
+value accepted by the Cosign 3.1.3 / sigstore-go 1.2.2 loader. Do not substitute
+the unsupported `application/vnd.dev.sigstore.trustedroot.v0.2+json` value.
 
 ## 2. Verify the signed external manifest offline
 
@@ -42,6 +45,11 @@ overlap quorum of two, a second sibling bundle named
 manifest names both signer IDs and both exact bundle paths; an extra bundle is
 never accepted by convention alone.
 
+The manifest names bundle files and signer IDs but never contains bundle bytes,
+media types, or digests. Each bundle signs the exact canonical manifest bytes;
+including its own digest in that manifest would be circular. Cosign, the exact
+certificate claims, and the manifest message digest bind the external bundle.
+
 Disconnect outbound networking (or run inside an already network-isolated
 namespace) and invoke the independently verified Cosign directly:
 
@@ -61,8 +69,10 @@ cosign verify-blob \
   skillwire-VERSION-linux-ARCH.release.json
 ```
 
-The version and source commit are fields of the canonical manifest; compare them
-to the protected tag independently before using them in the command. Never add
+The version and source commit are fields of the canonical manifest. The only
+accepted tag is the annotated `self-hosted-vVERSION` tag; recursively peel it,
+require the result to equal the manifest source commit, and require that commit
+to be reachable from protected `main` before using it in the command. Never add
 an insecure SCT/transparency bypass or a regular-expression identity.
 Verification must finish without a network lookup.
 
