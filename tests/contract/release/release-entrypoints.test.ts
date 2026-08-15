@@ -157,6 +157,36 @@ describe("public self-hosted release entrypoints", () => {
     },
   );
 
+  it("keeps unsigned reproducibility separate from signed-asset verification", () => {
+    const quickstart = readFileSync(
+      resolve("specs/004-self-hosted-onboarding/quickstart.md"),
+      "utf8",
+    );
+    const buildIndex = quickstart.indexOf("pnpm build:self-hosted \\");
+    const verifyIndex = quickstart.indexOf("pnpm verify:self-hosted \\");
+    expect(buildIndex).toBeGreaterThan(0);
+    expect(verifyIndex).toBeGreaterThan(buildIndex);
+    const buildPrelude = quickstart.slice(0, buildIndex);
+    for (const input of [
+      "SW004_PAYLOAD_ROOT",
+      "SW004_RELEASE_IMAGES_JSON",
+      "SW004_RELEASE_SEQUENCE",
+      "SW004_PUBLISHED_AT",
+      "SW004_SOURCE_COMMIT",
+    ]) {
+      expect(buildPrelude).toContain(`\${${input}:?`);
+    }
+    const verification = quickstart.slice(
+      verifyIndex,
+      quickstart.indexOf("```", verifyIndex),
+    );
+    expect(verification).toContain("$SW004_SIGNED_ASSET_ROOT/");
+    expect(verification).not.toContain("$SW004_RELEASE_OUTPUT/");
+    expect(quickstart).toContain(
+      "The unsigned output is never an input to production verification",
+    );
+  });
+
   it("builds the same unsigned canonical outputs without signing or publishing", async () => {
     fixture = await createOnboardingEnvironment();
     const payload = resolve(fixture.root, "payload");
