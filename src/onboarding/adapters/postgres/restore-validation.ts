@@ -186,6 +186,15 @@ const FUNCTION_BODY_SHA256 = {
 const REQUIRED_TRIGGERS = [
   {
     minimumMigration: 5,
+    maximumMigration: 7,
+    triggerName: "external_snapshots_immutable",
+    tableName: "external_source_snapshots",
+    functionName: "reject_external_history_mutation",
+    functionBodySha256: FUNCTION_BODY_SHA256.reject_external_history_mutation,
+    events: ["DELETE", "UPDATE"],
+  },
+  {
+    minimumMigration: 5,
     triggerName: "external_content_immutable",
     tableName: "external_content_objects",
     functionName: "reject_external_history_mutation",
@@ -444,7 +453,10 @@ export function assessRestoredDatabaseEvidence(
     uniqueTriggers.size === evidence.triggers.length &&
     evidence.triggers.every(({ enabled }) => enabled === "origin") &&
     REQUIRED_TRIGGERS.filter(
-      ({ minimumMigration }) => minimumMigration <= latestMigration,
+      (required) =>
+        required.minimumMigration <= latestMigration &&
+        (!("maximumMigration" in required) ||
+          latestMigration <= required.maximumMigration),
     ).every((required) =>
       evidence.triggers.some(
         (trigger) =>

@@ -454,6 +454,60 @@ describe("production restored-database validation", () => {
     });
   });
 
+  it("requires the original snapshot immutability trigger through migration 007", () => {
+    const accountId = randomUUID();
+    const checksums = Array.from({ length: 7 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0"),
+    );
+    const migration007Triggers = REQUIRED_TRIGGERS.map((entry) =>
+      entry.triggerName === "external_snapshots_immutable"
+        ? trigger(
+            "external_snapshots_immutable",
+            "external_source_snapshots",
+            "reject_external_history_mutation",
+            ["DELETE", "UPDATE"],
+          )
+        : entry.triggerName === "external_classification_transition_valid"
+          ? {
+              ...entry,
+              functionBodySha256:
+                "7e29bd82153cfd0976b925d2dd6a18879f3c9e16a4c79faf1586fdddb9aad718",
+            }
+          : entry,
+    );
+    const valid = evidence({
+      accountId,
+      checksums,
+      triggers: migration007Triggers,
+    });
+
+    expect(
+      assessRestoredDatabaseEvidence(valid, {
+        expectedMigrations: valid.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(valid),
+      }),
+    ).toMatchObject({ latestMigration: "007", ready: true });
+
+    const missing = {
+      ...valid,
+      triggers: valid.triggers.filter(
+        ({ triggerName }) => triggerName !== "external_snapshots_immutable",
+      ),
+    };
+    expect(() =>
+      assessRestoredDatabaseEvidence(missing, {
+        expectedMigrations: missing.migrations,
+        installationAccountId: accountId,
+        expectedActiveApiKeys: 2,
+        expectedDatabase: "postgres",
+        expectedState: databaseStateExpectation(missing),
+      }),
+    ).toThrow(/restore validation/i);
+  });
+
   it("rejects the superseded classification-trigger function body after migration 010", () => {
     const accountId = randomUUID();
     const checksums = Array.from({ length: 10 }, (_, index) =>
